@@ -199,6 +199,7 @@ function quickPick({ placeholder, source, value = "" }) {
   openModal(h("div", { class: "modal qp" }, input, list));
   render();
   input.focus();
+  input.setSelectionRange(value.length, value.length);
 }
 
 /* =====================================================================
