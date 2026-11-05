@@ -1,10 +1,14 @@
 <p align="center"><img src="assets/logo.svg" width="88" alt="Dexna logo"></p>
 
 <h1 align="center">Dexna</h1>
-<p align="center"><b>An advanced Python IDE that runs entirely in your browser.</b><br>
-No install, no server, no account, Python executes locally via WebAssembly.</p>
+<p align="center"><b>A code editor and runner that lives entirely in your browser.</b><br>
+Write and run Python, JavaScript, TypeScript, Lua and SQL. No install, no server, no account.</p>
 
 ---
+
+## Getting started
+
+Open the site and pick a language on the Home page. Dexna creates an empty project with one empty file (`main.py`, `main.js`, `main.ts`, `main.lua` or `main.sql`) and you start typing. The example projects are on the Home page too, and Home is always available from the logo or **Help > Home**.
 
 ## Features
 

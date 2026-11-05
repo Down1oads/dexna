@@ -33,6 +33,8 @@ const P = {
   circle: '<circle cx="8" cy="8" r="4.5"/>',
   dot: '<circle cx="8" cy="8" r="4" fill="currentColor" stroke="none"/>',
   arrow: '<path d="M2.5 8h9M8 4.5L11.5 8 8 11.5"/>',
+  search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>',
+  home: '<path d="M2.5 7.5L8 3l5.5 4.5V13a.5.5 0 0 1-.5.5H9.5V10h-3v3.5H3a.5.5 0 0 1-.5-.5z"/>',
   star: '<path d="M8 2l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11.4l-3.7 2.1.8-4.2L2 6.4l4.2-.5z"/>',
   image: '<rect x="2.5" y="3" width="11" height="10" rx="1.5"/><circle cx="6" cy="6.5" r="1.2"/><path d="M13.5 11L10 7.5 4 13"/>',
 };

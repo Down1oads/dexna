@@ -51,6 +51,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 
+const EMPTY_PROJECT = { name: "My project", files: {} };
 const newId = () => Math.random().toString(36).slice(2, 10);
 
 function makeProject(tpl, name) {
@@ -472,10 +473,7 @@ function createProject(tpl, name) {
   return p;
 }
 
-async function newProject() {
-  const name = await promptDialog({ title: "New project", value: "My project", okLabel: "Create" });
-  if (name) createProject(BLANK, name);
-}
+function newProject() { showHome(true); }
 
 async function renameProject() {
   const name = await promptDialog({ title: "Rename project", value: project.name, okLabel: "Rename" });
@@ -494,7 +492,7 @@ async function deleteProject() {
   LS.set("projects", projectsIndex);
   project = null;
   if (projectsIndex.length) loadProject(projectsIndex.sort((a, b) => b.updated - a.updated)[0].id);
-  else createProject(EXAMPLES[0]);
+  else createProject(EMPTY_PROJECT);
 }
 
 function renderProjectSelect() {
@@ -555,10 +553,18 @@ function selectedDir() {
   return project.files[sel] != null ? dirname(sel) : sel;
 }
 
+/** The extension a new file should get: whatever language this project mostly uses. */
+function defaultExt() {
+  const counts = {};
+  for (const f of Object.keys(project.files)) { const e = f.split(".").pop().toLowerCase(); if (RUN_LANG[e]) counts[e] = (counts[e] || 0) + 1; }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "py";
+}
+
 async function newFileDialog(dir = selectedDir()) {
   const prefix = dir ? dir + "/" : "";
-  const v = await promptDialog({ title: "New file", message: "Use slashes to create folders, e.g. utils/helpers.py", value: prefix + "untitled.py", select: [prefix.length, prefix.length + 8], okLabel: "Create" });
-  if (v) createFile(v.includes(".") || v.endsWith("/") ? v : v + ".py", v.endsWith(".py") || !v.includes(".") ? "" : "");
+  const ext = defaultExt();
+  const v = await promptDialog({ title: "New file", message: `Use slashes to create folders, e.g. utils/helpers.${ext}`, value: `${prefix}untitled.${ext}`, select: [prefix.length, prefix.length + 8], okLabel: "Create" });
+  if (v) createFile(v.includes(".") || v.endsWith("/") ? v : `${v}.${ext}`, "");
 }
 
 async function newFolderDialog(dir = selectedDir()) {
@@ -872,7 +878,105 @@ function saveViewState() {
   if (m) viewStates.set(keyForUri(m.uri), editor.saveViewState());
 }
 
-function showWelcome(on) { $("#welcome").classList.toggle("hidden", !on); }
+const LANG_STARTS = [
+  { id: "python", name: "Python", ext: "py", desc: "Scripts, data work and plots. Includes a debugger, console and packages." },
+  { id: "javascript", name: "JavaScript", ext: "js", desc: "Modules, async/await and a Node-style console." },
+  { id: "typescript", name: "TypeScript", ext: "ts", desc: "Static types and generics, checked as you type." },
+  { id: "lua", name: "Lua", ext: "lua", desc: "A small, fast scripting language (Lua 5.4)." },
+  { id: "sql", name: "SQL", ext: "sql", desc: "Query an in-memory SQLite database." },
+];
+let homeOpen = false;
+const showWelcome = (on) => showHome(on);
+
+function showHome(on = true) {
+  homeOpen = on;
+  $("#home").classList.toggle("hidden", !on);
+  $("#editor-area").classList.toggle("home-open", on);
+  if (on) { renderHome(); document.activeElement?.blur?.(); }
+  renderTabs();
+  updateRuntimeBadge();
+  if (on) $("#sb-lang").textContent = "";
+}
+const closeHome = () => { if (project.active) showHome(false); };
+
+function updateRuntimeBadge() {
+  const py = !homeOpen && editor?.getModel()?.getLanguageId() === "python" && kernelInfo;
+  $("#sb-python").classList.toggle("hidden", !py);
+}
+
+function ago(t) {
+  if (!t) return "";
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const hr = Math.round(m / 60);
+  if (hr < 24) return `${hr} hour${hr > 1 ? "s" : ""} ago`;
+  const d = Math.round(hr / 24);
+  return d < 30 ? `${d} day${d > 1 ? "s" : ""} ago` : new Date(t).toLocaleDateString();
+}
+
+function uniqueProjectName(base) {
+  const names = new Set(projectsIndex.map((p) => p.name));
+  if (!names.has(base)) return base;
+  let n = 2;
+  while (names.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
+
+/** Start coding in a language: an empty project with a single empty main file. */
+function startLanguage(l) {
+  if (project && !Object.keys(project.files).length) {
+    if (project.name === EMPTY_PROJECT.name) { project.name = uniqueProjectName(`${l.name} project`); persistProject(); persistProject.flush(); renderProjectSelect(); }
+  } else createProject({ name: uniqueProjectName(`${l.name} project`), files: {} });
+  createFile(`main.${l.ext}`, "");
+}
+
+async function openRecent(id) {
+  if (id !== project.id) { persistProject.flush(); await loadProject(id); }
+  if (!project.active) { const first = project.open[0] || Object.keys(project.files).find(isRunnable) || Object.keys(project.files)[0]; if (first) return openFile(first); }
+  if (project.active) showHome(false);
+}
+
+function renderHome() {
+  const home = $("#home");
+  const action = (iconName, label, run, kb) => h("button", { class: "home-action", onclick: run }, icon(iconName), h("span", {}, label), kb ? h("kbd", {}, kbLabel(kb)) : null);
+  const recent = [...projectsIndex].sort((a, b) => (b.updated || 0) - (a.updated || 0)).slice(0, 8).map((p) => {
+    let n = 0;
+    try { n = Object.keys(JSON.parse(localStorage.getItem("dexna:project:" + p.id)).files).length; } catch (_) {}
+    return h("button", { class: "recent-item", onclick: () => openRecent(p.id), title: p.name },
+      h("span", { class: "rn" }, p.name), h("span", { class: "rm" }, `${n} file${n === 1 ? "" : "s"}${p.updated ? ", " + ago(p.updated) : ""}`));
+  });
+  const langCards = LANG_STARTS.map((l) => {
+    const badge = h("span", { class: "lc-icon", html: fileIconSvg("x." + l.ext) });
+    return h("button", { class: "lang-card", onclick: () => startLanguage(l) }, badge,
+      h("span", {}, h("b", {}, l.name), h("span", { class: "lc-desc" }, l.desc), h("span", { class: "lc-file" }, `main.${l.ext}`)));
+  });
+  const exCards = EXAMPLES.map((ex) => {
+    const names = [...new Set(Object.keys(ex.files).map((f) => RUN_LANG[f.split(".").pop().toLowerCase()]).filter(Boolean))].map((k) => RUN_LANG_NAME[k]);
+    return h("button", { class: "ex-card", onclick: () => { createProject(ex); toast(`Opened ${ex.name}. Press F5 to run.`, "ok"); } },
+      h("b", {}, ex.name), h("span", {}, ex.desc), h("div", { class: "tags" }, names.map((n) => h("span", { class: "tag" }, n))));
+  });
+  home.textContent = "";
+  home.append(h("div", { class: "home-inner" },
+    h("div", { class: "home-head" }, h("img", { src: "assets/logo.svg", alt: "" }),
+      h("div", {}, h("h1", {}, "Dexna"), h("p", { class: "home-sub" }, "Write and run code in your browser. Nothing to install."))),
+    h("div", { class: "home-cols" },
+      h("div", {},
+        h("div", { class: "home-section" }, h("h2", {}, "Start"),
+          h("div", { class: "home-actions" },
+            action("newFile", "New file...", () => newFileDialog(""), "ctrl+alt+n"),
+            action("search", "Go to file...", () => quickOpen(), "ctrl+p"),
+            action("download", "Import project from ZIP...", () => $("#zip-upload").click()),
+            action("file", "Upload files...", () => { uploadTarget = ""; $("#file-upload").click(); }),
+            action("star", "Command palette...", () => quickOpen(">"), "ctrl+shift+p"),
+            action("info", "Keyboard shortcuts", showShortcuts))),
+        h("div", { class: "home-section" }, h("h2", {}, "Recent projects"),
+          recent.length ? h("div", { class: "recent-list" }, recent) : h("div", { class: "muted small" }, "Projects you create will show up here."))),
+      h("div", {},
+        h("div", { class: "home-section" }, h("h2", {}, "Choose a language"), h("div", { class: "lang-grid" }, langCards)),
+        h("div", { class: "home-section" }, h("h2", {}, "Or open an example"), h("div", { class: "examples-grid" }, exCards)))),
+    h("p", { class: "home-note" }, "Everything runs on your device. Your code is never uploaded, and projects are saved in this browser.")));
+}
 
 async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}) {
   if (!key) return;
@@ -909,6 +1013,7 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
   renderTabs();
   updateBreadcrumbs();
   updateCursorStatus();
+  updateRuntimeBadge();
   $("#sb-lang").textContent = { python: "Python", plaintext: "Plain Text", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", json: "JSON", markdown: "Markdown", html: "HTML", css: "CSS", yaml: "YAML" }[model.getLanguageId()] || model.getLanguageId();
   updateRunTarget();
   scheduleOutline();
@@ -937,13 +1042,17 @@ function renderTabs() {
   tabsEl.textContent = "";
   const counts = problemCounts();
   const names = allTabs().map((k) => basename(k.replace(/^ext:/, "")));
+  if (homeOpen) {
+    tabsEl.append(h("div", { class: "tab active", title: "Home" }, fi("home"), h("span", { class: "tname" }, "Home"),
+      h("button", { class: "close", title: "Close", onclick: (e) => { e.stopPropagation(); closeHome(); } }, icon("close"))));
+  }
   for (const key of allTabs()) {
     const ext = key.startsWith("ext:");
     const p = ext ? key.slice(4) : key;
     const name = basename(p);
     const dup = names.filter((n) => n === name).length > 1;
     const c = counts[key];
-    const tab = h("div", { class: "tab" + (key === project.active ? " active" : "") + (ext ? " readonly" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
+    const tab = h("div", { class: "tab" + (key === project.active && !homeOpen ? " active" : "") + (ext ? " readonly" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
       ext ? fi("book") : fileIcon(p),
       h("span", { class: "tname" }, name),
       dup || ext ? h("span", { class: "tdir" }, ext ? "read-only" : dirname(p) || "./") : null,
@@ -1412,6 +1521,7 @@ function startKernel() {
     kernelInfo = info;
     kernelInstalled.clear();
     $("#sb-python").textContent = `Python ${info.version}`;
+    updateRuntimeBadge();
     $("#sb-python").title = `Pyodide ${info.pyodide} (WebAssembly)`;
     setKernelStatus("ready", "Ready");
     syncKernelProject();
@@ -2167,10 +2277,10 @@ const SETTINGS_SCHEMA = [
   { key: "stickyScroll", label: "Sticky scroll", desc: "Pin the enclosing class/function header while scrolling.", type: "bool" },
   { key: "bracketColors", label: "Bracket pair colours", type: "bool" },
   { key: "renderWhitespace", label: "Render whitespace", type: "select", options: [["none", "None"], ["selection", "In selection"], ["boundary", "Boundary"], ["all", "All"]] },
-  { key: "autoLint", label: "Live linting", desc: "Check code with pyflakes as you type.", type: "bool" },
-  { key: "lineLength", label: "Formatter line length", desc: "Used by black and isort.", type: "number", min: 40, max: 200 },
-  { key: "formatOnSave", label: "Format on save / run", desc: "Run black on Ctrl+S and before running.", type: "bool" },
-  { key: "autoInstall", label: "Auto-install imports", desc: "Install missing packages from PyPI when you run code.", type: "bool" },
+  { key: "autoLint", label: "Live linting (Python)", desc: "Check Python code with pyflakes as you type.", type: "bool" },
+  { key: "lineLength", label: "Python formatter line length", desc: "Used by black and isort.", type: "number", min: 40, max: 200 },
+  { key: "formatOnSave", label: "Format on save / run", desc: "Format the file on Ctrl+S and before running (Python uses black).", type: "bool" },
+  { key: "autoInstall", label: "Auto-install Python imports", desc: "Install missing packages from PyPI when you run Python code.", type: "bool" },
   { key: "clearOnRun", label: "Clear terminal on run", type: "bool" },
   { key: "inlineplots", label: "Inline plots", desc: "Also show figures inside the terminal/console.", type: "bool" },
 ];
@@ -2317,8 +2427,8 @@ function setStatusFlash(text) {
  * Commands, menus & keyboard shortcuts
  * ===================================================================== */
 const COMMANDS = [
-  { id: "run", label: "Run Python File", cat: "Run", kb: "f5", run: () => (dbg.paused ? dbgResume("continue") : runFile()) },
-  { id: "run2", label: "Run Python File", cat: "Run", kb: "ctrl+enter", hidden: true, when: (e) => !e.target.closest?.(".console-input, .term"), run: () => runFile() },
+  { id: "run", label: "Run File", cat: "Run", kb: "f5", run: () => (dbg.paused ? dbgResume("continue") : runFile()) },
+  { id: "run2", label: "Run File", cat: "Run", kb: "ctrl+enter", hidden: true, when: (e) => !e.target.closest?.(".console-input, .term"), run: () => runFile() },
   { id: "debug", label: "Start Debugging", cat: "Run", kb: "f6", run: () => runFile({ debug: true }) },
   { id: "debug-entry", label: "Debug (Stop on Entry)", cat: "Run", run: () => runFile({ debug: true, stopOnEntry: true }) },
   { id: "stop", label: "Stop", cat: "Run", kb: "shift+f5", run: stopExecution },
@@ -2331,9 +2441,10 @@ const COMMANDS = [
   { id: "clear-bps", label: "Remove All Breakpoints", cat: "Debug", run: clearBreakpoints },
   { id: "new-file", label: "New File…", cat: "File", kb: "ctrl+alt+n", run: () => newFileDialog() },
   { id: "new-folder", label: "New Folder…", cat: "File", run: () => newFolderDialog() },
-  { id: "new-project", label: "New Project…", cat: "File", run: newProject },
+  { id: "new-project", label: "New Project (choose a language)…", cat: "File", run: newProject },
   { id: "examples", label: "Open Example…", cat: "File", run: showExamples },
   { id: "quick-open", label: "Go to File…", cat: "Go", kb: "ctrl+p", run: () => quickOpen() },
+  { id: "home", label: "Show Home", cat: "View", run: () => showHome(true) },
   { id: "palette", label: "Show All Commands", cat: "View", kb: "ctrl+shift+p", run: () => quickOpen(">") },
   { id: "palette2", label: "Show All Commands", kb: "f1", hidden: true, run: () => quickOpen(">") },
   { id: "goto-symbol", label: "Go to Symbol in File…", cat: "Go", kb: "ctrl+shift+o", run: () => { editor.focus(); editor.getAction("editor.action.quickOutline")?.run(); } },
@@ -2347,8 +2458,8 @@ const COMMANDS = [
   { id: "share", label: "Share Project Link…", cat: "File", run: shareProject },
   { id: "rename-project", label: "Rename Project…", cat: "File", run: renameProject },
   { id: "delete-project", label: "Delete Project…", cat: "File", run: deleteProject },
-  { id: "format", label: "Format Document (black)", cat: "Edit", kb: "shift+alt+f", run: formatDocument },
-  { id: "organize", label: "Organize Imports (isort)", cat: "Edit", kb: "shift+alt+o", run: organizeImports },
+  { id: "format", label: "Format Document", cat: "Edit", kb: "shift+alt+f", run: formatDocument },
+  { id: "organize", label: "Organize Imports (Python)", cat: "Edit", kb: "shift+alt+o", run: organizeImports },
   { id: "find", label: "Find", cat: "Edit", run: () => { editor.focus(); editor.getAction("actions.find")?.run(); } },
   { id: "replace", label: "Replace", cat: "Edit", run: () => { editor.focus(); editor.getAction("editor.action.startFindReplaceAction")?.run(); } },
   { id: "comment", label: "Toggle Line Comment", cat: "Edit", run: () => { editor.focus(); editor.getAction("editor.action.commentLine")?.run(); } },
@@ -2452,7 +2563,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "palette"],
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term"],
   View: ["explorer", "find-files", "outline", "debug-view", "packages", "-", "sidebar", "panel", "console", "problems", "variables", "plots", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
-  Help: ["shortcuts", "examples", "about"],
+  Help: ["home", "shortcuts", "examples", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -2481,8 +2592,8 @@ function showShortcuts() {
 function showAbout() {
   openModal(h("div", { class: "modal" }, h("div", { class: "modal-head" }, "About Dexna"),
     h("div", { class: "modal-body" },
-      h("p", {}, "Dexna is a Python IDE that runs entirely in your browser. Your code never leaves your machine: Python runs locally in WebAssembly and projects are saved in this browser's storage."),
-      h("p", {}, `Python ${kernelInfo?.version || "..."} via Pyodide ${kernelInfo?.pyodide || ""}. Editor: Monaco. Language features: jedi, pyflakes, black and isort.`),
+      h("p", {}, "Dexna is a code editor that runs entirely in your browser. Python, JavaScript, TypeScript, Lua and SQL all run on your device, your code is never uploaded, and projects are saved in this browser."),
+      h("p", {}, `Runtimes: Python ${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}), JavaScript (your browser), TypeScript (the editor's compiler), Lua 5.4 (wasmoon) and SQLite. Editor: Monaco. Python tooling: jedi, pyflakes, black and isort.`),
       h("p", {}, kernel?.isolated ? "Full mode: input(), Stop and the debugger are available." : "Limited mode: cross-origin isolation is unavailable, so input() and the debugger are disabled. Reloading usually fixes this.")),
     h("div", { class: "modal-foot" }, h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
@@ -2515,7 +2626,8 @@ function wireStatic() {
     { label: "Show Packages", run: () => setView("packages") },
   ]);
   $$('[data-view="debug"] [data-act]').forEach((b) => (b.onclick = () => runFile({ debug: b.dataset.act !== "run", stopOnEntry: b.dataset.act === "debug-entry" })));
-  $$("#welcome [data-act]").forEach((b) => (b.onclick = () => ({ "new-file": () => newFileDialog(), "quick-open": () => quickOpen(), palette: () => quickOpen(">"), examples: showExamples })[b.dataset.act]()));
+  $("#brand").onclick = () => showHome(true);
+  $("#brand").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showHome(true); } });
   const iso = $("#sb-iso");
   const isolated = self.crossOriginIsolated;
   iso.innerHTML = isolated ? `${iconSvg("bolt")}<span>Full mode</span>` : `${iconSvg("circle")}<span>Limited mode</span>`;
@@ -2565,7 +2677,7 @@ async function boot() {
       const cur = LS.get("current", null);
       if (!(cur && (await loadProject(cur)))) {
         if (projectsIndex.length) await loadProject(projectsIndex[0].id);
-        else createProject(EXAMPLES[0]);
+        else createProject(EMPTY_PROJECT);
       }
     }
   }
