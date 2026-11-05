@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dexna — Python IDE</title>
+  <meta name="description" content="Dexna is a full Python IDE that runs entirely in your browser: editor, debugger, console, packages, plots and more.">
+  <meta name="theme-color" content="#0f1117">
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <script src="coi-serviceworker.js"></script>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- ============ Title bar ============ -->
+  <header id="titlebar">
+    <div class="brand">
+      <img src="assets/logo.svg" alt="" width="22" height="22">
+      <span class="brand-name">Dexna</span>
+    </div>
+    <nav class="menus" id="menus"></nav>
+    <div class="run-controls">
+      <button class="btn run" id="btn-run" title="Run file (F5 / Ctrl+Enter)"><i class="ic">▶</i><span>Run</span></button>
+      <button class="btn" id="btn-debug" title="Debug file (F6)"><i class="ic">🐞</i><span>Debug</span></button>
+      <button class="btn stop" id="btn-stop" title="Stop (Shift+F5)" disabled><i class="ic">■</i><span>Stop</span></button>
+      <div class="debug-controls hidden" id="debug-controls">
+        <button class="btn icon" data-dbg="continue" title="Continue (F5)">⏵</button>
+        <button class="btn icon" data-dbg="over" title="Step Over (F10)">↷</button>
+        <button class="btn icon" data-dbg="step" title="Step Into (F11)">↓</button>
+        <button class="btn icon" data-dbg="out" title="Step Out (Shift+F11)">↑</button>
+      </div>
+    </div>
+    <div class="title-right">
+      <span class="run-target" id="run-target" title="File that Run executes"></span>
+      <button class="btn icon" id="btn-share" title="Share project link"><svg class="i" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></button>
+      <button class="btn icon" id="btn-theme" title="Toggle light/dark theme"><svg class="i" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+    </div>
+  </header>
+
+  <div id="main">
+    <!-- ============ Activity bar ============ -->
+    <nav id="activitybar">
+      <button data-view="explorer" class="active" title="Explorer (Ctrl+Shift+E)">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></button>
+      <button data-view="search" title="Search (Ctrl+Shift+F)">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button>
+      <button data-view="outline" title="Outline">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+      <button data-view="debug" title="Run &amp; Debug">
+        <svg viewBox="0 0 24 24"><path d="m6 3 14 9-14 9z"/></svg></button>
+      <button data-view="packages" title="Packages">
+        <svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></button>
+      <div class="spacer"></div>
+      <button data-view="settings" title="Settings (Ctrl+,)">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    </nav>
+
+    <!-- ============ Sidebar ============ -->
+    <aside id="sidebar">
+      <section class="view active" data-view="explorer">
+        <div class="view-header">
+          <select id="project-select" title="Switch project"></select>
+          <div class="view-actions">
+            <button class="btn icon sm" data-act="new-file" title="New File (Ctrl+Alt+N)">＋</button>
+            <button class="btn icon sm" data-act="new-folder" title="New Folder">⊞</button>
+            <button class="btn icon sm" data-act="project-menu" title="Project actions">⋯</button>
+          </div>
+        </div>
+        <div id="file-tree" class="tree" tabindex="0"></div>
+        <div class="drop-hint">Drop files here to add them</div>
+      </section>
+
+      <section class="view" data-view="search">
+        <div class="view-title">Search</div>
+        <div class="search-box">
+          <div class="field-row">
+            <input id="search-input" placeholder="Search" spellcheck="false">
+            <button class="toggle" id="search-case" title="Match Case">Aa</button>
+            <button class="toggle" id="search-word" title="Whole Word">ab</button>
+            <button class="toggle" id="search-regex" title="Regular Expression">.*</button>
+          </div>
+          <div class="field-row">
+            <input id="replace-input" placeholder="Replace" spellcheck="false">
+            <button class="btn sm" id="replace-all" title="Replace All">Replace all</button>
+          </div>
+        </div>
+        <div id="search-summary" class="muted small pad"></div>
+        <div id="search-results" class="tree"></div>
+      </section>
+
+      <section class="view" data-view="outline">
+        <div class="view-title">Outline <span class="muted" id="outline-file"></span></div>
+        <input id="outline-filter" class="filter" placeholder="Filter symbols" spellcheck="false">
+        <div id="outline" class="tree"></div>
+      </section>
+
+      <section class="view" data-view="debug">
+        <div class="view-title">Run &amp; Debug</div>
+        <div class="pad stack">
+          <button class="btn wide run" data-act="run">▶ Run current file</button>
+          <button class="btn wide" data-act="debug">🐞 Start debugging</button>
+          <button class="btn wide" data-act="debug-entry">⤓ Debug, stop on entry</button>
+          <label class="check"><input type="checkbox" id="pin-run"> Always run <b id="pin-run-name">main.py</b></label>
+        </div>
+        <div class="sub-title">Watch <button class="btn icon sm" id="add-watch" title="Add expression">＋</button></div>
+        <div id="watch-list" class="kv"></div>
+        <div class="sub-title">Call stack</div>
+        <div id="callstack" class="tree small"><div class="muted pad">Not paused</div></div>
+        <div class="sub-title">Breakpoints <button class="btn icon sm" id="clear-bps" title="Remove all breakpoints">✕</button></div>
+        <div id="bp-list" class="tree small"></div>
+        <div class="muted small pad">Click the gutter left of a line number or press F9 to toggle a breakpoint.</div>
+      </section>
+
+      <section class="view" data-view="packages">
+        <div class="view-title">Packages</div>
+        <div class="pad stack">
+          <div class="field-row">
+            <input id="pkg-input" placeholder="e.g. numpy, rich, sympy" spellcheck="false">
+            <button class="btn" id="pkg-install">Install</button>
+          </div>
+          <div class="muted small">Installs from Pyodide's package set or PyPI (pure-Python wheels). Packages listed as project requirements are re-installed automatically.</div>
+          <div class="chips" id="pkg-suggest"></div>
+        </div>
+        <div class="sub-title">Project requirements</div>
+        <div id="pkg-reqs" class="tree small"></div>
+        <div class="sub-title">Installed <button class="btn icon sm" id="pkg-refresh" title="Refresh">⟳</button></div>
+        <input id="pkg-filter" class="filter" placeholder="Filter installed" spellcheck="false">
+        <div id="pkg-list" class="tree small"></div>
+      </section>
+
+      <section class="view" data-view="settings">
+        <div class="view-title">Settings</div>
+        <div id="settings-form" class="settings"></div>
+      </section>
+    </aside>
+    <div class="resizer v" id="sidebar-resizer"></div>
+
+    <!-- ============ Workbench ============ -->
+    <section id="workbench">
+      <div id="editor-area">
+        <div id="tabs" role="tablist"></div>
+        <div id="breadcrumbs"></div>
+        <div id="editor-wrap">
+          <div id="editor"></div>
+          <div id="welcome" class="hidden">
+            <img src="assets/logo.svg" alt="" width="72" height="72">
+            <h1>Dexna</h1>
+            <p class="muted">A full Python IDE in your browser.</p>
+            <div class="welcome-grid">
+              <button class="link" data-act="new-file">New file…</button><kbd>Ctrl+Alt+N</kbd>
+              <button class="link" data-act="quick-open">Go to file…</button><kbd>Ctrl+P</kbd>
+              <button class="link" data-act="palette">Command palette…</button><kbd>Ctrl+Shift+P</kbd>
+              <button class="link" data-act="examples">Open an example…</button><kbd></kbd>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="resizer h" id="panel-resizer"></div>
+      <div id="panel">
+        <div class="panel-header">
+          <div class="panel-tabs" role="tablist">
+            <button data-panel="terminal" class="active">Terminal</button>
+            <button data-panel="console">Console</button>
+            <button data-panel="problems">Problems <span class="badge" id="problems-badge"></span></button>
+            <button data-panel="variables">Variables</button>
+            <button data-panel="plots">Plots <span class="badge" id="plots-badge"></span></button>
+          </div>
+          <div class="panel-actions">
+            <button class="btn icon sm" id="panel-clear" title="Clear">⌫</button>
+            <button class="btn icon sm" id="panel-max" title="Maximize panel">⤢</button>
+            <button class="btn icon sm" id="panel-close" title="Hide panel (Ctrl+`)">✕</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-view active" data-panel="terminal">
+            <div id="terminal" class="term" tabindex="0"></div>
+          </div>
+          <div class="panel-view" data-panel="console">
+            <div id="console" class="term" tabindex="-1"></div>
+            <div class="console-input">
+              <span class="prompt" id="console-prompt">&gt;&gt;&gt;</span>
+              <textarea id="console-input" rows="1" spellcheck="false" placeholder="Python expression — Enter to run, Shift+Enter for new line, ↑/↓ history"></textarea>
+            </div>
+          </div>
+          <div class="panel-view" data-panel="problems"><div id="problems" class="tree small"></div></div>
+          <div class="panel-view" data-panel="variables">
+            <table class="vars"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Value</th></tr></thead><tbody id="vars"></tbody></table>
+          </div>
+          <div class="panel-view" data-panel="plots"><div id="plots" class="plots"></div></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ============ Status bar ============ -->
+  <footer id="statusbar">
+    <div class="left">
+      <span class="sb-item" id="sb-kernel"><i class="dot"></i><span>Starting…</span></span>
+      <span class="sb-item clickable" id="sb-problems" title="Problems">⊗ 0 ⚠ 0</span>
+      <span class="sb-item" id="sb-run"></span>
+    </div>
+    <div class="right">
+      <span class="sb-item clickable" id="sb-cursor">Ln 1, Col 1</span>
+      <span class="sb-item clickable" id="sb-indent">Spaces: 4</span>
+      <span class="sb-item">UTF-8</span>
+      <span class="sb-item" id="sb-lang">Python</span>
+      <span class="sb-item" id="sb-python" title="Python runtime"></span>
+      <span class="sb-item" id="sb-iso"></span>
+    </div>
+  </footer>
+</div>
+
+<div id="overlay" class="hidden"></div>
+<div id="toasts"></div>
+<div id="ctxmenu" class="menu hidden"></div>
+<input type="file" id="file-upload" multiple hidden>
+<input type="file" id="zip-upload" accept=".zip" hidden>
+
+<script>window.DEXNA_CONFIG = {
+  pyodide: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/",
+  monaco: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/"
+};</script>
+<script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
