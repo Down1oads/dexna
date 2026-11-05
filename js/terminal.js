@@ -1,6 +1,8 @@
 // Output view with ANSI colours, carriage returns, clickable traceback locations and inline input().
-const ANSI16 = ["#1e1e1e", "#e5534b", "#57ab5a", "#c69026", "#539bf5", "#b083f0", "#39c5cf", "#d1d7e0",
+let ANSI16 = ["#1e1e1e", "#e5534b", "#57ab5a", "#c69026", "#539bf5", "#b083f0", "#39c5cf", "#d1d7e0",
   "#636e7b", "#ff938a", "#6bc46d", "#daaa3f", "#6cb6ff", "#dcbdfb", "#56d4dd", "#ffffff"];
+/** Use the current theme's colours for ANSI escape codes. */
+export function setAnsiPalette(colors) { ANSI16 = colors; }
 
 function xterm256(n) {
   if (n < 16) return ANSI16[n];

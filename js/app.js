@@ -2,7 +2,8 @@
 import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
 import { registerLanguageTools } from "./langtools.js";
-import { Terminal } from "./terminal.js";
+import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
+import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
 import { createZip, readZip } from "./zip.js";
 
@@ -42,11 +43,17 @@ const LS = {
 };
 
 const DEFAULT_SETTINGS = {
-  theme: "dark", fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
+  theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
+// older versions stored "dark" / "light"
+if (settings.theme === "dark") settings.theme = DEFAULT_DARK;
+else if (settings.theme === "light") settings.theme = DEFAULT_LIGHT;
+if (settings.theme !== "auto" && !THEME_BY_ID[settings.theme]) settings.theme = DEFAULT_DARK;
+if (!THEME_BY_ID[settings.darkTheme]) settings.darkTheme = DEFAULT_DARK;
+if (!THEME_BY_ID[settings.lightTheme]) settings.lightTheme = DEFAULT_LIGHT;
 const layout = { sidebarWidth: 260, panelHeight: 270, view: "explorer", panel: "terminal", sidebar: true, panelOpen: true, ...LS.get("layout", {}) };
 const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
@@ -260,54 +267,37 @@ function loadMonaco() {
 }
 
 function defineThemes() {
-  monaco.editor.defineTheme("dexna-dark", {
-    base: "vs-dark", inherit: true,
-    rules: [
-      { token: "comment", foreground: "6b7394", fontStyle: "italic" },
-      { token: "keyword", foreground: "c586c0" },
-      { token: "string", foreground: "a5e075" },
-      { token: "number", foreground: "f78c6c" },
-      { token: "type", foreground: "ffcb6b" },
-      { token: "identifier", foreground: "d6dae4" },
-      { token: "delimiter", foreground: "89ddff" },
-      { token: "tag", foreground: "f07178" },
-    ],
-    colors: {
-      "editor.background": "#0f1117", "editor.foreground": "#d6dae4", "editorLineNumber.foreground": "#3d4458",
-      "editorLineNumber.activeForeground": "#a0a8bd", "editor.lineHighlightBackground": "#161a24", "editor.selectionBackground": "#4c8dff40",
-      "editorCursor.foreground": "#7aa9ff", "editorIndentGuide.background1": "#1f2430", "editorIndentGuide.activeBackground1": "#3a4155",
-      "editorWidget.background": "#1b1f2a", "editorWidget.border": "#2a3040", "editorSuggestWidget.background": "#1b1f2a",
-      "editorSuggestWidget.selectedBackground": "#2d3446", "editorHoverWidget.background": "#1b1f2a", "minimap.background": "#0f1117",
-      "editorGutter.background": "#0f1117", "editorStickyScroll.background": "#131620", "scrollbarSlider.background": "#ffffff14",
-    },
-  });
-  monaco.editor.defineTheme("dexna-light", {
-    base: "vs", inherit: true,
-    rules: [
-      { token: "comment", foreground: "8a91a3", fontStyle: "italic" },
-      { token: "keyword", foreground: "a626a4" },
-      { token: "string", foreground: "16803c" },
-      { token: "number", foreground: "c2410c" },
-      { token: "type", foreground: "b45309" },
-    ],
-    colors: { "editor.background": "#f7f7fa", "editor.lineHighlightBackground": "#eef0f6", "editorGutter.background": "#f7f7fa", "minimap.background": "#f7f7fa" },
-  });
+  for (const t of THEMES) monaco.editor.defineTheme(t.id, monacoTheme(t));
 }
 
-const resolvedTheme = () => settings.theme === "auto" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : settings.theme;
+const systemPrefersLight = () => matchMedia("(prefers-color-scheme: light)").matches;
+/** The theme in effect: the chosen one, or the last dark/light theme when following the system. */
+const currentTheme = () => THEME_BY_ID[settings.theme === "auto" ? (systemPrefersLight() ? settings.lightTheme : settings.darkTheme) : settings.theme];
+
 function updateThemeIcon() {
   const btn = document.getElementById("btn-theme");
   if (!btn) return;
-  const dark = resolvedTheme() === "dark";
+  const dark = currentTheme().type === "dark";
   btn.replaceChildren(icon(dark ? "moon" : "sun"));
-  btn.title = dark ? "Dark theme (click for light)" : "Light theme (click for dark)";
+  btn.title = `${currentTheme().name}. Click to switch to ${dark ? THEME_BY_ID[settings.lightTheme].name : THEME_BY_ID[settings.darkTheme].name}`;
 }
 function applyTheme() {
+  const t = currentTheme();
+  const root = document.documentElement;
+  root.dataset.theme = t.type;
+  const vars = uiVars(t);
+  for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+  setAnsiPalette(ansiPalette(t));
+  $('meta[name="theme-color"]').content = t.c.bg;
+  if (settings.theme !== "auto") settings[t.type === "dark" ? "darkTheme" : "lightTheme"] = t.id;
+  try { localStorage.setItem("dexna:themecache", JSON.stringify({ type: t.type, vars })); } catch (_) {}
   updateThemeIcon();
-  const t = resolvedTheme();
-  document.documentElement.dataset.theme = t;
-  $('meta[name="theme-color"]').content = t === "dark" ? "#0f1117" : "#f7f7fa";
-  monaco?.editor.setTheme(t === "dark" ? "dexna-dark" : "dexna-light");
+  monaco?.editor.setTheme(t.id);
+}
+/** Flip between the last dark and the last light theme. */
+function toggleTheme() {
+  const dark = currentTheme().type === "dark";
+  setSetting("theme", dark ? settings.lightTheme : settings.darkTheme);
 }
 matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => settings.theme === "auto" && applyTheme());
 
@@ -510,7 +500,6 @@ function renderProjectSelect() {
   sel.textContent = "";
   for (const p of [...projectsIndex].sort((a, b) => a.name.localeCompare(b.name))) sel.append(h("option", { value: p.id, selected: p.id === project.id }, p.name));
   sel.append(h("option", { value: "__new" }, "New project..."), h("option", { value: "__example" }, "Open example..."));
-  document.title = `${project.name} - Dexna`;
 }
 $("#project-select").addEventListener("change", (e) => {
   const v = e.target.value;
@@ -519,6 +508,14 @@ $("#project-select").addEventListener("change", (e) => {
   else if (v === "__example") showExamples();
   else if (v !== project.id) { persistProject.flush(); loadProject(v); }
 });
+
+function pickTheme() {
+  quickPick({
+    placeholder: "Select a color theme",
+    source: (q) => [{ id: "auto", name: "Follow system", type: "auto" }, ...THEMES].map((t) => ({ t, m: fuzzy(q, t.name) })).filter((x) => x.m)
+      .map(({ t, m }) => ({ label: t.name, labelHtml: highlight(t.name, m.idx), desc: t.type === "auto" ? "light or dark" : t.type, run: () => setSetting("theme", t.id) })),
+  });
+}
 
 function showExamples() {
   const grid = h("div", { class: "examples-grid" }, EXAMPLES.map((ex) =>
@@ -971,20 +968,16 @@ function renderHome() {
     return h("button", { class: "recent-item", onclick: () => openRecent(p.id), title: p.name },
       h("span", { class: "rn" }, p.name), h("span", { class: "rm" }, `${n} file${n === 1 ? "" : "s"}${p.updated ? ", " + ago(p.updated) : ""}`));
   });
-  const langCards = LANG_STARTS.map((l) => {
-    const badge = h("span", { class: "lc-icon", html: fileIconSvg("x." + l.ext) });
-    return h("button", { class: "lang-card", onclick: () => startLanguage(l) }, badge,
-      h("span", {}, h("b", {}, l.name), h("span", { class: "lc-desc" }, l.desc), h("span", { class: "lc-file" }, `main.${l.ext}`)));
-  });
-  const exCards = EXAMPLES.map((ex) => {
+  const langRows = LANG_STARTS.map((l) => h("button", { class: "lang-row", onclick: () => startLanguage(l) },
+    h("span", { class: "lc-icon", html: fileIconSvg("x." + l.ext) }), h("span", { class: "ln" }, l.name), h("span", { class: "ld" }, l.desc), h("span", { class: "lf" }, `main.${l.ext}`)));
+  const exRows = EXAMPLES.map((ex) => {
     const names = [...new Set(Object.keys(ex.files).map((f) => RUN_LANG[f.split(".").pop().toLowerCase()]).filter(Boolean))].map((k) => RUN_LANG_NAME[k]);
-    return h("button", { class: "ex-card", onclick: () => { createProject(ex); toast(`Opened ${ex.name}. Press F5 to run.`, "ok"); } },
-      h("b", {}, ex.name), h("span", {}, ex.desc), h("div", { class: "tags" }, names.map((n) => h("span", { class: "tag" }, n))));
+    return h("button", { class: "ex-row", title: ex.desc, onclick: () => { createProject(ex); toast(`Opened ${ex.name}. Press F5 to run.`, "ok"); } },
+      h("span", { class: "ex-name" }, ex.name), h("span", { class: "ex-meta" }, names.join(", ")));
   });
   home.textContent = "";
   home.append(h("div", { class: "home-inner" },
-    h("div", { class: "home-head" }, h("img", { src: "assets/logo.svg", alt: "" }),
-      h("div", {}, h("h1", {}, "Dexna"), h("p", { class: "home-sub" }, "Write and run code in your browser. Nothing to install."))),
+    h("div", { class: "home-head" }, h("h1", {}, "Dexna"), h("p", { class: "home-sub" }, "Code editor and runner for the browser")),
     h("div", { class: "home-cols" },
       h("div", {},
         h("div", { class: "home-section" }, h("h2", {}, "Start"),
@@ -994,12 +987,12 @@ function renderHome() {
             action("download", "Import project from ZIP...", () => $("#zip-upload").click()),
             action("file", "Upload files...", () => { uploadTarget = ""; $("#file-upload").click(); }),
             action("star", "Command palette...", () => quickOpen(">"), "ctrl+shift+p"),
-            action("info", "Keyboard shortcuts", showShortcuts))),
-        h("div", { class: "home-section" }, h("h2", {}, "Recent projects"),
+            action("settings", "Settings and color themes", () => showSettings(true)))),
+        h("div", { class: "home-section" }, h("h2", {}, "Recent"),
           recent.length ? h("div", { class: "recent-list" }, recent) : h("div", { class: "muted small" }, "Projects you create will show up here."))),
       h("div", {},
-        h("div", { class: "home-section" }, h("h2", {}, "Choose a language"), h("div", { class: "lang-grid" }, langCards)),
-        h("div", { class: "home-section" }, h("h2", {}, "Or open an example"), h("div", { class: "examples-grid" }, exCards)))),
+        h("div", { class: "home-section" }, h("h2", {}, "New project"), h("div", { class: "lang-list" }, langRows)),
+        h("div", { class: "home-section" }, h("h2", {}, "Examples"), h("div", { class: "ex-list" }, exRows)))),
     h("p", { class: "home-note" }, "Everything runs on your device. Your code is never uploaded, and projects are saved in this browser.")));
 }
 
@@ -2274,7 +2267,6 @@ function removeNpm(name) { delete project.npm[name]; persistProject(); renderPac
 
 function pkgCard({ name, version, desc, badge, action }) {
   return h("div", { class: "pkg" },
-    h("div", { class: "pk-icon" }, icon("package")),
     h("div", { class: "pk-main" },
       h("div", { class: "pk-name" }, h("span", {}, name), version ? h("span", { class: "pk-ver" }, version) : null, badge ? h("span", { class: "pk-badge" }, badge) : null),
       desc ? h("div", { class: "pk-desc" }, desc) : null),
@@ -2406,7 +2398,7 @@ $("#replace-all").onclick = async () => {
  * Settings
  * ===================================================================== */
 const SETTINGS_SCHEMA = [
-  { key: "theme", cat: "Appearance", label: "Color theme", desc: "Dark, light, or follow your system setting.", type: "select", options: [["dark", "Dexna Dark"], ["light", "Dexna Light"], ["auto", "Follow system"]] },
+  { key: "theme", cat: "Appearance", label: "Color theme", desc: "Pick a look for the editor and the whole app. The sun/moon button in the top right flips between your last dark and last light theme.", type: "theme" },
   { key: "fontSize", cat: "Appearance", label: "Font size", desc: "Editor text size in pixels. You can also zoom with Ctrl+= and Ctrl+-.", type: "number", min: 10, max: 30 },
   { key: "fontLigatures", cat: "Appearance", label: "Font ligatures", desc: "Join characters like => and != into single symbols (JetBrains Mono).", type: "bool" },
   { key: "minimap", cat: "Appearance", label: "Minimap", desc: "Show a small overview of the file on the right edge.", type: "bool" },
@@ -2427,8 +2419,8 @@ const settingsUI = { query: "" };
 
 function setSetting(key, value) {
   settings[key] = value;
+  if (key === "theme") applyTheme(); // also records the last dark / light theme
   LS.set("settings", settings);
-  if (key === "theme") applyTheme();
   if (editor) editor.updateOptions(editorOptions());
   if (key === "tabSize") for (const m of models.values()) m.updateOptions({ tabSize: value });
   if (key === "autoLint") lintAll();
@@ -2451,7 +2443,18 @@ function renderSettingsPage() {
 function settingItem(sd) {
   const modified = settings[sd.key] !== DEFAULT_SETTINGS[sd.key];
   let control;
-  if (sd.type === "bool") {
+  if (sd.type === "theme") {
+    const tile = (t) => h("button", { class: "theme-tile" + (settings.theme === t.id ? " on" : ""), title: t.name, onclick: () => setSetting("theme", t.id) },
+      h("span", { class: "tt-prev", style: { background: t.c.bg, color: t.c.fg } },
+        h("i", { style: { background: t.c.keyword } }), h("i", { style: { background: t.c.string } }), h("i", { style: { background: t.c.func } }), h("i", { style: { background: t.c.number } })),
+      h("span", { class: "tt-name" }, t.name));
+    control = h("div", { class: "theme-grid-wrap" },
+      h("div", { class: "theme-group" }, "Automatic"),
+      h("div", { class: "theme-grid" }, h("button", { class: "theme-tile" + (settings.theme === "auto" ? " on" : ""), onclick: () => setSetting("theme", "auto"), title: "Follow your system's light or dark setting" },
+        h("span", { class: "tt-prev auto" }, h("b", {}, "Aa"), h("b", { class: "l" }, "Aa")), h("span", { class: "tt-name" }, "Follow system"))),
+      h("div", { class: "theme-group" }, "Dark"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "dark").map(tile)),
+      h("div", { class: "theme-group" }, "Light"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "light").map(tile)));
+  } else if (sd.type === "bool") {
     control = h("label", { class: "si-check" }, h("input", { type: "checkbox", checked: settings[sd.key], onchange: (e) => setSetting(sd.key, e.target.checked) }), h("span", {}, "Enabled"));
   } else if (sd.type === "select") {
     control = h("select", { onchange: (e) => setSetting(sd.key, typeof sd.options[0][0] === "number" ? +e.target.value : e.target.value) },
@@ -2668,7 +2671,8 @@ const COMMANDS = [
   { id: "variables", label: "Show Variables", cat: "View", run: () => showPanel("variables") },
   { id: "plots", label: "Show Plots", cat: "View", run: () => showPanel("plots") },
   { id: "clear-term", label: "Clear Terminal", cat: "View", run: () => terminal.clear() },
-  { id: "theme", label: "Toggle Light/Dark Theme", cat: "Preferences", run: () => setSetting("theme", resolvedTheme() === "dark" ? "light" : "dark") },
+  { id: "theme", label: "Toggle Light/Dark Theme", cat: "Preferences", run: toggleTheme },
+  { id: "theme-pick", label: "Color Theme...", cat: "Preferences", run: pickTheme },
   { id: "zoom-in", label: "Increase Font Size", cat: "View", kb: "ctrl+=", run: () => setSetting("fontSize", Math.min(30, settings.fontSize + 1)) },
   { id: "zoom-out", label: "Decrease Font Size", cat: "View", kb: "ctrl+-", run: () => setSetting("fontSize", Math.max(10, settings.fontSize - 1)) },
   { id: "minimap", label: "Toggle Minimap", cat: "View", run: () => setSetting("minimap", !settings.minimap) },
@@ -2807,7 +2811,7 @@ function wireStatic() {
   $("#btn-debug").onclick = () => runFile({ debug: true });
   $("#btn-stop").onclick = stopExecution;
   $("#btn-share").onclick = shareProject;
-  $("#btn-theme").onclick = () => setSetting("theme", resolvedTheme() === "dark" ? "light" : "dark");
+  $("#btn-theme").onclick = toggleTheme;
   updateThemeIcon();
   $("#sb-kernel").classList.add("clickable");
   $("#sb-kernel").onclick = (e) => showMenu(e.clientX, e.clientY - 90, [
@@ -2829,7 +2833,7 @@ function wireStatic() {
 
 async function boot() {
   const splash = $("#splash");
-  document.documentElement.dataset.theme = resolvedTheme();
+  applyTheme();
   wireStatic();
   buildMenus();
   setupResizers();
@@ -2893,6 +2897,7 @@ window.dexna = {
   run: runFile,
   repl: replExec,
   toggleBreakpoint,
+  setSetting,
 };
 
 boot();
