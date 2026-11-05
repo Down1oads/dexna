@@ -3,10 +3,10 @@ export const EXAMPLES = [
   {
     id: "welcome",
     name: "Welcome to Dexna",
-    desc: "Tour of the IDE: modules, input(), files, cells",
+    desc: "A short tour: modules, input() and files",
     entry: "main.py",
     files: {
-      "main.py": `"""Welcome to Dexna — a Python IDE that runs entirely in your browser.
+      "main.py": `"""Welcome to Dexna, a Python IDE that runs in your browser.
 
 Press F5 (or Ctrl+Enter) to run this file.
 """
@@ -22,21 +22,21 @@ numbers = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5]
 print("mean  :", stats.mean(numbers))
 print("median:", stats.median(numbers))
 
-# Programs can read and write files in the project — check the Explorer after running!
+# Programs can read and write files in the project. Check the Explorer after running.
 with open("notes.txt", "w") as f:
     f.write(f"{name} ran Dexna and the median was {stats.median(numbers)}\\n")
-print("Wrote notes.txt ✔")
+print("Wrote notes.txt")
 
 # Tips:
-#  • Hover a name for docs, Ctrl+Click (or F12) to jump to its definition.
-#  • F6 starts the debugger; click the gutter to add breakpoints.
-#  • The Console tab keeps the variables of your last run — try typing \`numbers\`.
+#  - Hover a name for docs, Ctrl+Click (or F12) to jump to its definition.
+#  - F6 starts the debugger. Click the gutter to add breakpoints.
+#  - The Console tab keeps the variables of your last run. Try typing \`numbers\`.
 `,
       "helpers/__init__.py": "",
       "helpers/greet.py": `def greet(name: str) -> str:
     """Return a friendly greeting for *name*."""
     name = name.strip() or "stranger"
-    return f"Hello, {name}! 👋"
+    return f"Hello, {name}!"
 
 
 def banner(text: str, width: int = 32) -> str:
@@ -94,7 +94,7 @@ plt.contourf(X, Y, Z, levels=30, cmap="viridis")
 plt.colorbar()
 plt.title("sin(r²)·e^(-r²/5)")
 plt.show()
-print("Figures are in the Plots tab →")
+print("Figures are in the Plots tab.")
 `,
     },
   },
@@ -121,7 +121,7 @@ plt.tight_layout()
 plt.show()
 
 summary.to_csv("summary.csv")
-print("Saved summary.csv — open it from the Explorer.")
+print("Saved summary.csv. Open it from the Explorer.")
 `,
       "sales.csv": `date,region,product,units,price
 2026-01-04,North,Widget,12,9.99
@@ -155,7 +155,7 @@ print("Saved summary.csv — open it from the Explorer.")
     breakpoints: { "debug_me.py": [6] },
     files: {
       "debug_me.py": `def bubble_sort(items):
-    """Sort a list in place — step through it with F10/F11!"""
+    """Sort a list in place. Step through it with F10 and F11."""
     n = len(items)
     for i in range(n):
         swapped = False
@@ -169,7 +169,7 @@ print("Saved summary.csv — open it from the Explorer.")
 
 
 def fib(n):
-    """Recursive Fibonacci — watch the call stack grow."""
+    """Recursive Fibonacci. Watch the call stack grow."""
     if n < 2:
         return n
     return fib(n - 1) + fib(n - 2)
@@ -202,14 +202,14 @@ for attempt in range(1, 8):
         continue
     guess = int(guess)
     if guess < secret:
-        print("  Higher ↑")
+        print("  Higher")
     elif guess > secret:
-        print("  Lower ↓")
+        print("  Lower")
     else:
-        print(f"  🎉 Correct! You got it in {attempt} tries.")
+        print(f"  Correct! You got it in {attempt} tries.")
         break
 else:
-    print(f"Out of guesses — it was {secret}.")
+    print(f"Out of guesses. It was {secret}.")
 `,
     },
   },
@@ -220,7 +220,7 @@ else:
     entry: "scratch.py",
     files: {
       "scratch.py": `# %% [Setup]
-# Click "▶ Run Cell" above a cell (or press Ctrl+Shift+Enter inside it).
+# Click "Run Cell" above a cell (or press Ctrl+Shift+Enter inside it).
 # Cells share the Console's namespace, like a notebook.
 import math
 import statistics as st
@@ -244,7 +244,7 @@ plt.show()
   {
     id: "rich",
     name: "Pretty terminal with rich",
-    desc: "Auto-installs a PyPI package; ANSI colours in the terminal",
+    desc: "Auto-installs a PyPI package, with colour output",
     entry: "fancy.py",
     packages: ["rich"],
     files: {
@@ -253,19 +253,19 @@ from rich.table import Table
 from rich.tree import Tree
 
 console = Console(force_terminal=True, width=80, color_system="truecolor")
-console.rule("[bold magenta]Dexna ❤ rich")
+console.rule("[bold cyan]Dexna + rich")
 
 table = Table(title="Planets")
 table.add_column("Name", style="cyan")
 table.add_column("Moons", justify="right", style="green")
 table.add_column("Rings", justify="center")
-for name, moons, rings in [("Mercury", 0, "✗"), ("Earth", 1, "✗"), ("Jupiter", 95, "✓"), ("Saturn", 146, "✓")]:
+for name, moons, rings in [("Mercury", 0, "no"), ("Earth", 1, "no"), ("Jupiter", 95, "yes"), ("Saturn", 146, "yes")]:
     table.add_row(name, str(moons), rings)
 console.print(table)
 
-tree = Tree("📁 project")
-tree.add("📄 fancy.py")
-tree.add("📁 data").add("📄 planets.json")
+tree = Tree("project/")
+tree.add("fancy.py")
+tree.add("data/").add("planets.json")
 console.print(tree)
 console.print("[bold green]Done![/] [dim]Packages imported here are installed automatically.[/]")
 `,
@@ -289,7 +289,7 @@ print(bank.report())
 try:
     bank.transfer(bob, alice, 500)
 except InsufficientFunds as e:
-    print("⚠", e)
+    print("Error:", e)
 `,
       "bank/__init__.py": `from .models import Account, InsufficientFunds
 from .service import Bank

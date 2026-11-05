@@ -196,7 +196,7 @@ def _dexna_inspect(path):
             items.append(s)
     elif isinstance(obj, set):
         for i, v in enumerate(list(obj)[:200]):
-            s = _summary(f"·{i}", v)
+            s = _summary(f"{{{i}}}", v)
             s["path"] = None
             items.append(s)
     else:

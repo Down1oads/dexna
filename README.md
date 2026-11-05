@@ -2,7 +2,7 @@
 
 <h1 align="center">Dexna</h1>
 <p align="center"><b>An advanced Python IDE that runs entirely in your browser.</b><br>
-No install, no server, no account — Python executes locally via WebAssembly.</p>
+No install, no server, no account, Python executes locally via WebAssembly.</p>
 
 ---
 
@@ -13,13 +13,13 @@ No install, no server, no account — Python executes locally via WebAssembly.</
 - **Real Python intelligence** powered by *jedi*: autocompletion with docs, hover help, signature hints, go to definition (even into the standard library), find references, rename symbol across files, symbol outline
 - **Live linting** with *pyflakes*, plus quick fixes (add missing `import`, remove unused import)
 - **Formatting** with *black* and **import sorting** with *isort*
-- Notebook-style **`# %%` cells** with “▶ Run Cell” code lenses
+- Notebook-style **`# %%` cells** with "Run Cell" code lenses
 
 **Running code**
-- Full CPython 3.12 (Pyodide) in a background worker — the UI never freezes
-- Interactive `input()`, a working **Stop** button (KeyboardInterrupt), kernel restart
+- Full CPython 3.12 (Pyodide) in a background worker ; the UI never freezes
+- Interactive `input()`, a working **Stop** button (KeyboardInterrupt) and kernel restart
 - **Auto-install**: importing a package installs it from Pyodide's distribution or PyPI (`numpy`, `pandas`, `matplotlib`, `scipy`, `sympy`, `scikit-learn`, `rich`, …)
-- Programs can read and write project files — new files appear in the Explorer
+- Programs can read and write project files, new files appear in the Explorer
 - **matplotlib** figures show inline and in a Plots gallery (download as PNG)
 - Terminal with ANSI colours, clickable tracebacks and runtime-error highlighting
 
@@ -32,7 +32,7 @@ No install, no server, no account — Python executes locally via WebAssembly.</
 - **Variable explorer** with expandable lists, dicts and objects
 - Search & replace across files (regex, case, whole word)
 - Multiple projects, 9 example projects, upload files / import ZIP, download project as ZIP
-- **Share links** — the whole project is compressed into the URL; nothing is uploaded
+- **Share links**, the whole project is compressed into the URL; nothing is uploaded
 - Command palette (Ctrl+Shift+P), quick open (Ctrl+P), dark/light themes, configurable settings
 - Everything autosaves to your browser's local storage
 
@@ -58,7 +58,7 @@ No install, no server, no account — Python executes locally via WebAssembly.</
 | `index.html`, `css/`, `js/app.js` | The IDE shell and all UI |
 | `js/pyworker.js` | Runs Pyodide in a Web Worker, in two roles: the **kernel** (your code) and the **language server** (jedi, pyflakes, black, isort) |
 | `py/kernel.py`, `py/lsp.py` | Python side of the kernel (runner, REPL, debugger via `sys.settrace`) and language services |
-| `coi-serviceworker.js` | Adds the COOP/COEP headers GitHub Pages can't send, enabling `SharedArrayBuffer` — required for `input()`, interrupts and the debugger |
+| `coi-serviceworker.js` | Adds the COOP/COEP headers GitHub Pages can't send, enabling `SharedArrayBuffer`, required for `input()`, interrupts and the debugger |
 
 The first visit reloads once while the service worker installs. Pyodide and Monaco load from the jsDelivr CDN.
 
@@ -74,4 +74,4 @@ Then open http://localhost:8000.
 
 ## Deploying to GitHub Pages
 
-The included workflow (`.github/workflows/pages.yml`) publishes the site on every push to `main`. In the repository settings, set **Pages → Source** to **GitHub Actions**.
+The included workflow (`.github/workflows/pages.yml`) publishes the site on every push to `main`. In the repository settings, set **Pages to Source** to **GitHub Actions**.

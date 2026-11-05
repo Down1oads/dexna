@@ -122,13 +122,13 @@ async function installPackages(names, quiet = false) {
   const results = [];
   for (const name of names) {
     try {
-      if (!quiet) post("stdout", { text: `\x1b[36m⇣ Installing ${name}…\x1b[0m\n` });
+      if (!quiet) post("stdout", { text: `\x1b[36mInstalling ${name}...\x1b[0m\n` });
       await mp.install(name);
       results.push({ name, ok: true });
-      if (!quiet) post("stdout", { text: `\x1b[32m✔ Installed ${name}\x1b[0m\n` });
+      if (!quiet) post("stdout", { text: `\x1b[32mInstalled ${name}\x1b[0m\n` });
     } catch (e) {
       results.push({ name, ok: false, error: String(e.message || e).split("\n").slice(-2).join(" ") });
-      if (!quiet) post("stderr", { text: `✘ Could not install ${name}: ${results.at(-1).error}\n` });
+      if (!quiet) post("stderr", { text: `Could not install ${name}: ${results.at(-1).error}\n` });
     }
   }
   return results;

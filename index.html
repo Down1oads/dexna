@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dexna — Python IDE</title>
+  <title>Dexna Python IDE</title>
   <meta name="description" content="Dexna is a full Python IDE that runs entirely in your browser: editor, debugger, console, packages, plots and more.">
   <meta name="theme-color" content="#0f1117">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
@@ -21,14 +21,14 @@
     </div>
     <nav class="menus" id="menus"></nav>
     <div class="run-controls">
-      <button class="btn run" id="btn-run" title="Run file (F5 / Ctrl+Enter)"><i class="ic">▶</i><span>Run</span></button>
-      <button class="btn" id="btn-debug" title="Debug file (F6)"><i class="ic">🐞</i><span>Debug</span></button>
-      <button class="btn stop" id="btn-stop" title="Stop (Shift+F5)" disabled><i class="ic">■</i><span>Stop</span></button>
+      <button class="btn run" id="btn-run" title="Run file (F5 / Ctrl+Enter)"><i data-icon="play"></i><span>Run</span></button>
+      <button class="btn" id="btn-debug" title="Debug file (F6)"><i data-icon="bug"></i><span>Debug</span></button>
+      <button class="btn stop" id="btn-stop" title="Stop (Shift+F5)" disabled><i data-icon="stop"></i><span>Stop</span></button>
       <div class="debug-controls hidden" id="debug-controls">
-        <button class="btn icon" data-dbg="continue" title="Continue (F5)">⏵</button>
-        <button class="btn icon" data-dbg="over" title="Step Over (F10)">↷</button>
-        <button class="btn icon" data-dbg="step" title="Step Into (F11)">↓</button>
-        <button class="btn icon" data-dbg="out" title="Step Out (Shift+F11)">↑</button>
+        <button class="btn icon" data-dbg="continue" title="Continue (F5)"><i data-icon="continue"></i></button>
+        <button class="btn icon" data-dbg="over" title="Step Over (F10)"><i data-icon="stepOver"></i></button>
+        <button class="btn icon" data-dbg="step" title="Step Into (F11)"><i data-icon="stepInto"></i></button>
+        <button class="btn icon" data-dbg="out" title="Step Out (Shift+F11)"><i data-icon="stepOut"></i></button>
       </div>
     </div>
     <div class="title-right">
@@ -62,9 +62,9 @@
         <div class="view-header">
           <select id="project-select" title="Switch project"></select>
           <div class="view-actions">
-            <button class="btn icon sm" data-act="new-file" title="New File (Ctrl+Alt+N)">＋</button>
-            <button class="btn icon sm" data-act="new-folder" title="New Folder">⊞</button>
-            <button class="btn icon sm" data-act="project-menu" title="Project actions">⋯</button>
+            <button class="btn icon sm" data-act="new-file" title="New File (Ctrl+Alt+N)"><i data-icon="newFile"></i></button>
+            <button class="btn icon sm" data-act="new-folder" title="New Folder"><i data-icon="newFolder"></i></button>
+            <button class="btn icon sm" data-act="project-menu" title="Project actions"><i data-icon="more"></i></button>
           </div>
         </div>
         <div id="file-tree" class="tree" tabindex="0"></div>
@@ -98,16 +98,16 @@
       <section class="view" data-view="debug">
         <div class="view-title">Run &amp; Debug</div>
         <div class="pad stack">
-          <button class="btn wide run" data-act="run">▶ Run current file</button>
-          <button class="btn wide" data-act="debug">🐞 Start debugging</button>
-          <button class="btn wide" data-act="debug-entry">⤓ Debug, stop on entry</button>
+          <button class="btn wide run" data-act="run"><i data-icon="play"></i>Run current file</button>
+          <button class="btn wide" data-act="debug"><i data-icon="bug"></i>Start debugging</button>
+          <button class="btn wide" data-act="debug-entry"><i data-icon="stepInto"></i>Debug, stop on first line</button>
           <label class="check"><input type="checkbox" id="pin-run"> Always run <b id="pin-run-name">main.py</b></label>
         </div>
-        <div class="sub-title">Watch <button class="btn icon sm" id="add-watch" title="Add expression">＋</button></div>
+        <div class="sub-title">Watch <button class="btn icon sm" id="add-watch" title="Add expression"><i data-icon="plus"></i></button></div>
         <div id="watch-list" class="kv"></div>
         <div class="sub-title">Call stack</div>
         <div id="callstack" class="tree small"><div class="muted pad">Not paused</div></div>
-        <div class="sub-title">Breakpoints <button class="btn icon sm" id="clear-bps" title="Remove all breakpoints">✕</button></div>
+        <div class="sub-title">Breakpoints <button class="btn icon sm" id="clear-bps" title="Remove all breakpoints"><i data-icon="close"></i></button></div>
         <div id="bp-list" class="tree small"></div>
         <div class="muted small pad">Click the gutter left of a line number or press F9 to toggle a breakpoint.</div>
       </section>
@@ -124,7 +124,7 @@
         </div>
         <div class="sub-title">Project requirements</div>
         <div id="pkg-reqs" class="tree small"></div>
-        <div class="sub-title">Installed <button class="btn icon sm" id="pkg-refresh" title="Refresh">⟳</button></div>
+        <div class="sub-title">Installed <button class="btn icon sm" id="pkg-refresh" title="Refresh"><i data-icon="refresh"></i></button></div>
         <input id="pkg-filter" class="filter" placeholder="Filter installed" spellcheck="false">
         <div id="pkg-list" class="tree small"></div>
       </section>
@@ -146,12 +146,12 @@
           <div id="welcome" class="hidden">
             <img src="assets/logo.svg" alt="" width="72" height="72">
             <h1>Dexna</h1>
-            <p class="muted">A full Python IDE in your browser.</p>
+            <p class="muted">Python, in the browser.</p>
             <div class="welcome-grid">
-              <button class="link" data-act="new-file">New file…</button><kbd>Ctrl+Alt+N</kbd>
-              <button class="link" data-act="quick-open">Go to file…</button><kbd>Ctrl+P</kbd>
-              <button class="link" data-act="palette">Command palette…</button><kbd>Ctrl+Shift+P</kbd>
-              <button class="link" data-act="examples">Open an example…</button><kbd></kbd>
+              <button class="link" data-act="new-file">New file</button><kbd>Ctrl+Alt+N</kbd>
+              <button class="link" data-act="quick-open">Go to file</button><kbd>Ctrl+P</kbd>
+              <button class="link" data-act="palette">Command palette</button><kbd>Ctrl+Shift+P</kbd>
+              <button class="link" data-act="examples">Open an example</button><kbd></kbd>
             </div>
           </div>
         </div>
@@ -167,9 +167,9 @@
             <button data-panel="plots">Plots <span class="badge" id="plots-badge"></span></button>
           </div>
           <div class="panel-actions">
-            <button class="btn icon sm" id="panel-clear" title="Clear">⌫</button>
-            <button class="btn icon sm" id="panel-max" title="Maximize panel">⤢</button>
-            <button class="btn icon sm" id="panel-close" title="Hide panel (Ctrl+`)">✕</button>
+            <button class="btn icon sm" id="panel-clear" title="Clear"><i data-icon="clear"></i></button>
+            <button class="btn icon sm" id="panel-max" title="Maximize panel"><i data-icon="maximize"></i></button>
+            <button class="btn icon sm" id="panel-close" title="Hide panel (Ctrl+`)"><i data-icon="close"></i></button>
           </div>
         </div>
         <div class="panel-body">
@@ -180,7 +180,7 @@
             <div id="console" class="term" tabindex="-1"></div>
             <div class="console-input">
               <span class="prompt" id="console-prompt">&gt;&gt;&gt;</span>
-              <textarea id="console-input" rows="1" spellcheck="false" placeholder="Python expression — Enter to run, Shift+Enter for new line, ↑/↓ history"></textarea>
+              <textarea id="console-input" rows="1" spellcheck="false" placeholder="Python code. Enter runs, Shift+Enter adds a line, Up/Down for history"></textarea>
             </div>
           </div>
           <div class="panel-view" data-panel="problems"><div id="problems" class="tree small"></div></div>
@@ -197,7 +197,7 @@
   <footer id="statusbar">
     <div class="left">
       <span class="sb-item" id="sb-kernel"><i class="dot"></i><span>Starting…</span></span>
-      <span class="sb-item clickable" id="sb-problems" title="Problems">⊗ 0 ⚠ 0</span>
+      <span class="sb-item clickable" id="sb-problems" title="Problems"></span>
       <span class="sb-item" id="sb-run"></span>
     </div>
     <div class="right">

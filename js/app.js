@@ -1,5 +1,6 @@
-// Dexna — a Python IDE in the browser.
+// Dexna: a Python IDE in the browser.
 import { PyClient } from "./pyclient.js";
+import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
 import { Terminal } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
 import { createZip, readZip } from "./zip.js";
@@ -35,7 +36,7 @@ const cfg = window.DEXNA_CONFIG;
  * ===================================================================== */
 const LS = {
   get(k, d) { try { const v = localStorage.getItem("dexna:" + k); return v == null ? d : JSON.parse(v); } catch (_) { return d; } },
-  set(k, v) { try { localStorage.setItem("dexna:" + k, JSON.stringify(v)); return true; } catch (_) { toast("Browser storage is full — download your project to keep it safe.", "error"); return false; } },
+  set(k, v) { try { localStorage.setItem("dexna:" + k, JSON.stringify(v)); return true; } catch (_) { toast("Browser storage is full. Download your project to keep it safe.", "error"); return false; } },
   del(k) { try { localStorage.removeItem("dexna:" + k); } catch (_) {} },
 };
 
@@ -180,7 +181,7 @@ function quickPick({ placeholder, source, value = "" }) {
     list.textContent = "";
     items.slice(0, 200).forEach((it, i) => {
       const row = h("div", { class: "qp-item" + (i === active ? " active" : ""), onmousedown: (e) => { e.preventDefault(); pick(i); } },
-        it.icon ? h("span", {}, it.icon) : null,
+        it.iconHtml ? h("span", { class: "fi", html: it.iconHtml }) : null,
         h("span", { html: it.labelHtml || esc(it.label) }),
         it.detail ? h("span", { class: "qdesc" }, it.detail) : null,
         it.desc ? h("span", { class: "qd" }, it.desc) : null);
@@ -233,10 +234,8 @@ function openLocation(file, line) {
 const LANGS = { py: "python", pyi: "python", json: "json", md: "markdown", js: "javascript", ts: "typescript", html: "html", css: "css",
   yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", sql: "sql", sh: "shell", xml: "xml", csv: "plaintext", txt: "plaintext" };
 const langOf = (p) => LANGS[p.split(".").pop().toLowerCase()] || "plaintext";
-const ICONS = { py: ["🐍", ""], md: ["📝", ""], json: ["{}", "color:#f5b041;font:600 10px var(--mono)"], csv: ["▦", "color:#22c55e"], txt: ["≡", "color:var(--fg-dim)"],
-  toml: ["⚙", "color:var(--fg-dim)"], cfg: ["⚙", "color:var(--fg-dim)"], ini: ["⚙", "color:var(--fg-dim)"], html: ["<>", "color:#e44d26;font:600 10px var(--mono)"],
-  js: ["JS", "color:#f7df1e;font:700 9px var(--mono)"], css: ["#", "color:#2965f1;font-weight:700"], yml: ["Y", "color:#cb171e"], yaml: ["Y", "color:#cb171e"] };
-const fileIcon = (p) => { const [i, s] = ICONS[p.split(".").pop().toLowerCase()] || ["📄", ""]; return h("span", { class: "fi", style: s }, i); };
+const fileIcon = (p) => { const el = h("span", { class: "fi" }); el.append(fileBadge(p)); return el; };
+const fi = (name, cls = "") => { const el = h("span", { class: "fi " + cls }); el.append(icon(name)); return el; };
 
 /* =====================================================================
  * Monaco
@@ -257,7 +256,7 @@ function defineThemes() {
     base: "vs-dark", inherit: true,
     rules: [
       { token: "comment", foreground: "6b7394", fontStyle: "italic" },
-      { token: "keyword", foreground: "c792ea" },
+      { token: "keyword", foreground: "c586c0" },
       { token: "string", foreground: "a5e075" },
       { token: "number", foreground: "f78c6c" },
       { token: "type", foreground: "ffcb6b" },
@@ -267,8 +266,8 @@ function defineThemes() {
     ],
     colors: {
       "editor.background": "#0f1117", "editor.foreground": "#d6dae4", "editorLineNumber.foreground": "#3d4458",
-      "editorLineNumber.activeForeground": "#a0a8bd", "editor.lineHighlightBackground": "#161a24", "editor.selectionBackground": "#7c6cff40",
-      "editorCursor.foreground": "#9d91ff", "editorIndentGuide.background1": "#1f2430", "editorIndentGuide.activeBackground1": "#3a4155",
+      "editorLineNumber.activeForeground": "#a0a8bd", "editor.lineHighlightBackground": "#161a24", "editor.selectionBackground": "#4c8dff40",
+      "editorCursor.foreground": "#7aa9ff", "editorIndentGuide.background1": "#1f2430", "editorIndentGuide.activeBackground1": "#3a4155",
       "editorWidget.background": "#1b1f2a", "editorWidget.border": "#2a3040", "editorSuggestWidget.background": "#1b1f2a",
       "editorSuggestWidget.selectedBackground": "#2d3446", "editorHoverWidget.background": "#1b1f2a", "minimap.background": "#0f1117",
       "editorGutter.background": "#0f1117", "editorStickyScroll.background": "#131620", "scrollbarSlider.background": "#ffffff14",
@@ -278,7 +277,7 @@ function defineThemes() {
     base: "vs", inherit: true,
     rules: [
       { token: "comment", foreground: "8a91a3", fontStyle: "italic" },
-      { token: "keyword", foreground: "7c3aed" },
+      { token: "keyword", foreground: "a626a4" },
       { token: "string", foreground: "16803c" },
       { token: "number", foreground: "c2410c" },
       { token: "type", foreground: "b45309" },
@@ -311,7 +310,7 @@ function createEditor() {
   editor = monaco.editor.create($("#editor"), {
     model: null, automaticLayout: true, glyphMargin: true, fixedOverflowWidgets: true, smoothScrolling: true,
     cursorBlinking: "smooth", cursorSmoothCaretAnimation: "on", mouseWheelZoom: true, padding: { top: 8 },
-    scrollBeyondLastLine: true, renderLineHighlight: "all", suggest: { showStatusBar: true, preview: true },
+    scrollBeyondLastLine: true, renderLineHighlight: "all", suggest: { showStatusBar: true, preview: true }, suggestLineHeight: 24,
     inlineSuggest: { enabled: true }, linkedEditing: true, formatOnPaste: false, lightbulb: { enabled: "on" },
     "semanticHighlighting.enabled": true, quickSuggestionsDelay: 80, ...editorOptions(),
   });
@@ -483,7 +482,7 @@ async function renameProject() {
 }
 
 async function deleteProject() {
-  if (!(await confirmDialog({ title: "Delete project", message: `Delete “${project.name}” and all of its files? This cannot be undone.`, okLabel: "Delete", danger: true }))) return;
+  if (!(await confirmDialog({ title: "Delete project", message: `Delete "${project.name}" and all of its files? This cannot be undone.`, okLabel: "Delete", danger: true }))) return;
   const id = project.id;
   LS.del("project:" + id);
   projectsIndex = projectsIndex.filter((p) => p.id !== id);
@@ -497,8 +496,8 @@ function renderProjectSelect() {
   const sel = $("#project-select");
   sel.textContent = "";
   for (const p of [...projectsIndex].sort((a, b) => a.name.localeCompare(b.name))) sel.append(h("option", { value: p.id, selected: p.id === project.id }, p.name));
-  sel.append(h("option", { value: "__new" }, "＋ New project…"), h("option", { value: "__example" }, "★ Open example…"));
-  document.title = `${project.name} — Dexna`;
+  sel.append(h("option", { value: "__new" }, "New project..."), h("option", { value: "__example" }, "Open example..."));
+  document.title = `${project.name} - Dexna`;
 }
 $("#project-select").addEventListener("change", (e) => {
   const v = e.target.value;
@@ -510,7 +509,7 @@ $("#project-select").addEventListener("change", (e) => {
 
 function showExamples() {
   const grid = h("div", { class: "examples-grid" }, EXAMPLES.map((ex) =>
-    h("button", { class: "ex-card", onclick: () => { closeOverlay(); createProject(ex); toast(`Opened “${ex.name}”. Press F5 to run.`, "ok"); } },
+    h("button", { class: "ex-card", onclick: () => { closeOverlay(); createProject(ex); toast(`Opened ${ex.name}. Press F5 to run.`, "ok"); } },
       h("b", {}, ex.name), h("span", {}, ex.desc))));
   openModal(h("div", { class: "modal", style: { width: "min(760px, calc(100vw - 32px))" } },
     h("div", { class: "modal-head" }, "Open an example project"),
@@ -618,7 +617,7 @@ async function renameDialog(path) {
 
 async function deletePath(path) {
   const isFile = project.files[path] != null;
-  if (!(await confirmDialog({ title: "Delete", message: `Delete ${isFile ? "file" : "folder"} “${path}”${isFile ? "" : " and everything inside it"}?`, okLabel: "Delete", danger: true }))) return;
+  if (!(await confirmDialog({ title: "Delete", message: `Delete ${isFile ? "file" : "folder"} "${path}"${isFile ? "" : " and everything inside it"}?`, okLabel: "Delete", danger: true }))) return;
   const files = isFile ? [path] : Object.keys(project.files).filter((f) => f.startsWith(path + "/"));
   for (const f of files) {
     delete project.files[f];
@@ -668,7 +667,7 @@ async function readUploads(fileList, dir = "") {
     if (createFile(path, text, { open: added === 0 })) added++;
   }
   if (added) toast(`Added ${added} file${added > 1 ? "s" : ""}`, "ok");
-  if (skipped) toast(`Skipped ${skipped} binary or large file${skipped > 1 ? "s" : ""} — Dexna stores text files only.`, "warn");
+  if (skipped) toast(`Skipped ${skipped} binary or large file${skipped > 1 ? "s" : ""}. Dexna stores text files only.`, "warn");
 }
 
 async function importZip(file) {
@@ -732,7 +731,7 @@ function renderTree() {
       const open = project.expanded.includes(d.path);
       const errs = Object.entries(counts).filter(([k]) => k.startsWith(d.path + "/")).reduce((s, [, c]) => s + c.e, 0);
       const row = h("div", { class: "row" + (treeSelection === d.path ? " selected" : ""), style: { paddingLeft: 8 + depth * 14 + "px" }, "data-path": d.path, "data-dir": "1", draggable: "true" },
-        h("span", { class: "twisty" }, open ? "▾" : "▸"), h("span", { class: "fi" }, open ? "📂" : "📁"),
+        h("span", { class: "twisty" }, icon(open ? "chevronDown" : "chevronRight")), fi(open ? "folderOpen" : "folder"),
         h("span", { class: "name" + (errs ? " err" : "") }, basename(d.path)));
       treeEl.append(row);
       if (open) walk(d, depth + 1);
@@ -940,10 +939,10 @@ function renderTabs() {
     const dup = names.filter((n) => n === name).length > 1;
     const c = counts[key];
     const tab = h("div", { class: "tab" + (key === project.active ? " active" : "") + (ext ? " readonly" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
-      ext ? h("span", { class: "fi" }, "📚") : fileIcon(p),
+      ext ? fi("book") : fileIcon(p),
       h("span", { class: "tname" }, name),
       dup || ext ? h("span", { class: "tdir" }, ext ? "read-only" : dirname(p) || "./") : null,
-      h("button", { class: "close", title: "Close (Alt+W)", onclick: (e) => { e.stopPropagation(); closeTab(key); } }, "✕"));
+      h("button", { class: "close", title: "Close (Alt+W)", onclick: (e) => { e.stopPropagation(); closeTab(key); } }, icon("close")));
     tab.addEventListener("mousedown", (e) => { if (e.button === 1) { e.preventDefault(); closeTab(key); } });
     tab.addEventListener("click", () => openFile(key));
     tab.addEventListener("contextmenu", (e) => {
@@ -999,12 +998,12 @@ function updateBreadcrumbs() {
   const p = key.replace(/^ext:/, "");
   const parts = p.split("/").filter(Boolean);
   parts.forEach((seg, i) => {
-    if (i) bc.append(h("span", { class: "sep" }, "›"));
+    if (i) bc.append(h("span", { class: "sep" }, icon("chevronRight")));
     bc.append(h("span", { class: "crumb", onclick: () => { if (!key.startsWith("ext:")) { setView("explorer"); selectTreeRow(i === parts.length - 1 ? key : parts.slice(0, i + 1).join("/")); } } }, seg));
   });
   const syms = symbolPathAt(symbolsCache.get(key) || [], editor.getPosition()?.lineNumber || 1);
   for (const s of syms) {
-    bc.append(h("span", { class: "sep" }, "›"), h("span", { class: "crumb", onclick: () => openFile(key, { line: s.line, col: s.col }) }, (s.kind === "class" ? "◆ " : "ƒ ") + s.name));
+    bc.append(h("span", { class: "sep" }, icon("chevronRight")), h("span", { class: "crumb", onclick: () => openFile(key, { line: s.line, col: s.col }) }, symIcon(s.kind), s.name));
   }
 }
 
@@ -1022,7 +1021,10 @@ $("#sb-indent").onclick = () => quickPick({
   source: () => [2, 4, 8].map((n) => ({ label: `Spaces: ${n}`, run: () => setSetting("tabSize", n) })),
 });
 
-const KIND_ICON = { class: ["◆", "#f5b041"], function: ["ƒ", "#7c6cff"], method: ["m", "#60a5fa"], variable: ["v", "#2dd4bf"], constant: ["K", "#f87171"] };
+// Symbol kinds: a small rounded tag with a letter, coloured per kind.
+const KIND = { class: ["C", "#d4952b"], function: ["F", "#5a8dee"], method: ["M", "#4aa3c7"], variable: ["V", "#3aa57a"], constant: ["K", "#c9574f"] };
+const symIconHtml = (kind) => { const [l, c] = KIND[kind] || ["?", "#7d8597"]; return `<svg class="icon sym" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="3" fill="${c}" opacity=".18"/><text x="8" y="11.3" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" font-size="8.5" fill="${c}">${l}</text></svg>`; };
+const symIcon = (kind) => h("span", { class: "fi", html: symIconHtml(kind) });
 const scheduleOutline = debounce(refreshOutline, 250);
 async function refreshOutline() {
   const key = project?.active;
@@ -1042,15 +1044,14 @@ function renderOutline() {
   const el = $("#outline");
   el.textContent = "";
   const key = project?.active;
-  $("#outline-file").textContent = key ? "· " + basename(key.replace(/^ext:/, "")) : "";
+  $("#outline-file").textContent = key ? basename(key.replace(/^ext:/, "")) : "";
   const syms = symbolsCache.get(key) || [];
   const filter = $("#outline-filter").value.trim();
   const walk = (list, depth) => {
     for (const s of list) {
       const match = !filter || fuzzy(filter, s.name);
-      const [ic, color] = KIND_ICON[s.kind] || ["•", "var(--fg-dim)"];
       if (match) el.append(h("div", { class: "row", style: { paddingLeft: 10 + depth * 14 + "px" }, "data-line": s.line, "data-end": s.endLine, onclick: () => openFile(key, { line: s.line, col: s.col }) },
-        h("span", { class: "fi", style: { color, fontWeight: 700 } }, ic), h("span", { class: "name" }, s.name), s.detail ? h("span", { class: "meta" }, s.detail.length > 30 ? s.detail.slice(0, 29) + "…)" : s.detail) : null));
+        symIcon(s.kind), h("span", { class: "name" }, s.name), s.detail ? h("span", { class: "meta" }, s.detail.length > 30 ? s.detail.slice(0, 29) + "...)" : s.detail) : null));
       walk(s.children || [], filter ? depth : depth + 1);
     }
   };
@@ -1280,7 +1281,7 @@ function registerProviders() {
       const lines = model.getLinesContent();
       lines.forEach((l, i) => {
         if (/^\s*#\s*%%/.test(l)) {
-          lenses.push({ range: new monaco.Range(i + 1, 1, i + 1, 1), command: { id: runCellCommand, title: "▶ Run Cell", arguments: [i + 1] } });
+          lenses.push({ range: new monaco.Range(i + 1, 1, i + 1, 1), command: { id: runCellCommand, title: "Run Cell", arguments: [i + 1] } });
           lenses.push({ range: new monaco.Range(i + 1, 1, i + 1, 1), command: { id: runCellCommand, title: "Run Cell & Below", arguments: [i + 1, true] } });
         }
       });
@@ -1359,13 +1360,13 @@ const refreshProblems = debounce(() => {
     for (const m of list.sort((a, b) => a.startLineNumber - b.startLineNumber)) {
       const err = m.severity === monaco.MarkerSeverity.Error;
       el.append(h("div", { class: "row problem", style: { paddingLeft: "28px" }, title: m.message, onclick: () => openFile(file, { line: m.startLineNumber, col: m.startColumn }) },
-        h("span", { class: "fi " + (err ? "err" : "warn") }, err ? "⊗" : "⚠"), h("span", { class: "name" }, m.message),
+        fi(err ? "error" : "warning", err ? "err" : "warn"), h("span", { class: "name" }, m.message),
         h("span", { class: "code" }, `${typeof m.code === "object" ? m.code.value : m.code || ""} [${m.startLineNumber}:${m.startColumn}]`)));
     }
   }
-  if (!byFile.size) el.append(h("div", { class: "empty" }, "No problems detected in the project ✔"));
+  if (!byFile.size) el.append(h("div", { class: "empty" }, "No problems detected in the project."));
   $("#problems-badge").textContent = e + w || "";
-  $("#sb-problems").textContent = `⊗ ${e}  ⚠ ${w}`;
+  $("#sb-problems").innerHTML = `${iconSvg("error")}<span>${e}</span>${iconSvg("warning")}<span>${w}</span>`;
   renderTree();
   renderTabs();
 }, 120);
@@ -1397,7 +1398,7 @@ function startKernel() {
     return info;
   }).catch((e) => {
     setKernelStatus("error", "Python failed to load");
-    terminal.system("✖ Could not start Python: " + e.message + "\n  Check your internet connection and reload the page.", "stderr");
+    terminal.system("Could not start Python: " + e.message + "\n  Check your internet connection and reload the page.", "stderr");
     throw e;
   });
 }
@@ -1468,7 +1469,7 @@ function getRunTarget() {
 }
 function updateRunTarget() {
   const t = getRunTarget();
-  $("#run-target").textContent = t ? (project.pinEntry ? "📌 " : "") + t : "";
+  $("#run-target").innerHTML = t ? (project.pinEntry ? iconSvg("pin") : "") + `<span>${esc(t)}</span>` : "";
   $("#pin-run").checked = !!project?.pinEntry;
   $("#pin-run-name").textContent = project?.entry || t || "main.py";
   $$("#file-tree .row.entry").forEach((r) => r.classList.remove("entry"));
@@ -1496,14 +1497,14 @@ async function kernelReady() {
 }
 
 async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
-  if (state.busy) return toast("A program is already running — press Shift+F5 to stop it.", "warn");
+  if (state.busy) return toast("A program is already running. Press Shift+F5 to stop it.", "warn");
   path ||= getRunTarget();
   if (!path) return toast("Create a Python file to run first.", "warn");
   if (debug && !kernel?.isolated) return toast("The debugger needs cross-origin isolation (try reloading the page in Chrome, Edge or Firefox).", "error", 6000);
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   showPanel("terminal");
   if (settings.clearOnRun) terminal.clear();
-  terminal.separator(`${debug ? "🐞 Debugging" : "▶ Running"} ${path}  ·  ${new Date().toLocaleTimeString()}`);
+  terminal.separator(`${debug ? "Debugging" : "Running"} ${path} at ${new Date().toLocaleTimeString()}`);
   sink = terminal;
   state.runStderr = "";
   clearRuntimeError();
@@ -1517,13 +1518,13 @@ async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
     const sources = Object.entries(project.files).filter(([p]) => p.endsWith(".py")).map(([, c]) => c);
     const res = await kernel.call("run", { path, debug, stopOnEntry, breakpoints: project.breakpoints, sources, autoInstall: settings.autoInstall });
     const secs = res.time.toFixed(res.time < 10 ? 3 : 1);
-    if (res.ok) terminal.system(`✔ Finished in ${secs}s`, "ok");
-    else { terminal.system(`✖ Exited with an error after ${secs}s`, "stderr"); markRuntimeError(state.runStderr); }
+    if (res.ok) terminal.system(`Process finished in ${secs}s`, "ok");
+    else { terminal.system(`Process exited with an error after ${secs}s`, "stderr"); markRuntimeError(state.runStderr); }
     applyFileChanges(res.changes);
-    $("#sb-run").textContent = `${res.ok ? "✔" : "✖"} ${path} · ${secs}s`;
+    $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)} ${secs}s</span>`;
   } catch (e) {
-    terminal.system(`✖ ${e.message}`, "stderr");
-    $("#sb-run").textContent = `✖ ${path}`;
+    terminal.system(e.message, "stderr");
+    $("#sb-run").innerHTML = `${iconSvg("error")}<span>${esc(path)}</span>`;
   } finally {
     if (terminal.inputActive) terminal.resolveInput(null);
     setBusy(false);
@@ -1540,7 +1541,7 @@ async function replExec(code, { echo = true, label } = {}) {
     dbgEval(code, (r) => consoleTerm.write(r.result + "\n", r.result.match(/^\w+Error: /) ? "stderr" : "stdout"));
     return;
   }
-  if (state.busy) return toast("The kernel is busy — wait for the program to finish or stop it.", "warn");
+  if (state.busy) return toast("Python is busy. Wait for the program to finish or stop it.", "warn");
   if (echo) consoleTerm.echo(label || code);
   sink = consoleTerm;
   setBusy(true, "repl");
@@ -1552,7 +1553,7 @@ async function replExec(code, { echo = true, label } = {}) {
     const res = await kernel.call("repl", { code, autoInstall: settings.autoInstall });
     applyFileChanges(res.changes);
   } catch (e) {
-    consoleTerm.system("✖ " + e.message, "stderr");
+    consoleTerm.system(e.message, "stderr");
   } finally {
     if (consoleTerm.inputActive) consoleTerm.resolveInput(null);
     sink = terminal;
@@ -1596,7 +1597,7 @@ async function stopExecution() {
 
 async function restartKernel(reason) {
   if (!kernel) return startKernel();
-  sink.system(`⟳ Restarting Python${reason ? ` (${reason})` : ""}…`);
+  sink.system(`Restarting Python${reason ? ` (${reason})` : ""}...`);
   dbgEnd();
   setBusy(false);
   setKernelStatus("loading", "Restarting…");
@@ -1606,7 +1607,7 @@ async function restartKernel(reason) {
     const info = await kernel.start();
     kernelInfo = info;
     setKernelStatus("ready", "Ready");
-    sink.system("Python restarted — all variables were cleared.");
+    sink.system("Python restarted. All variables were cleared.");
     renderVariables([]);
     ensurePackages().catch(() => {});
   } catch (e) { setKernelStatus("error", "Restart failed"); }
@@ -1657,7 +1658,7 @@ function runCell(line, andBelow = false) {
   const { start, end, header } = cellBounds(model, line);
   const lastLine = andBelow ? model.getLineCount() : end;
   const code = model.getValueInRange(new monaco.Range(start, 1, lastLine, model.getLineMaxColumn(lastLine)));
-  replExec(code, { label: header ? `${header}${andBelow ? " (and below)" : ""}  — ${lastLine - start + 1} lines` : undefined });
+  replExec(code, { label: header ? `${header}${andBelow ? " (and below)" : ""}, ${lastLine - start + 1} lines` : undefined });
 }
 function runSelection() {
   const model = editor.getModel();
@@ -1735,7 +1736,7 @@ function onPaused(info) {
   dbg.paused = true;
   dbg.waiting = true;
   dbg.info = info;
-  setKernelStatus("busy", `Paused · ${info.file}:${info.line}`);
+  setKernelStatus("busy", `Paused at ${info.file}:${info.line}`);
   if (dbg.bpsDirty) { dbg.queue.unshift({ cmd: "bps:" + JSON.stringify(project.breakpoints) }); dbg.bpsDirty = false; }
   openFile(info.file, { line: info.line, focus: false });
   showDebugLine(info.file, info.line);
@@ -1788,8 +1789,8 @@ function renderWatches() {
   el.textContent = "";
   for (const w of project.watches) {
     el.append(h("div", { class: "row" }, h("span", { class: "k" }, w), h("span", {}, " = "),
-      h("span", { class: "v", title: dbg.watchValues[w] || "" }, dbg.paused || dbg.watchValues[w] ? dbg.watchValues[w] ?? "…" : "—"),
-      h("button", { class: "btn icon sm row-act", title: "Remove", onclick: () => { project.watches = project.watches.filter((x) => x !== w); persistProject(); renderWatches(); } }, "✕")));
+      h("span", { class: "v", title: dbg.watchValues[w] || "" }, dbg.paused || dbg.watchValues[w] ? dbg.watchValues[w] ?? "..." : "-"),
+      h("button", { class: "btn icon sm row-act", title: "Remove", onclick: () => { project.watches = project.watches.filter((x) => x !== w); persistProject(); renderWatches(); } }, icon("close"))));
   }
   if (!project.watches.length) el.append(h("div", { class: "muted small pad" }, "No watch expressions"));
 }
@@ -1806,7 +1807,7 @@ function renderCallStack() {
   el.textContent = "";
   if (!dbg.paused || !dbg.info) { el.append(h("div", { class: "muted pad" }, dbg.active ? "Running…" : "Not paused")); return; }
   dbg.info.stack.forEach((f, i) => el.append(h("div", { class: "row" + (i === 0 ? " selected" : ""), style: { paddingLeft: "12px" }, onclick: () => openFile(f.file, { line: f.line }) },
-    h("span", { class: "fi" }, i === 0 ? "➜" : ""), h("span", { class: "name" }, f.name === "<module>" ? "‹module›" : f.name + "()"), h("span", { class: "meta" }, `${f.file}:${f.line}`))));
+    i === 0 ? fi("arrow", "warn") : h("span", { class: "fi" }), h("span", { class: "name" }, f.name === "<module>" ? "<module>" : f.name + "()"), h("span", { class: "meta" }, `${f.file}:${f.line}`))));
 }
 function renderBreakpointList() {
   const el = $("#bp-list");
@@ -1815,8 +1816,8 @@ function renderBreakpointList() {
     for (const ln of lines) {
       const text = (models.get(file)?.getLineContent(ln) || "").trim();
       el.append(h("div", { class: "row", style: { paddingLeft: "12px" }, onclick: () => openFile(file, { line: ln }) },
-        h("span", { class: "fi", style: { color: "var(--err)" } }, "●"), h("span", { class: "name" }, `${basename(file)}:${ln}  `, h("span", { class: "muted" }, text)),
-        h("button", { class: "btn icon sm row-act", onclick: (e) => { e.stopPropagation(); toggleBreakpoint(file, ln); } }, "✕")));
+        fi("dot", "err"), h("span", { class: "name" }, `${basename(file)}:${ln}  `, h("span", { class: "muted" }, text)),
+        h("button", { class: "btn icon sm row-act", onclick: (e) => { e.stopPropagation(); toggleBreakpoint(file, ln); } }, icon("close"))));
     }
   }
   if (!el.children.length) el.append(h("div", { class: "muted pad" }, "No breakpoints"));
@@ -1834,7 +1835,7 @@ async function refreshVariables() {
 }
 function varRow(v, depth = 0) {
   const tr = h("tr", { class: depth ? "child" : "", style: depth ? { "--depth": depth } : null },
-    h("td", { class: "n" }, v.expandable && v.path !== null && !dbg.active ? h("span", { class: "exp" }, "▸") : h("span", { class: "exp" }), v.name),
+    h("td", { class: "n" }, v.expandable && v.path !== null && !dbg.active ? h("span", { class: "exp" }, icon("chevronRight")) : h("span", { class: "exp" }), v.name),
     h("td", { class: "t", title: v.module + "." + v.type }, v.kind === "function" ? "function" : v.kind === "class" ? "class" : v.type),
     h("td", { class: "t" }, v.size), h("td", { class: "v", title: v.value }, v.value));
   const exp = tr.querySelector(".exp");
@@ -1842,9 +1843,9 @@ function varRow(v, depth = 0) {
     let kids = null;
     exp.parentElement.style.cursor = "pointer";
     exp.parentElement.onclick = async () => {
-      if (kids) { kids.forEach((k) => k.remove()); kids = null; exp.textContent = "▸"; return; }
+      if (kids) { kids.forEach((k) => k.remove()); kids = null; exp.replaceChildren(icon("chevronRight")); return; }
       if (state.busy) return;
-      exp.textContent = "▾";
+      exp.replaceChildren(icon("chevronDown"));
       const r = await kernel.call("inspect", { name: v.path || v.name });
       kids = (r.items || []).map((c) => varRow(c, depth + 1));
       let after = tr;
@@ -1860,7 +1861,7 @@ function renderVariables(vars, globals) {
   if (globals) tb.append(h("tr", {}, h("td", { colspan: 4, class: "t" }, "Locals")));
   add(vars || []);
   if (globals?.length) { tb.append(h("tr", {}, h("td", { colspan: 4, class: "t" }, "Globals"))); add(globals); }
-  if (!tb.children.length) tb.append(h("tr", {}, h("td", { colspan: 4, class: "t", style: { textAlign: "center", padding: "16px" } }, "No variables yet — run a program or use the console.")));
+  if (!tb.children.length) tb.append(h("tr", {}, h("td", { colspan: 4, class: "t", style: { textAlign: "center", padding: "16px" } }, "No variables yet. Run a program or use the console.")));
 }
 
 /* =====================================================================
@@ -1874,8 +1875,8 @@ function addPlot(b64) {
   const card = h("div", { class: "plot" },
     h("img", { src, alt: `Figure ${n}`, onclick: () => showImage(src) }),
     h("div", { class: "plot-acts" },
-      h("button", { class: "btn sm", onclick: () => fetch(src).then((r) => r.blob()).then((b) => downloadBlob(b, `figure-${n}.png`)) }, "⤓ PNG"),
-      h("button", { class: "btn sm", onclick: () => card.remove() }, "✕")));
+      h("button", { class: "btn sm", onclick: () => fetch(src).then((r) => r.blob()).then((b) => downloadBlob(b, `figure-${n}.png`)) }, icon("download"), "PNG"),
+      h("button", { class: "btn sm", onclick: () => card.remove() }, icon("close"))));
   const plots = $("#plots");
   plots.querySelector(".empty")?.remove();
   plots.prepend(card);
@@ -1918,6 +1919,7 @@ consoleInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     if (!v.trim()) return;
+    if (state.busy && !dbg.paused && !consoleTerm.inputActive) { toast("Python is busy. Your input is kept; press Enter again when it finishes.", "warn"); return; }
     const status = e.ctrlKey || dbg.paused ? "complete" : inputStatus(v);
     if (status === "incomplete") {
       const lastLine = v.slice(v.lastIndexOf("\n") + 1);
@@ -1933,7 +1935,7 @@ consoleInput.addEventListener("keydown", (e) => {
     autoGrow();
     if (cmdHistory[cmdHistory.length - 1] !== v) { cmdHistory.push(v); if (cmdHistory.length > 300) cmdHistory.shift(); LS.set("history", cmdHistory); }
     histIdx = cmdHistory.length;
-    replExec(v.replace(/\n+$/, ""));
+    replExec(v.replace(/\s+$/, ""));
   } else if (e.key === "ArrowUp" && !v.slice(0, consoleInput.selectionStart).includes("\n")) {
     if (histIdx > 0) { e.preventDefault(); consoleInput.value = cmdHistory[--histIdx]; autoGrow(); }
   } else if (e.key === "ArrowDown" && !v.slice(consoleInput.selectionEnd).includes("\n")) {
@@ -1983,9 +1985,9 @@ function renderPackagesView() {
   SUGGESTED.forEach((s) => sug.append(h("button", { class: "chip", onclick: () => installFromInput(s) }, "+ " + s)));
   const reqs = $("#pkg-reqs");
   reqs.textContent = "";
-  for (const p of project.packages) reqs.append(h("div", { class: "row", style: { paddingLeft: "12px" } }, h("span", { class: "fi" }, "📦"), h("span", { class: "name" }, p),
+  for (const p of project.packages) reqs.append(h("div", { class: "row", style: { paddingLeft: "12px" } }, fi("package"), h("span", { class: "name" }, p),
     h("span", { class: "meta" }, kernelInstalled.has(p) ? "installed" : "pending"),
-    h("button", { class: "btn icon sm row-act", title: "Remove from requirements", onclick: () => { project.packages = project.packages.filter((x) => x !== p); persistProject(); renderPackagesView(); } }, "✕")));
+    h("button", { class: "btn icon sm row-act", title: "Remove from requirements", onclick: () => { project.packages = project.packages.filter((x) => x !== p); persistProject(); renderPackagesView(); } }, icon("close"))));
   if (!project.packages.length) reqs.append(h("div", { class: "muted pad" }, "None. Imports are auto-installed when you run."));
   renderInstalled();
 }
@@ -1996,7 +1998,7 @@ function renderInstalled() {
   for (const p of installedPkgs.filter((p) => p.name.toLowerCase().includes(f))) {
     el.append(h("div", { class: "row", style: { paddingLeft: "12px" }, title: p.source }, h("span", { class: "name" }, p.name), h("span", { class: "meta" }, p.version)));
   }
-  if (!installedPkgs.length) el.append(h("div", { class: "muted pad" }, kernel?.info ? "Click ⟳ to list installed packages" : "Python is starting…"));
+  if (!installedPkgs.length) el.append(h("div", { class: "muted pad" }, kernel?.info ? "Click refresh to list installed packages" : "Python is starting…"));
 }
 $("#pkg-install").onclick = () => { installFromInput($("#pkg-input").value); $("#pkg-input").value = ""; };
 $("#pkg-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#pkg-install").click(); });
@@ -2127,9 +2129,9 @@ async function shareProject() {
   const data = await compress(payload);
   const url = `${location.origin}${location.pathname}#p=${data}`;
   const input = h("input", { value: url, readonly: true });
-  const copy = h("button", { class: "btn primary", onclick: async () => { try { await navigator.clipboard.writeText(url); copy.textContent = "Copied ✔"; } catch (_) { input.select(); document.execCommand("copy"); copy.textContent = "Copied ✔"; } } }, "Copy link");
+  const copy = h("button", { class: "btn primary", onclick: async () => { try { await navigator.clipboard.writeText(url); copy.textContent = "Copied"; } catch (_) { input.select(); document.execCommand("copy"); copy.textContent = "Copied"; } } }, "Copy link");
   openModal(h("div", { class: "modal" }, h("div", { class: "modal-head" }, "Share project"),
-    h("div", { class: "modal-body" }, h("p", {}, `Anyone with this link gets a copy of “${project.name}” (${Object.keys(project.files).length} files, ${(url.length / 1024).toFixed(1)} KB link). The code lives entirely in the link — nothing is uploaded.`), input,
+    h("div", { class: "modal-body" }, h("p", {}, `Anyone with this link gets a copy of "${project.name}" (${Object.keys(project.files).length} files, ${(url.length / 1024).toFixed(1)} KB link). The code is stored in the link itself, nothing is uploaded.`), input,
       url.length > 60000 ? h("p", { style: { color: "var(--warn)", marginTop: "8px" } }, "This link is very long and may not work everywhere. Consider downloading a ZIP instead.") : null),
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => closeOverlay() }, "Close"), copy)));
   input.select();
@@ -2142,7 +2144,7 @@ async function importFromHash() {
   try {
     const d = JSON.parse(await decompress(m[1]));
     createProject({ name: d.n, entry: d.e, files: d.f, packages: d.p || [] }, `${d.n} (shared)`);
-    toast(`Opened shared project “${d.n}”`, "ok");
+    toast(`Opened shared project "${d.n}"`, "ok");
     return true;
   } catch (e) { toast("This share link is broken or incomplete.", "error"); return false; }
 }
@@ -2311,7 +2313,7 @@ window.addEventListener("keydown", (e) => {
 async function saveCommand() {
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   persistProject.flush();
-  setStatusFlash("✔ Saved locally");
+  setStatusFlash("Saved locally");
 }
 
 function quickOpen(prefix = "") {
@@ -2329,22 +2331,22 @@ function quickOpen(prefix = "") {
       }
       if (q.startsWith(":")) {
         const n = parseInt(q.slice(1), 10);
-        return editor.getModel() ? [{ label: Number.isFinite(n) ? `Go to line ${n}` : `Type a line number (1–${editor.getModel().getLineCount()})`, run: () => Number.isFinite(n) && openFile(project.active, { line: n }) }] : [];
+        return editor.getModel() ? [{ label: Number.isFinite(n) ? `Go to line ${n}` : `Type a line number (1-${editor.getModel().getLineCount()})`, run: () => Number.isFinite(n) && openFile(project.active, { line: n }) }] : [];
       }
       if (q.startsWith("@")) {
         const t = q.slice(1);
         const flat = [];
         const walk = (l) => l.forEach((s) => { flat.push(s); walk(s.children || []); });
         walk(symbolsCache.get(project.active) || []);
-        return flat.map((s) => ({ s, m: fuzzy(t, s.name) })).filter((x) => x.m).map(({ s, m }) => ({ icon: (KIND_ICON[s.kind] || ["•"])[0], label: s.name, labelHtml: highlight(s.name, m.idx), desc: s.kind + " · line " + s.line, run: () => openFile(project.active, { line: s.line, col: s.col }) }));
+        return flat.map((s) => ({ s, m: fuzzy(t, s.name) })).filter((x) => x.m).map(({ s, m }) => ({ iconHtml: symIconHtml(s.kind), label: s.name, labelHtml: highlight(s.name, m.idx), desc: s.kind + ", line " + s.line, run: () => openFile(project.active, { line: s.line, col: s.col }) }));
       }
       const files = Object.keys(project.files);
       if (!q) {
         const recent = [...project.open].reverse();
-        return [...recent, ...files.filter((f) => !recent.includes(f))].map((f) => ({ icon: fileIcon(f).textContent, label: basename(f), detail: dirname(f), desc: project.open.includes(f) ? "open" : "", run: () => openFile(f) }));
+        return [...recent, ...files.filter((f) => !recent.includes(f))].map((f) => ({ iconHtml: fileIconSvg(f), label: basename(f), detail: dirname(f), desc: project.open.includes(f) ? "open" : "", run: () => openFile(f) }));
       }
       return files.map((f) => ({ f, m: fuzzy(q, f) })).filter((x) => x.m).sort((a, b) => b.m.score - a.m.score)
-        .map(({ f, m }) => ({ icon: fileIcon(f).textContent, label: f, labelHtml: highlight(f, m.idx), run: () => openFile(f) }));
+        .map(({ f, m }) => ({ iconHtml: fileIconSvg(f), label: f, labelHtml: highlight(f, m.idx), run: () => openFile(f) }));
     },
   });
 }
@@ -2384,8 +2386,8 @@ function showAbout() {
   openModal(h("div", { class: "modal" }, h("div", { class: "modal-head" }, "About Dexna"),
     h("div", { class: "modal-body" },
       h("p", {}, "Dexna is a Python IDE that runs entirely in your browser. Your code never leaves your machine: Python runs locally in WebAssembly and projects are saved in this browser's storage."),
-      h("p", {}, `Python ${kernelInfo?.version || "…"} via Pyodide ${kernelInfo?.pyodide || ""} · Monaco editor · jedi, pyflakes, black and isort for language features.`),
-      h("p", {}, kernel?.isolated ? "⚡ Full mode: input(), Stop and the debugger are available." : "Limited mode: cross-origin isolation is unavailable, so input() and the debugger are disabled. Reloading usually fixes this.")),
+      h("p", {}, `Python ${kernelInfo?.version || "..."} via Pyodide ${kernelInfo?.pyodide || ""}. Editor: Monaco. Language features: jedi, pyflakes, black and isort.`),
+      h("p", {}, kernel?.isolated ? "Full mode: input(), Stop and the debugger are available." : "Limited mode: cross-origin isolation is unavailable, so input() and the debugger are disabled. Reloading usually fixes this.")),
     h("div", { class: "modal-foot" }, h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
 
@@ -2404,6 +2406,7 @@ function startLsp() {
 }
 
 function wireStatic() {
+  $$("[data-icon]").forEach((el) => el.replaceWith(icon(el.dataset.icon)));
   $("#btn-run").onclick = () => runFile();
   $("#btn-debug").onclick = () => runFile({ debug: true });
   $("#btn-stop").onclick = stopExecution;
@@ -2419,7 +2422,7 @@ function wireStatic() {
   $$("#welcome [data-act]").forEach((b) => (b.onclick = () => ({ "new-file": () => newFileDialog(), "quick-open": () => quickOpen(), palette: () => quickOpen(">"), examples: showExamples })[b.dataset.act]()));
   const iso = $("#sb-iso");
   const isolated = self.crossOriginIsolated;
-  iso.textContent = isolated ? "⚡ Full mode" : "◌ Limited mode";
+  iso.innerHTML = isolated ? `${iconSvg("bolt")}<span>Full mode</span>` : `${iconSvg("circle")}<span>Limited mode</span>`;
   iso.title = isolated ? "Cross-origin isolated: input(), Stop and the debugger are enabled" : "Not cross-origin isolated: input() and the debugger are unavailable. Reload the page to enable them.";
   $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
   window.addEventListener("beforeunload", () => { persistProject.flush(); LS.set("layout", layout); });
@@ -2427,7 +2430,7 @@ function wireStatic() {
 }
 
 async function boot() {
-  const splash = h("div", { id: "splash" }, h("img", { src: "assets/logo.svg", width: 64, height: 64, alt: "" }), h("div", { class: "brand-name", style: { fontSize: "28px", fontWeight: 800 } }, "Dexna"), h("div", { class: "bar" }), h("div", { class: "muted small", id: "splash-msg" }, "Loading editor…"));
+  const splash = h("div", { id: "splash" }, h("img", { src: "assets/logo.svg", width: 64, height: 64, alt: "" }), h("div", { class: "brand-name", style: { fontSize: "26px", fontWeight: 700 } }, "Dexna"), h("div", { class: "bar" }), h("div", { class: "muted small", id: "splash-msg" }, "Loading editor…"));
   document.body.append(splash);
   document.documentElement.dataset.theme = resolvedTheme();
   wireStatic();
@@ -2473,8 +2476,8 @@ async function boot() {
   refreshProblems();
   renderVariables([]);
   plotsClear();
-  terminal.system("Welcome to Dexna ✦ Press F5 to run, F6 to debug, Ctrl+Shift+P for all commands.");
-  consoleTerm.system("Interactive Python console — variables from your last run live here. Try: [x**2 for x in range(10)]");
+  terminal.system("Dexna is ready. F5 runs the current file, F6 debugs it, Ctrl+Shift+P lists all commands.");
+  consoleTerm.system("Python console. Variables from your last run are available here, for example: [x**2 for x in range(10)]");
   splash.classList.add("fade");
   setTimeout(() => splash.remove(), 400);
 
