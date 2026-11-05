@@ -2430,8 +2430,7 @@ function wireStatic() {
 }
 
 async function boot() {
-  const splash = h("div", { id: "splash" }, h("img", { src: "assets/logo.svg", width: 64, height: 64, alt: "" }), h("div", { class: "brand-name", style: { fontSize: "26px", fontWeight: 700 } }, "Dexna"), h("div", { class: "bar" }), h("div", { class: "muted small", id: "splash-msg" }, "Loading editor…"));
-  document.body.append(splash);
+  const splash = $("#splash");
   document.documentElement.dataset.theme = resolvedTheme();
   wireStatic();
   buildMenus();

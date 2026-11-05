@@ -8,10 +8,25 @@
   <meta name="theme-color" content="#0f1117">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
+  <script>
+    // Apply the saved theme before first paint so the loading screen never flashes the wrong colours.
+    try {
+      var t = (JSON.parse(localStorage.getItem("dexna:settings")) || {}).theme || "dark";
+      if (t === "auto") t = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <style>#splash{position:fixed;inset:0;z-index:2000;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;background:#0f1117}:root[data-theme=light] #splash{background:#f7f7fa}</style>
   <script src="coi-serviceworker.js"></script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<div id="splash">
+  <img src="assets/logo.svg" width="64" height="64" alt="">
+  <div class="brand-name" style="font-size:26px;font-weight:700">Dexna</div>
+  <div class="bar"></div>
+  <div class="muted small" id="splash-msg">Loading editor...</div>
+</div>
 <div id="app">
   <!-- ============ Title bar ============ -->
   <header id="titlebar">
