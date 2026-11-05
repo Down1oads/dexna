@@ -49,7 +49,7 @@
     <div class="title-right">
       <span class="run-target" id="run-target" title="File that Run executes"></span>
       <button class="btn icon" id="btn-share" title="Share project link"><svg class="i" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></button>
-      <button class="btn icon" id="btn-theme" title="Toggle light/dark theme"><svg class="i" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      <button class="btn icon" id="btn-theme" title="Toggle light/dark theme"><i data-icon="moon"></i></button>
     </div>
   </header>
 
@@ -128,25 +128,8 @@
       </section>
 
       <section class="view" data-view="packages">
-        <div class="view-title">Python packages</div>
-        <div class="pad stack">
-          <div class="field-row">
-            <input id="pkg-input" placeholder="e.g. numpy, rich, sympy" spellcheck="false">
-            <button class="btn" id="pkg-install">Install</button>
-          </div>
-          <div class="muted small">Installs from Pyodide's package set or PyPI (pure-Python wheels). Packages listed as project requirements are re-installed automatically.</div>
-          <div class="chips" id="pkg-suggest"></div>
-        </div>
-        <div class="sub-title">Project requirements</div>
-        <div id="pkg-reqs" class="tree small"></div>
-        <div class="sub-title">Installed <button class="btn icon sm" id="pkg-refresh" title="Refresh"><i data-icon="refresh"></i></button></div>
-        <input id="pkg-filter" class="filter" placeholder="Filter installed" spellcheck="false">
-        <div id="pkg-list" class="tree small"></div>
-      </section>
-
-      <section class="view" data-view="settings">
-        <div class="view-title">Settings</div>
-        <div id="settings-form" class="settings"></div>
+        <div class="view-title">Packages</div>
+        <div id="pkg-root" class="pkg-root"></div>
       </section>
     </aside>
     <div class="resizer v" id="sidebar-resizer"></div>
@@ -159,6 +142,7 @@
         <div id="editor-wrap">
           <div id="editor"></div>
           <div id="home" class="home hidden"></div>
+          <div id="settings-page" class="settings-page hidden"></div>
         </div>
       </div>
       <div class="resizer h" id="panel-resizer"></div>
@@ -227,7 +211,11 @@
   monaco: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/",
   libs: {
     wasmoon: "https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/dist/",
-    sqlite: "https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.46.1-build4/sqlite-wasm/jswasm/"
+    sqlite: "https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.46.1-build4/sqlite-wasm/jswasm/",
+    luaparse: "https://cdn.jsdelivr.net/npm/luaparse@0.3.1/luaparse.js",
+    sqlformatter: "https://cdn.jsdelivr.net/npm/sql-formatter@15.9.0/dist/sql-formatter.min.js",
+    stylua: "https://cdn.jsdelivr.net/npm/@johnnymorganz/stylua@2.6.0/",
+    esm: "https://esm.sh/"
   }
 };</script>
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>

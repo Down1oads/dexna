@@ -1,6 +1,7 @@
 // Dexna: a Python IDE in the browser.
 import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
+import { registerLanguageTools } from "./langtools.js";
 import { Terminal } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
 import { createZip, readZip } from "./zip.js";
@@ -62,7 +63,7 @@ function makeProject(tpl, name) {
   return {
     id: newId(), name: name || tpl.name, files, dirs: [], entry, pinEntry: false,
     open: entry ? [entry] : [], active: entry, breakpoints: structuredClone(tpl.breakpoints || {}),
-    packages: [...(tpl.packages || [])], watches: [], expanded: [...dirs], created: Date.now(),
+    packages: [...(tpl.packages || [])], npm: { ...(tpl.npm || {}) }, watches: [], expanded: [...dirs], created: Date.now(),
   };
 }
 
@@ -215,6 +216,7 @@ const bpDecos = new Map(); // path -> decoration ids
 const cellDecos = new Map();
 const symbolsCache = new Map();
 let kernel, lsp;
+let langTools = { symbols: async () => [] };
 let lspReady = false;
 let kernelInfo = null;
 const kernelInstalled = new Set();
@@ -293,7 +295,15 @@ function defineThemes() {
 }
 
 const resolvedTheme = () => settings.theme === "auto" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : settings.theme;
+function updateThemeIcon() {
+  const btn = document.getElementById("btn-theme");
+  if (!btn) return;
+  const dark = resolvedTheme() === "dark";
+  btn.replaceChildren(icon(dark ? "moon" : "sun"));
+  btn.title = dark ? "Dark theme (click for light)" : "Light theme (click for dark)";
+}
 function applyTheme() {
+  updateThemeIcon();
   const t = resolvedTheme();
   document.documentElement.dataset.theme = t;
   $('meta[name="theme-color"]').content = t === "dark" ? "#0f1117" : "#f7f7fa";
@@ -445,7 +455,7 @@ async function loadProject(id) {
   if (project) saveViewState();
   closeAllModels();
   project = data;
-  project.dirs ||= []; project.breakpoints ||= {}; project.packages ||= []; project.watches ||= []; project.expanded ||= [];
+  project.dirs ||= []; project.breakpoints ||= {}; project.packages ||= []; project.npm ||= {}; project.watches ||= []; project.expanded ||= [];
   project.open = (project.open || []).filter((p) => project.files[p] != null);
   if (!project.files[project.active]) project.active = project.open[0] || null;
   LS.set("current", id);
@@ -885,22 +895,37 @@ const LANG_STARTS = [
   { id: "lua", name: "Lua", ext: "lua", desc: "A small, fast scripting language (Lua 5.4)." },
   { id: "sql", name: "SQL", ext: "sql", desc: "Query an in-memory SQLite database." },
 ];
-let homeOpen = false;
-const showWelcome = (on) => showHome(on);
+let homeOpen = false, settingsOpen = false;
+const pageOpen = () => homeOpen || settingsOpen;
+const showWelcome = (on) => (on ? showHome(true) : closePages());
 
-function showHome(on = true) {
-  homeOpen = on;
-  $("#home").classList.toggle("hidden", !on);
-  $("#editor-area").classList.toggle("home-open", on);
-  if (on) { renderHome(); document.activeElement?.blur?.(); }
+function syncPages() {
+  $("#home").classList.toggle("hidden", !homeOpen);
+  $("#settings-page").classList.toggle("hidden", !settingsOpen);
+  $("#editor-area").classList.toggle("home-open", pageOpen());
+  $('#activitybar [data-view="settings"]')?.classList.toggle("active", settingsOpen);
+  if (homeOpen) renderHome();
+  if (settingsOpen) renderSettingsPage();
+  if (pageOpen()) { document.activeElement?.blur?.(); $("#sb-lang").textContent = ""; }
   renderTabs();
   updateRuntimeBadge();
-  if (on) $("#sb-lang").textContent = "";
 }
-const closeHome = () => { if (project.active) showHome(false); };
+function showHome(on = true) { homeOpen = on; if (on) settingsOpen = false; syncPages(); }
+function showSettings(on = true, query) {
+  settingsOpen = on;
+  if (on) { homeOpen = false; if (query != null) settingsUI.query = query; }
+  syncPages();
+}
+function closePages() { homeOpen = false; settingsOpen = false; syncPages(); }
+function closePage(which) {
+  if (which === "home") homeOpen = false; else settingsOpen = false;
+  if (!pageOpen() && !project.active) homeOpen = true;
+  syncPages();
+}
+const closeHome = () => closePage("home");
 
 function updateRuntimeBadge() {
-  const py = !homeOpen && editor?.getModel()?.getLanguageId() === "python" && kernelInfo;
+  const py = !pageOpen() && editor?.getModel()?.getLanguageId() === "python" && kernelInfo;
   $("#sb-python").classList.toggle("hidden", !py);
 }
 
@@ -1042,17 +1067,17 @@ function renderTabs() {
   tabsEl.textContent = "";
   const counts = problemCounts();
   const names = allTabs().map((k) => basename(k.replace(/^ext:/, "")));
-  if (homeOpen) {
-    tabsEl.append(h("div", { class: "tab active", title: "Home" }, fi("home"), h("span", { class: "tname" }, "Home"),
-      h("button", { class: "close", title: "Close", onclick: (e) => { e.stopPropagation(); closeHome(); } }, icon("close"))));
-  }
+  const pageTab = (id, label, ic) => h("div", { class: "tab active", title: label }, fi(ic), h("span", { class: "tname" }, label),
+    h("button", { class: "close", title: "Close", onclick: (e) => { e.stopPropagation(); closePage(id); } }, icon("close")));
+  if (homeOpen) tabsEl.append(pageTab("home", "Home", "home"));
+  if (settingsOpen) tabsEl.append(pageTab("settings", "Settings", "settings"));
   for (const key of allTabs()) {
     const ext = key.startsWith("ext:");
     const p = ext ? key.slice(4) : key;
     const name = basename(p);
     const dup = names.filter((n) => n === name).length > 1;
     const c = counts[key];
-    const tab = h("div", { class: "tab" + (key === project.active && !homeOpen ? " active" : "") + (ext ? " readonly" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
+    const tab = h("div", { class: "tab" + (key === project.active && !pageOpen() ? " active" : "") + (ext ? " readonly" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
       ext ? fi("book") : fileIcon(p),
       h("span", { class: "tname" }, name),
       dup || ext ? h("span", { class: "tdir" }, ext ? "read-only" : dirname(p) || "./") : null,
@@ -1136,21 +1161,22 @@ $("#sb-indent").onclick = () => quickPick({
 });
 
 // Symbol kinds: a small rounded tag with a letter, coloured per kind.
-const KIND = { class: ["C", "#d4952b"], function: ["F", "#5a8dee"], method: ["M", "#4aa3c7"], variable: ["V", "#3aa57a"], constant: ["K", "#c9574f"] };
+const KIND = { class: ["C", "#d4952b"], interface: ["I", "#2f9fb0"], enum: ["E", "#b4693a"], type: ["T", "#8d6fd1"], function: ["F", "#5a8dee"], method: ["M", "#4aa3c7"], variable: ["V", "#3aa57a"], constant: ["K", "#c9574f"], table: ["T", "#3aa57a"], view: ["V", "#8d6fd1"], index: ["I", "#7d8597"], trigger: ["R", "#c9574f"] };
 const symIconHtml = (kind) => { const [l, c] = KIND[kind] || ["?", "#7d8597"]; return `<svg class="icon sym" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="3" fill="${c}" opacity=".18"/><text x="8" y="11.3" text-anchor="middle" font-family="ui-monospace,Menlo,Consolas,monospace" font-weight="700" font-size="8.5" fill="${c}">${l}</text></svg>`; };
 const symIcon = (kind) => h("span", { class: "fi", html: symIconHtml(kind) });
 const scheduleOutline = debounce(refreshOutline, 250);
 async function refreshOutline() {
   const key = project?.active;
   const model = editor?.getModel();
-  if (!key || !model || model.getLanguageId() !== "python" || !lspReady) {
-    if (!key || model?.getLanguageId() !== "python") { symbolsCache.delete(key); renderOutline(); }
-    return;
-  }
+  if (!key || !model || key.startsWith("ext:")) { symbolsCache.delete(key); renderOutline(); return; }
+  const lang = model.getLanguageId();
   try {
-    const syms = await lspCall("symbols", [model.getValue()]);
-    symbolsCache.set(key, syms);
+    let syms;
+    if (lang === "python") { if (!lspReady) return; syms = await lspCall("symbols", [model.getValue()]); }
+    else syms = await langTools.symbols(model);
+    if (syms) symbolsCache.set(key, syms); // null means "keep the previous outline" (e.g. a syntax error)
   } catch (_) {}
+  if (project.active !== key) return;
   renderOutline();
   updateBreadcrumbs();
 }
@@ -1249,6 +1275,9 @@ function configureTypeScript() {
   };
   ts.typescriptDefaults.setCompilerOptions(options);
   ts.javascriptDefaults.setCompilerOptions(options);
+  const diag = { noSemanticValidation: false, noSyntaxValidation: false, diagnosticCodesToIgnore: [2307, 7016, 2792] }; // npm packages have no types here
+  ts.typescriptDefaults.setDiagnosticsOptions(diag);
+  ts.javascriptDefaults.setDiagnosticsOptions(diag);
   ts.typescriptDefaults.setEagerModelSync(true);
   ts.javascriptDefaults.setEagerModelSync(true);
   const globals = "/** Prints a prompt and waits for a line typed in the terminal. */\ndeclare function input(prompt?: string): Promise<string | null>;";
@@ -1756,7 +1785,7 @@ async function emitTypeScript() {
 }
 
 async function runOther(path, lang) {
-  if (settings.formatOnSave && lang === "typescript") await editor.getAction("editor.action.formatDocument")?.run().catch(() => {});
+  if (settings.formatOnSave && editor.getModel() && pathOfModel(editor.getModel()) === path) await editor.getAction("editor.action.formatDocument")?.run().catch(() => {});
   showPanel("terminal");
   if (settings.clearOnRun) terminal.clear();
   terminal.separator(`Running ${path} (${RUN_LANG_NAME[lang]}) at ${new Date().toLocaleTimeString()}`);
@@ -1797,7 +1826,7 @@ async function runOther(path, lang) {
   };
   worker.onerror = (e) => { terminal.write(`${e.message || "The runner crashed"}\n`, "stderr"); finish({ ok: false, time: 0 }); };
   setKernelStatus("busy", `Running ${RUN_LANG_NAME[lang]}`);
-  worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs });
+  worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs, npm: project.npm || {} });
 }
 
 async function restartKernel(reason) {
@@ -2156,12 +2185,27 @@ $("#console").addEventListener("click", () => { if (!getSelection().toString()) 
 $("#terminal").addEventListener("click", () => { if (!getSelection().toString()) terminal.focusInput(); });
 
 /* =====================================================================
- * Packages view
+ * Packages view (Python and JavaScript)
  * ===================================================================== */
-const SUGGESTED = ["numpy", "pandas", "matplotlib", "scipy", "sympy", "scikit-learn", "seaborn", "networkx", "pillow", "rich", "requests", "beautifulsoup4", "pyyaml", "regex"];
+const PY_POPULAR = [
+  ["numpy", "Fast arrays and numerical computing"], ["pandas", "Tables and data analysis"], ["matplotlib", "Charts and plots"],
+  ["scipy", "Scientific algorithms"], ["sympy", "Symbolic mathematics"], ["scikit-learn", "Machine learning"],
+  ["seaborn", "Statistical charts"], ["networkx", "Graphs and networks"], ["pillow", "Image processing"],
+  ["rich", "Beautiful terminal output"], ["beautifulsoup4", "HTML and XML parsing"], ["pyyaml", "Read and write YAML"],
+  ["python-dateutil", "Powerful date handling"], ["jinja2", "Text templates"], ["regex", "More powerful regular expressions"],
+];
+const NPM_POPULAR = [
+  ["dayjs", "Small, fast date library"], ["date-fns", "Modern date utilities"], ["lodash-es", "Utility functions for arrays, objects and more"],
+  ["zod", "Schema validation with types"], ["mathjs", "Math with matrices, units and expressions"], ["d3", "Data visualization toolkit"],
+  ["ramda", "Functional programming helpers"], ["nanoid", "Tiny unique ID generator"], ["uuid", "Generate UUIDs"],
+  ["immer", "Immutable updates made simple"], ["rxjs", "Reactive streams"], ["marked", "Markdown to HTML"],
+];
 let installedPkgs = [];
+const pkgUI = { lang: "python", npmQuery: "", npmResults: null, npmLoading: false, npmError: "", collapsed: {}, inputs: {} };
+const normPy = (n) => n.toLowerCase().replace(/[_.]+/g, "-");
+
 async function installFromInput(names) {
-  names = names.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+  names = (Array.isArray(names) ? names : names.split(/[\s,]+/)).map((x) => x.trim()).filter(Boolean);
   if (!names.length) return;
   for (const n of names) if (!project.packages.includes(n)) project.packages.push(n);
   persistProject();
@@ -2178,38 +2222,132 @@ async function installFromInput(names) {
     if (failed.length) { project.packages = project.packages.filter((p) => !failed.includes(p)); persistProject(); }
     sink = prev;
   } catch (e) { toast(e.message, "error"); }
-  finally { setBusy(false); refreshPackages(); renderPackagesView(); }
+  finally { setBusy(false); refreshPackages(); }
 }
+
+async function uninstallPython(name) {
+  if (state.busy) return toast("Wait for the running program to finish first.", "warn");
+  try {
+    await kernelReady();
+    const r = await kernel.call("uninstall", { name });
+    if (!r.ok) throw new Error(r.error || "Could not remove " + name);
+    kernelInstalled.delete(name);
+    project.packages = project.packages.filter((p) => normPy(p) !== normPy(name));
+    persistProject();
+    toast(`Removed ${name}`, "ok");
+  } catch (e) { toast(e.message, "error"); }
+  refreshPackages();
+}
+
 async function refreshPackages() {
-  if (!kernel?.info || state.busy) return;
-  try { installedPkgs = await kernel.call("list-packages"); } catch (_) {}
-  renderInstalled();
+  if (kernel?.info && !state.busy) { try { installedPkgs = await kernel.call("list-packages"); } catch (_) {} }
+  renderPackagesView();
 }
-function renderPackagesView() {
-  const sug = $("#pkg-suggest");
-  sug.textContent = "";
-  SUGGESTED.forEach((s) => sug.append(h("button", { class: "chip", onclick: () => installFromInput(s) }, "+ " + s)));
-  const reqs = $("#pkg-reqs");
-  reqs.textContent = "";
-  for (const p of project.packages) reqs.append(h("div", { class: "row", style: { paddingLeft: "12px" } }, fi("package"), h("span", { class: "name" }, p),
-    h("span", { class: "meta" }, kernelInstalled.has(p) ? "installed" : "pending"),
-    h("button", { class: "btn icon sm row-act", title: "Remove from requirements", onclick: () => { project.packages = project.packages.filter((x) => x !== p); persistProject(); renderPackagesView(); } }, icon("close"))));
-  if (!project.packages.length) reqs.append(h("div", { class: "muted pad" }, "None. Imports are auto-installed when you run."));
-  renderInstalled();
+
+let npmTimer = null;
+function npmSearch(q) {
+  pkgUI.npmQuery = q;
+  clearTimeout(npmTimer);
+  if (!q.trim()) { pkgUI.npmResults = null; pkgUI.npmLoading = false; pkgUI.npmError = ""; renderPackagesView(); return; }
+  pkgUI.npmLoading = true; renderPackagesView();
+  npmTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(q.trim())}&size=15`);
+      if (!r.ok) throw new Error(`npm search failed (${r.status})`);
+      const data = await r.json();
+      if (pkgUI.npmQuery !== q) return;
+      pkgUI.npmResults = data.objects.map((o) => o.package);
+      pkgUI.npmError = "";
+    } catch (e) { pkgUI.npmError = "Could not reach the npm registry. " + e.message; pkgUI.npmResults = []; }
+    pkgUI.npmLoading = false;
+    renderPackagesView();
+  }, 350);
 }
-function renderInstalled() {
-  const el = $("#pkg-list");
-  el.textContent = "";
-  const f = $("#pkg-filter").value.toLowerCase();
-  for (const p of installedPkgs.filter((p) => p.name.toLowerCase().includes(f))) {
-    el.append(h("div", { class: "row", style: { paddingLeft: "12px" }, title: p.source }, h("span", { class: "name" }, p.name), h("span", { class: "meta" }, p.version)));
+function addNpm(name, version) {
+  project.npm ||= {};
+  project.npm[name] = version || ""; // "" means: always use the latest version
+  persistProject();
+  renderPackagesView();
+  toast(`Added ${name}${version ? "@" + version : ""}. Use it with: import ... from "${name}"`, "ok", 4500);
+}
+function removeNpm(name) { delete project.npm[name]; persistProject(); renderPackagesView(); }
+
+function pkgCard({ name, version, desc, badge, action }) {
+  return h("div", { class: "pkg" },
+    h("div", { class: "pk-icon" }, icon("package")),
+    h("div", { class: "pk-main" },
+      h("div", { class: "pk-name" }, h("span", {}, name), version ? h("span", { class: "pk-ver" }, version) : null, badge ? h("span", { class: "pk-badge" }, badge) : null),
+      desc ? h("div", { class: "pk-desc" }, desc) : null),
+    action ? h("div", { class: "pk-act" }, action) : null);
+}
+function pkgSection(id, title, count, body, { open = true } = {}) {
+  const collapsed = pkgUI.collapsed[id] ?? !open;
+  return h("section", { class: "pkg-sec" },
+    h("div", { class: "pkg-sec-head", onclick: () => { pkgUI.collapsed[id] = !collapsed; renderPackagesView(); } },
+      icon(collapsed ? "chevronRight" : "chevronDown"), h("span", {}, title), count != null ? h("span", { class: "badge" }, count) : null),
+    collapsed ? null : body);
+}
+function pkgInput(lang, placeholder, onEnter, onInput) {
+  let el = pkgUI.inputs[lang];
+  if (!el) {
+    el = h("input", { placeholder, spellcheck: "false", autocomplete: "off" });
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") onEnter(el.value); });
+    if (onInput) el.addEventListener("input", () => onInput(el.value));
+    pkgUI.inputs[lang] = el;
   }
-  if (!installedPkgs.length) el.append(h("div", { class: "muted pad" }, kernel?.info ? "Click refresh to list installed packages" : "Python is starting…"));
+  return el;
 }
-$("#pkg-install").onclick = () => { installFromInput($("#pkg-input").value); $("#pkg-input").value = ""; };
-$("#pkg-input").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#pkg-install").click(); });
-$("#pkg-refresh").onclick = refreshPackages;
-$("#pkg-filter").addEventListener("input", renderInstalled);
+
+function renderPackagesView() {
+  const root = document.getElementById("pkg-root");
+  if (!root || !project) return;
+  const scroll = root.scrollTop;
+  const seg = h("div", { class: "seg" }, [["python", "Python"], ["javascript", "JavaScript"]].map(([id, label]) =>
+    h("button", { class: pkgUI.lang === id ? "active" : "", onclick: () => { pkgUI.lang = id; renderPackagesView(); } }, label)));
+  const parts = [seg];
+
+  if (pkgUI.lang === "python") {
+    const input = pkgInput("python", "Install a package, e.g. numpy", (v) => { if (v.trim()) { installFromInput(v); input.value = ""; } });
+    const installBtn = h("button", { class: "btn install", onclick: () => { if (input.value.trim()) { installFromInput(input.value); input.value = ""; } } }, "Install");
+    parts.push(h("div", { class: "pkg-search" }, input, installBtn));
+    parts.push(h("p", { class: "pkg-hint" }, "Packages come from Pyodide's built-in set or PyPI (pure Python wheels). Missing imports are installed automatically when you run."));
+    const have = new Set([...installedPkgs.map((p) => normPy(p.name)), ...project.packages.map(normPy)]);
+    const reqs = project.packages.map((p) => pkgCard({ name: p, badge: kernelInstalled.has(p) ? "installed" : "pending",
+      action: h("button", { class: "btn icon sm", title: "Remove from this project's requirements", onclick: () => { project.packages = project.packages.filter((x) => x !== p); persistProject(); renderPackagesView(); } }, icon("close")) }));
+    parts.push(pkgSection("py-req", "This project", project.packages.length, reqs.length ? reqs : h("p", { class: "pkg-hint" }, "No requirements yet. Install a package below, or just import it and run."), { open: true }));
+    const filterVal = (pkgUI.inputs.pyFilter?.value || "").toLowerCase();
+    const filter = (pkgUI.inputs.pyFilter ||= h("input", { placeholder: "Filter installed packages", spellcheck: "false", oninput: () => renderPackagesView() }));
+    const rows = installedPkgs.filter((p) => p.name.toLowerCase().includes(filterVal)).map((p) => pkgCard({ name: p.name, version: p.version, badge: p.source === "pyodide" ? "built in" : "PyPI",
+      action: ["micropip", "packaging"].includes(p.name) ? null : h("button", { class: "btn icon sm", title: "Uninstall", onclick: () => uninstallPython(p.name) }, icon("close")) }));
+    parts.push(pkgSection("py-installed", "Installed", installedPkgs.length, h("div", {}, h("div", { class: "pkg-filter" }, filter, h("button", { class: "btn icon sm", title: "Refresh", onclick: refreshPackages }, icon("refresh"))),
+      rows.length ? rows : h("p", { class: "pkg-hint" }, kernel?.info ? (installedPkgs.length ? "Nothing matches." : "Press refresh to list installed packages.") : "Python is starting...")), { open: false }));
+    parts.push(pkgSection("py-popular", "Popular", PY_POPULAR.length, PY_POPULAR.map(([n, d]) => pkgCard({ name: n, desc: d,
+      action: have.has(normPy(n)) ? h("span", { class: "pk-done" }, icon("check")) : h("button", { class: "btn install", onclick: () => installFromInput(n) }, "Install") })), { open: true }));
+  } else {
+    const input = pkgInput("javascript", "Search npm packages", (v) => npmSearch(v), (v) => npmSearch(v));
+    parts.push(h("div", { class: "pkg-search" }, input));
+    parts.push(h("p", { class: "pkg-hint" }, "Import any npm package by name in JavaScript or TypeScript, for example import dayjs from \"dayjs\". Packages load from esm.sh when you run. Adding a package pins its version for this project."));
+    const added = Object.entries(project.npm || {});
+    parts.push(pkgSection("js-added", "This project", added.length, added.length ? added.map(([n, v]) => pkgCard({ name: n, version: v || "latest",
+      action: h("button", { class: "btn icon sm", title: "Remove", onclick: () => removeNpm(n) }, icon("close")) })) : h("p", { class: "pkg-hint" }, "No pinned packages. Imports still work without adding them.")));
+    if (pkgUI.npmQuery.trim()) {
+      let body;
+      if (pkgUI.npmLoading) body = h("p", { class: "pkg-hint" }, "Searching...");
+      else if (pkgUI.npmError) body = h("p", { class: "pkg-hint err" }, pkgUI.npmError);
+      else if (!pkgUI.npmResults?.length) body = h("p", { class: "pkg-hint" }, "No packages found.");
+      else body = pkgUI.npmResults.map((p) => pkgCard({ name: p.name, version: p.version, desc: p.description,
+        action: project.npm && p.name in project.npm ? h("span", { class: "pk-done" }, icon("check")) : h("button", { class: "btn install", onclick: () => addNpm(p.name, p.version) }, "Add") }));
+      parts.push(pkgSection("js-results", "Search results", pkgUI.npmResults?.length ?? null, body));
+    } else {
+      parts.push(pkgSection("js-popular", "Popular", NPM_POPULAR.length, NPM_POPULAR.map(([n, d]) => pkgCard({ name: n, desc: d,
+        action: project.npm && n in project.npm ? h("span", { class: "pk-done" }, icon("check")) : h("button", { class: "btn install", onclick: () => addNpm(n, "") }, "Add") }))));
+    }
+    parts.push(h("p", { class: "pkg-hint" }, "The editor does not show types for npm packages yet, so imports are treated as untyped."));
+  }
+  parts.push(h("p", { class: "pkg-foot" }, "Lua and SQL have no package manager in the browser. For Lua, put .lua files in your project and use require(\"name\")."));
+  root.replaceChildren(...parts);
+  root.scrollTop = scroll;
+}
 
 /* =====================================================================
  * Search
@@ -2268,22 +2406,25 @@ $("#replace-all").onclick = async () => {
  * Settings
  * ===================================================================== */
 const SETTINGS_SCHEMA = [
-  { key: "theme", label: "Color theme", type: "select", options: [["dark", "Dexna Dark"], ["light", "Dexna Light"], ["auto", "Follow system"]] },
-  { key: "fontSize", label: "Editor font size", type: "number", min: 10, max: 30 },
-  { key: "tabSize", label: "Indent size", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
-  { key: "fontLigatures", label: "Font ligatures", type: "bool" },
-  { key: "wordWrap", label: "Word wrap", type: "bool" },
-  { key: "minimap", label: "Show minimap", type: "bool" },
-  { key: "stickyScroll", label: "Sticky scroll", desc: "Pin the enclosing class/function header while scrolling.", type: "bool" },
-  { key: "bracketColors", label: "Bracket pair colours", type: "bool" },
-  { key: "renderWhitespace", label: "Render whitespace", type: "select", options: [["none", "None"], ["selection", "In selection"], ["boundary", "Boundary"], ["all", "All"]] },
-  { key: "autoLint", label: "Live linting (Python)", desc: "Check Python code with pyflakes as you type.", type: "bool" },
-  { key: "lineLength", label: "Python formatter line length", desc: "Used by black and isort.", type: "number", min: 40, max: 200 },
-  { key: "formatOnSave", label: "Format on save / run", desc: "Format the file on Ctrl+S and before running (Python uses black).", type: "bool" },
-  { key: "autoInstall", label: "Auto-install Python imports", desc: "Install missing packages from PyPI when you run Python code.", type: "bool" },
-  { key: "clearOnRun", label: "Clear terminal on run", type: "bool" },
-  { key: "inlineplots", label: "Inline plots", desc: "Also show figures inside the terminal/console.", type: "bool" },
+  { key: "theme", cat: "Appearance", label: "Color theme", desc: "Dark, light, or follow your system setting.", type: "select", options: [["dark", "Dexna Dark"], ["light", "Dexna Light"], ["auto", "Follow system"]] },
+  { key: "fontSize", cat: "Appearance", label: "Font size", desc: "Editor text size in pixels. You can also zoom with Ctrl+= and Ctrl+-.", type: "number", min: 10, max: 30 },
+  { key: "fontLigatures", cat: "Appearance", label: "Font ligatures", desc: "Join characters like => and != into single symbols (JetBrains Mono).", type: "bool" },
+  { key: "minimap", cat: "Appearance", label: "Minimap", desc: "Show a small overview of the file on the right edge.", type: "bool" },
+  { key: "stickyScroll", cat: "Appearance", label: "Sticky scroll", desc: "Keep the current class or function header pinned at the top while you scroll.", type: "bool" },
+  { key: "bracketColors", cat: "Appearance", label: "Bracket pair colors", desc: "Color matching brackets so nested ones are easy to tell apart.", type: "bool" },
+  { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
+  { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
+  { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
+  { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
+  { key: "autoLint", cat: "Python", label: "Live linting", desc: "Check Python code with pyflakes as you type and underline problems.", type: "bool" },
+  { key: "lineLength", cat: "Python", label: "Formatter line length", desc: "Maximum line length for black and isort. Lua and SQL formatting use it as a guide too.", type: "number", min: 40, max: 200 },
+  { key: "autoInstall", cat: "Python", label: "Auto-install imports", desc: "When you run Python code, install missing packages from PyPI automatically.", type: "bool" },
+  { key: "clearOnRun", cat: "Terminal", label: "Clear on run", desc: "Clear the terminal each time you run a program.", type: "bool" },
+  { key: "inlineplots", cat: "Terminal", label: "Inline plots", desc: "Also show matplotlib figures inside the terminal, not just in the Plots tab.", type: "bool" },
 ];
+const SETTING_CATS = ["Appearance", "Editor", "Python", "Terminal", "Data and privacy"];
+const settingsUI = { query: "" };
+
 function setSetting(key, value) {
   settings[key] = value;
   LS.set("settings", settings);
@@ -2292,29 +2433,77 @@ function setSetting(key, value) {
   if (key === "tabSize") for (const m of models.values()) m.updateOptions({ tabSize: value });
   if (key === "autoLint") lintAll();
   $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
-  renderSettings();
+  if (settingsOpen) renderSettingsPage();
 }
-function renderSettings() {
-  const form = $("#settings-form");
-  form.textContent = "";
-  for (const s of SETTINGS_SCHEMA) {
-    let control;
-    if (s.type === "bool") {
-      control = h("input", { type: "checkbox", id: "set-" + s.key, checked: settings[s.key], onchange: (e) => setSetting(s.key, e.target.checked) });
-      form.append(h("div", { class: "setting inline" }, control, h("div", {}, h("label", { for: "set-" + s.key }, s.label), s.desc ? h("div", { class: "desc" }, s.desc) : null)));
-      continue;
-    }
-    if (s.type === "select") {
-      control = h("select", { onchange: (e) => setSetting(s.key, typeof s.options[0][0] === "number" ? +e.target.value : e.target.value) },
-        s.options.map(([v, l]) => h("option", { value: v, selected: settings[s.key] == v }, l)));
-    } else control = h("input", { type: "number", min: s.min, max: s.max, value: settings[s.key], onchange: (e) => setSetting(s.key, Math.max(s.min, Math.min(s.max, +e.target.value || DEFAULT_SETTINGS[s.key]))) });
-    form.append(h("div", { class: "setting" }, h("label", {}, s.label), s.desc ? h("div", { class: "desc" }, s.desc) : null, control));
+
+function renderSettingsPage() {
+  const root = $("#settings-page");
+  if (!root.querySelector(".sp-head")) {
+    const input = h("input", { class: "sp-search", placeholder: "Search settings", spellcheck: "false", value: settingsUI.query });
+    input.addEventListener("input", () => { settingsUI.query = input.value; renderSettingsBody(); });
+    root.append(h("div", { class: "sp-head" }, input, h("span", { class: "sp-count" })), h("div", { class: "sp-body" }));
   }
-  form.append(h("div", { class: "stack", style: { marginTop: "8px" } },
-    h("button", { class: "btn", onclick: () => { Object.assign(settings, DEFAULT_SETTINGS); setSetting("theme", settings.theme); toast("Settings reset", "ok"); } }, "Reset settings"),
-    h("button", { class: "btn", onclick: showShortcuts }, "Keyboard shortcuts"),
-    h("button", { class: "btn", style: { color: "var(--stop)" }, onclick: resetEverything }, "Delete all local data…")));
+  const input = root.querySelector(".sp-search");
+  if (input.value !== settingsUI.query) input.value = settingsUI.query;
+  renderSettingsBody();
 }
+
+function settingItem(sd) {
+  const modified = settings[sd.key] !== DEFAULT_SETTINGS[sd.key];
+  let control;
+  if (sd.type === "bool") {
+    control = h("label", { class: "si-check" }, h("input", { type: "checkbox", checked: settings[sd.key], onchange: (e) => setSetting(sd.key, e.target.checked) }), h("span", {}, "Enabled"));
+  } else if (sd.type === "select") {
+    control = h("select", { onchange: (e) => setSetting(sd.key, typeof sd.options[0][0] === "number" ? +e.target.value : e.target.value) },
+      sd.options.map(([v, l]) => h("option", { value: v, selected: settings[sd.key] == v }, l)));
+  } else {
+    control = h("input", { type: "number", min: sd.min, max: sd.max, value: settings[sd.key], onchange: (e) => setSetting(sd.key, Math.max(sd.min, Math.min(sd.max, +e.target.value || DEFAULT_SETTINGS[sd.key]))) });
+  }
+  return h("div", { class: "si" + (modified ? " modified" : ""), id: "si-" + sd.key },
+    h("div", { class: "si-title" }, h("span", { class: "si-cat" }, sd.cat + ": "), h("span", {}, sd.label),
+      modified ? h("button", { class: "si-reset", title: "Reset to default", onclick: () => setSetting(sd.key, DEFAULT_SETTINGS[sd.key]) }, "Reset") : null),
+    h("div", { class: "si-desc" }, sd.desc), control);
+}
+
+function renderSettingsBody() {
+  const root = $("#settings-page");
+  const body = root.querySelector(".sp-body");
+  const prev = body.querySelector(".sp-main")?.scrollTop || 0;
+  const q = settingsUI.query.trim().toLowerCase();
+  const match = (sd) => !q || `${sd.cat} ${sd.label} ${sd.desc} ${sd.key}`.toLowerCase().includes(q);
+  const dataRows = [
+    { title: "Keyboard shortcuts", desc: "See every shortcut Dexna offers.", btn: "Show", run: showShortcuts },
+    { title: "Reset all settings", desc: "Put every setting above back to its default.", btn: "Reset", run: () => { for (const k of Object.keys(DEFAULT_SETTINGS)) settings[k] = DEFAULT_SETTINGS[k]; setSetting("theme", settings.theme); toast("Settings reset", "ok"); } },
+    { title: "Delete all local data", desc: "Remove every project, setting and history entry Dexna stored in this browser. Download anything you want to keep first.", btn: "Delete...", danger: true, run: resetEverything },
+  ].filter((r) => !q || `data privacy ${r.title} ${r.desc}`.toLowerCase().includes(q));
+
+  const sections = [];
+  let found = 0;
+  const nav = [];
+  for (const cat of SETTING_CATS) {
+    const items = cat === "Data and privacy" ? dataRows : SETTINGS_SCHEMA.filter((x) => x.cat === cat && match(x));
+    if (!items.length) continue;
+    found += items.length;
+    nav.push([cat, items.length]);
+    sections.push(h("section", { class: "sp-sec", id: "sp-" + cat.replace(/\W+/g, "-") }, h("h2", {}, cat),
+      cat === "Data and privacy"
+        ? items.map((r) => h("div", { class: "si si-row" }, h("div", {}, h("div", { class: "si-title" }, r.title), h("div", { class: "si-desc" }, r.desc)),
+          h("button", { class: "btn", style: r.danger ? { color: "var(--stop)" } : null, onclick: r.run }, r.btn)))
+        : items.map(settingItem)));
+  }
+  root.querySelector(".sp-count").textContent = q ? `${found} setting${found === 1 ? "" : "s"} found` : "";
+  const navEl = h("nav", { class: "sp-nav" }, nav.map(([cat, n], i) => h("button", { class: i === 0 ? "active" : "", "data-sec": "sp-" + cat.replace(/\W+/g, "-"), onclick: () => root.querySelector("#sp-" + cat.replace(/\W+/g, "-"))?.scrollIntoView({ block: "start", behavior: "smooth" }) },
+    h("span", {}, cat), h("span", { class: "n" }, n))));
+  const main = h("div", { class: "sp-main" }, sections.length ? sections : h("div", { class: "empty" }, "No settings match your search."));
+  main.addEventListener("scroll", () => {
+    let cur = null;
+    for (const sec of main.querySelectorAll(".sp-sec")) if (sec.offsetTop - 60 <= main.scrollTop) cur = sec.id;
+    navEl.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.sec === (cur || navEl.firstChild?.dataset?.sec)));
+  });
+  body.replaceChildren(navEl, main);
+  main.scrollTop = prev;
+}
+
 async function resetEverything() {
   if (!(await confirmDialog({ title: "Delete all local data", message: "This removes every project, setting and history entry stored by Dexna in this browser. Download anything you want to keep first.", okLabel: "Delete everything", danger: true }))) return;
   Object.keys(localStorage).filter((k) => k.startsWith("dexna:")).forEach((k) => localStorage.removeItem(k));
@@ -2363,14 +2552,14 @@ function setView(view, { toggle = false } = {}) {
   else { layout.view = view; layout.sidebar = true; }
   $("#app").classList.toggle("no-sidebar", !layout.sidebar);
   $("#app").classList.toggle("show-sidebar", layout.sidebar);
-  $$("#activitybar [data-view]").forEach((b) => b.classList.toggle("active", layout.sidebar && b.dataset.view === layout.view));
+  $$("#activitybar [data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === "settings" ? settingsOpen : layout.sidebar && b.dataset.view === layout.view));
   $$("#sidebar .view").forEach((v) => v.classList.toggle("active", v.dataset.view === layout.view));
   if (layout.view === "search" && layout.sidebar) setTimeout(() => $("#search-input").focus(), 0);
   if (layout.view === "packages" && layout.sidebar && !installedPkgs.length) refreshPackages();
   if (layout.view === "outline") renderOutline();
   saveLayout();
 }
-$$("#activitybar [data-view]").forEach((b) => (b.onclick = () => setView(b.dataset.view, { toggle: true })));
+$$("#activitybar [data-view]").forEach((b) => (b.onclick = () => (b.dataset.view === "settings" ? (settingsOpen ? closePage("settings") : showSettings(true)) : setView(b.dataset.view, { toggle: true }))));
 
 function showPanel(name) {
   layout.panelOpen = true;
@@ -2469,7 +2658,7 @@ const COMMANDS = [
   { id: "outline", label: "Show Outline", cat: "View", run: () => setView("outline") },
   { id: "debug-view", label: "Show Run & Debug", cat: "View", kb: "ctrl+shift+d", run: () => setView("debug") },
   { id: "packages", label: "Show Packages", cat: "View", run: () => setView("packages") },
-  { id: "settings", label: "Open Settings", cat: "Preferences", kb: "ctrl+,", run: () => setView("settings") },
+  { id: "settings", label: "Open Settings", cat: "Preferences", kb: "ctrl+,", run: () => showSettings(true) },
   { id: "sidebar", label: "Toggle Sidebar", cat: "View", kb: "ctrl+b", run: () => setView(layout.view, { toggle: true }) },
   { id: "panel", label: "Toggle Panel", cat: "View", kb: "ctrl+j", run: togglePanel },
   { id: "panel2", label: "Toggle Panel", kb: "ctrl+`", hidden: true, run: togglePanel },
@@ -2619,6 +2808,7 @@ function wireStatic() {
   $("#btn-stop").onclick = stopExecution;
   $("#btn-share").onclick = shareProject;
   $("#btn-theme").onclick = () => setSetting("theme", resolvedTheme() === "dark" ? "light" : "dark");
+  updateThemeIcon();
   $("#sb-kernel").classList.add("clickable");
   $("#sb-kernel").onclick = (e) => showMenu(e.clientX, e.clientY - 90, [
     { label: "Restart Python", run: () => restartKernel() },
@@ -2643,7 +2833,7 @@ async function boot() {
   wireStatic();
   buildMenus();
   setupResizers();
-  renderSettings();
+  if (layout.view === "settings") layout.view = "explorer";
   const sidebarWasOpen = layout.sidebar;
   setView(layout.view);
   if (!sidebarWasOpen) setView(layout.view, { toggle: true });
@@ -2666,6 +2856,7 @@ async function boot() {
   organizeImportsCommand = editor.addCommand(0, () => organizeImports());
   registerProviders();
   configureTypeScript();
+  langTools = registerLanguageTools(monaco, { libs: cfg.libs, getSettings: () => settings, minimalEdit, toast });
   monaco.editor.onDidChangeMarkers(() => refreshProblems());
 
   const shared = await importFromHash();

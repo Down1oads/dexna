@@ -137,6 +137,7 @@ const dirOf = (p) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 async function runJs(m) {
   const files = m.files; // path -> JavaScript source (TypeScript was compiled by the main thread)
   const urlToFile = new Map();
+  const esmBase = new URL(m.libs.esm, self.location.href).href;
   const built = new Map();
   const SPEC = /(\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(["'])([^"'\n]+)\2/g;
 
@@ -156,8 +157,12 @@ async function runJs(m) {
         return `${pre}${q}${build(target, [...stack, path])}${q}`;
       }
       if (/^(https?:|data:|blob:)/.test(spec)) return all;
-      if (pre.trim().startsWith("from") || pre.includes("import")) throw new Error(`Cannot import '${spec}' from ${path}. Bare package names are not supported; use a full URL such as https://esm.sh/${spec}`);
-      return all;
+      if (spec.startsWith("node:")) throw new Error(`'${spec}' is a Node.js module and is not available in the browser.`);
+      const bare = /^(@[^/]+\/[^/@]+|[^./@][^/@]*)(\/.*)?$/.exec(spec);
+      if (!bare) throw new Error(`Cannot import '${spec}' from ${path}`);
+      // npm package: load it from the CDN, pinned to the version chosen in the Packages view
+      const version = m.npm && m.npm[bare[1]];
+      return `${pre}${q}${esmBase}${bare[1]}${version ? "@" + version : ""}${bare[2] || ""}${q}`;
     });
     const url = URL.createObjectURL(new Blob([code + `\n//# sourceURL=${path}`], { type: "text/javascript" }));
     urlToFile.set(url, path);

@@ -21,13 +21,18 @@ Open the site and pick a language on the Home page. Dexna creates an empty proje
 
 **Languages** (all run locally in your browser, nothing is sent anywhere)
 
-| Language | Runs with | Notes |
+| Language | Runs with | Editor support |
 | --- | --- | --- |
-| Python 3.12 | Pyodide | Full IDE: completion, lint, format, debugger, console, plots, packages |
-| JavaScript | Native, in a worker | ES modules across files, top-level `await`, `console.table`, `input()` |
-| TypeScript | The editor's TypeScript compiler | Type checking as you type, multi-file imports; type errors don't block a run |
-| Lua 5.4 | wasmoon | `require` between files, `io.read` |
-| SQL | SQLite (WebAssembly) | In-memory database per run, tables printed as grids |
+| Python 3.12 | Pyodide | Completion, hover, signatures, go to definition, rename, lint (pyflakes), format (black, isort), snippets |
+| JavaScript | Your browser, in a worker | Completion, hover, errors and rename from the TypeScript service, format, snippets, outline |
+| TypeScript | The editor's TypeScript compiler | Everything JavaScript has, plus live type checking |
+| Lua 5.4 | wasmoon | Completion for the standard library and your own code, hover docs, signature help, syntax errors, format (StyLua), snippets, outline |
+| SQL | SQLite (WebAssembly) | Keyword, function, table and column completion, hover docs, format (sql-formatter), snippets, outline |
+
+**Packages**
+- **Python:** install from Pyodide's package set or PyPI, and uninstall, from the Packages view. Missing imports install automatically when you run.
+- **JavaScript and TypeScript:** import any npm package by name (`import dayjs from "dayjs"`). It loads from esm.sh when you run, and the Packages view can search npm and pin versions.
+- **Lua and SQL:** no package manager in the browser. Put `.lua` files in your project and use `require`.
 
 Python-only features: the debugger, the console, variables, plots and packages. C#, Java, C++ and other compiled languages are not supported yet because they need a server or very large downloads.
 

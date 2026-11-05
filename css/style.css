@@ -461,3 +461,60 @@ table.vars .exp .icon { width: 11px; height: 11px; vertical-align: -1px; }
 .qp-item .fi { display: inline-flex; }
 .plot-acts .icon { width: 13px; height: 13px; }
 .debug-controls .btn { color: var(--warn); }
+
+/* ================= Settings page ================= */
+.settings-page { position: absolute; inset: 0; background: var(--bg); z-index: 5; display: flex; flex-direction: column; min-height: 0; }
+.sp-head { display: flex; align-items: center; gap: 14px; padding: 16px 32px 14px; border-bottom: 1px solid var(--border); flex: none; }
+.sp-head .sp-search { flex: 1; max-width: 760px; height: 32px; font-size: 13px; }
+.sp-count { color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
+.sp-body { flex: 1; display: flex; min-height: 0; }
+.sp-nav { width: 210px; flex: none; padding: 14px 10px; border-right: 1px solid var(--border); overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.sp-nav button { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 6px 10px; border: none; background: none; border-radius: 6px; cursor: pointer; color: var(--fg-dim); text-align: left; }
+.sp-nav button:hover { background: var(--bg-hover); color: var(--fg); }
+.sp-nav button.active { background: var(--bg-active); color: var(--fg); }
+.sp-nav .n { font-size: 11px; color: var(--fg-faint); }
+.sp-main { flex: 1; overflow: auto; padding: 4px 48px 120px 40px; scroll-behavior: smooth; }
+.sp-sec h2 { margin: 30px 0 6px; padding-bottom: 8px; font-size: 20px; font-weight: 600; border-bottom: 1px solid var(--border); max-width: 780px; }
+.si { position: relative; max-width: 780px; padding: 14px 0 14px 16px; margin-left: -16px; border-left: 2px solid transparent; }
+.si.modified { border-left-color: var(--accent); }
+.si-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.si-title { display: flex; align-items: baseline; gap: 2px; font-weight: 600; font-size: 13px; }
+.si-title .si-cat { color: var(--fg-dim); font-weight: 400; margin-right: 5px; }
+.si-reset { margin-left: 12px; border: none; background: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; }
+.si-reset:hover { text-decoration: underline; }
+.si-desc { margin: 4px 0 8px; color: var(--fg-dim); font-size: 12.5px; line-height: 1.5; }
+.si select, .si input[type=number] { min-width: 240px; height: 28px; }
+.si input[type=number] { min-width: 120px; width: 120px; }
+.si-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.si-check input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ================= Packages ================= */
+.pkg-root { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; padding-bottom: 20px; }
+.seg { display: flex; margin: 2px 12px 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex: none; }
+.seg button { flex: 1; padding: 5px 8px; border: none; background: none; color: var(--fg-dim); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { color: var(--fg); }
+.seg button.active { background: var(--bg-active); color: var(--fg); }
+.pkg-search { display: flex; gap: 6px; margin: 0 12px 6px; flex: none; }
+.pkg-search input { flex: 1; height: 28px; }
+.pkg-hint { margin: 4px 12px 8px; color: var(--fg-dim); font-size: 12px; line-height: 1.45; }
+.pkg-hint.err { color: var(--err); }
+.pkg-foot { margin: 14px 12px 0; padding-top: 10px; border-top: 1px solid var(--border); color: var(--fg-faint); font-size: 11.5px; line-height: 1.45; }
+.pkg-sec-head { display: flex; align-items: center; gap: 4px; padding: 8px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; font-weight: 600; color: var(--fg-dim); cursor: pointer; user-select: none; }
+.pkg-sec-head .icon { width: 12px; height: 12px; }
+.pkg-sec-head .badge { margin-left: auto; }
+.pkg { display: flex; gap: 10px; padding: 8px 12px; align-items: flex-start; }
+.pkg:hover { background: var(--bg-hover); }
+.pk-icon { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 7px; background: var(--bg-3); color: var(--fg-dim); }
+.pk-icon .icon { width: 18px; height: 18px; }
+.pk-main { flex: 1; min-width: 0; }
+.pk-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-weight: 600; }
+.pk-ver { color: var(--fg-faint); font-size: 11px; font-weight: 400; }
+.pk-badge { padding: 0 6px; border-radius: 8px; background: var(--bg-3); color: var(--fg-dim); font-size: 10px; font-weight: 400; }
+.pk-desc { margin-top: 1px; color: var(--fg-dim); font-size: 12px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pk-act { flex: none; align-self: center; }
+.pk-done { color: var(--run); display: inline-flex; }
+.btn.install { height: 24px; padding: 0 10px; font-size: 12px; background: var(--accent); border-color: transparent; color: #fff; }
+.btn.install:hover { background: var(--accent); filter: brightness(1.12); }
+.pkg-filter { display: flex; gap: 4px; margin: 2px 12px 6px; }
+.pkg-filter input { flex: 1; height: 26px; }

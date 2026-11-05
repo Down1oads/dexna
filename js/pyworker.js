@@ -257,6 +257,11 @@ async function handle(msg) {
       post("status", { state: "busy", msg: "Installing packages…" });
       return reply(await installPackages(msg.packages, !!msg.quiet));
     }
+    case "uninstall": {
+      const mp = await ensureMicropip();
+      try { mp.uninstall(msg.name); return reply({ ok: true }); }
+      catch (e) { return reply({ ok: false, error: String(e.message || e).split("\n").slice(-1)[0] }); }
+    }
     case "list-packages": {
       await ensureMicropip();
       return reply(JSON.parse(pyodide.runPython("_dexna_list_packages()")));
