@@ -367,6 +367,235 @@ sp.pprint(sp.Integral(sp.sqrt(1 / x), x), use_unicode=True)
 `,
     },
   },
+  {
+    id: "javascript",
+    name: "JavaScript",
+    desc: "Modules, async/await, console and input()",
+    entry: "main.js",
+    files: {
+      "main.js": `import { fib, primes } from "./math.js";
+import { sleep } from "./util.js";
+
+console.log("Hello from JavaScript!");
+
+const name = await input("What's your name? ");
+console.log(\`Nice to meet you, \${name}.\`);
+
+console.log("fib(10) =", fib(10));
+console.log("primes:", primes(30));
+
+const people = [
+  { name: "Ada", born: 1815, field: "mathematics" },
+  { name: "Alan", born: 1912, field: "computing" },
+  { name: "Grace", born: 1906, field: "compilers" },
+];
+console.table(people);
+console.log(new Map([["a", 1], ["b", 2]]), new Set([1, 2, 3]));
+
+console.time("work");
+for (let i = 3; i > 0; i--) {
+  console.log(\`\${i}...\`);
+  await sleep(300);
+}
+console.timeEnd("work");
+console.log("Done. Press F5 to run again.");
+`,
+      "math.js": `export function fib(n) {
+  return n < 2 ? n : fib(n - 1) + fib(n - 2);
+}
+
+export function primes(limit) {
+  const found = [];
+  for (let n = 2; n <= limit; n++) {
+    if (found.every((p) => n % p !== 0)) found.push(n);
+  }
+  return found;
+}
+`,
+      "util.js": `export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+`,
+    },
+  },
+  {
+    id: "typescript",
+    name: "TypeScript",
+    desc: "Types, interfaces, generics and multiple files",
+    entry: "main.ts",
+    files: {
+      "main.ts": `import { Stack } from "./stack";
+import type { Shape } from "./shapes";
+import { area, describe } from "./shapes";
+
+const shapes: Shape[] = [
+  { kind: "circle", radius: 2 },
+  { kind: "rect", width: 3, height: 4 },
+  { kind: "square", side: 5 },
+];
+
+for (const s of shapes) {
+  console.log(describe(s), "->", area(s).toFixed(2));
+}
+
+const stack = new Stack<number>();
+[1, 2, 3].forEach((n) => stack.push(n * n));
+console.log("stack:", stack.toArray(), "peek:", stack.peek());
+
+// Hover over a name to see its type. Try changing "circle" to "triangle" above:
+// the editor reports the error, and the program still runs.
+`,
+      "shapes.ts": `export type Shape =
+  | { kind: "circle"; radius: number }
+  | { kind: "rect"; width: number; height: number }
+  | { kind: "square"; side: number };
+
+export function area(s: Shape): number {
+  switch (s.kind) {
+    case "circle":
+      return Math.PI * s.radius ** 2;
+    case "rect":
+      return s.width * s.height;
+    case "square":
+      return s.side ** 2;
+  }
+}
+
+export const describe = (s: Shape): string => \`\${s.kind}\`;
+`,
+      "stack.ts": `export class Stack<T> {
+  private items: T[] = [];
+
+  push(item: T): void {
+    this.items.push(item);
+  }
+
+  pop(): T | undefined {
+    return this.items.pop();
+  }
+
+  peek(): T | undefined {
+    return this.items[this.items.length - 1];
+  }
+
+  toArray(): T[] {
+    return [...this.items];
+  }
+}
+`,
+    },
+  },
+  {
+    id: "lua",
+    name: "Lua",
+    desc: "Tables, closures, metatables and require()",
+    entry: "main.lua",
+    files: {
+      "main.lua": `local geometry = require("geometry")
+
+print("Hello from " .. _VERSION)
+
+io.write("What's your name? ")
+local name = io.read()
+print("Nice to meet you, " .. name .. "!")
+
+-- closures
+local function counter()
+  local n = 0
+  return function() n = n + 1; return n end
+end
+local c = counter()
+c(); c()
+print("counter:", c())
+
+-- tables
+local fruit = { "apple", "banana", "cherry" }
+table.sort(fruit, function(a, b) return #a < #b end)
+print(table.concat(fruit, ", "))
+
+-- metatables
+local v1, v2 = geometry.Vec.new(1, 2), geometry.Vec.new(3, 4)
+print(tostring(v1 + v2), "length:", (v1 + v2):length())
+
+-- string tools
+for word in ("the quick brown fox"):gmatch("%a+") do
+  io.write(word:upper(), " ")
+end
+print()
+`,
+      "geometry.lua": `local M = {}
+
+local Vec = {}
+Vec.__index = Vec
+
+function Vec.new(x, y)
+  return setmetatable({ x = x, y = y }, Vec)
+end
+
+Vec.__add = function(a, b) return Vec.new(a.x + b.x, a.y + b.y) end
+Vec.__tostring = function(v) return "(" .. v.x .. ", " .. v.y .. ")" end
+
+function Vec:length()
+  return math.sqrt(self.x ^ 2 + self.y ^ 2)
+end
+
+M.Vec = Vec
+return M
+`,
+    },
+  },
+  {
+    id: "sql",
+    name: "SQL (SQLite)",
+    desc: "Create tables, insert, join, aggregate and window functions",
+    entry: "query.sql",
+    files: {
+      "query.sql": `-- A fresh in-memory SQLite database is created each time you run this file.
+
+CREATE TABLE authors (
+  id   INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  born INTEGER
+);
+
+CREATE TABLE books (
+  id        INTEGER PRIMARY KEY,
+  title     TEXT NOT NULL,
+  author_id INTEGER REFERENCES authors(id),
+  year      INTEGER,
+  pages     INTEGER
+);
+
+INSERT INTO authors (name, born) VALUES
+  ('Ursula K. Le Guin', 1929),
+  ('Octavia E. Butler', 1947),
+  ('Stanislaw Lem', 1921);
+
+INSERT INTO books (title, author_id, year, pages) VALUES
+  ('The Dispossessed', 1, 1974, 387),
+  ('A Wizard of Earthsea', 1, 1968, 183),
+  ('Kindred', 2, 1979, 264),
+  ('Parable of the Sower', 2, 1993, 345),
+  ('Solaris', 3, 1961, 204);
+
+-- Books with their authors
+SELECT b.title, a.name AS author, b.year
+FROM books b
+JOIN authors a ON a.id = b.author_id
+ORDER BY b.year;
+
+-- Aggregates
+SELECT a.name, COUNT(*) AS books, SUM(b.pages) AS total_pages, ROUND(AVG(b.pages), 1) AS avg_pages
+FROM authors a
+JOIN books b ON b.author_id = a.id
+GROUP BY a.id
+ORDER BY total_pages DESC;
+
+-- Window function: rank each author's books by length
+SELECT a.name, b.title, b.pages,
+       RANK() OVER (PARTITION BY a.id ORDER BY b.pages DESC) AS length_rank
+FROM books b JOIN authors a ON a.id = b.author_id;
+`,
+    },
+  },
 ];
 
 export const BLANK = {

@@ -54,7 +54,7 @@ const TYPES = {
   py: ["Py", "#3a7bd5"], pyi: ["Py", "#3a7bd5"], md: ["M", "#6b7a99"], json: ["{}", "#c98a1b"], csv: ["Cs", "#2f9e5b"],
   txt: ["Tx", "#7d8597"], toml: ["To", "#8a6d5a"], cfg: ["Cf", "#8a6d5a"], ini: ["In", "#8a6d5a"], html: ["<>", "#d1532c"],
   js: ["Js", "#c9a515"], ts: ["Ts", "#2f74c0"], css: ["#", "#3d6fd9"], yml: ["Y", "#b8424a"], yaml: ["Y", "#b8424a"],
-  sql: ["Sq", "#4a7f9e"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
+  sql: ["Sq", "#4a7f9e"], lua: ["Lu", "#3b4a9c"], mjs: ["Js", "#c9a515"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
 };
 
 export function fileIconSvg(path) {

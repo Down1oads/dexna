@@ -15,6 +15,18 @@ No install, no server, no account, Python executes locally via WebAssembly.</p>
 - **Formatting** with *black* and **import sorting** with *isort*
 - Notebook-style **`# %%` cells** with "Run Cell" code lenses
 
+**Languages** (all run locally in your browser, nothing is sent anywhere)
+
+| Language | Runs with | Notes |
+| --- | --- | --- |
+| Python 3.12 | Pyodide | Full IDE: completion, lint, format, debugger, console, plots, packages |
+| JavaScript | Native, in a worker | ES modules across files, top-level `await`, `console.table`, `input()` |
+| TypeScript | The editor's TypeScript compiler | Type checking as you type, multi-file imports; type errors don't block a run |
+| Lua 5.4 | wasmoon | `require` between files, `io.read` |
+| SQL | SQLite (WebAssembly) | In-memory database per run, tables printed as grids |
+
+Python-only features: the debugger, the console, variables, plots and packages. C#, Java, C++ and other compiled languages are not supported yet because they need a server or very large downloads.
+
 **Running code**
 - Full CPython 3.12 (Pyodide) in a background worker ; the UI never freezes
 - Interactive `input()`, a working **Stop** button (KeyboardInterrupt) and kernel restart

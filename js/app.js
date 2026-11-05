@@ -55,7 +55,7 @@ const newId = () => Math.random().toString(36).slice(2, 10);
 
 function makeProject(tpl, name) {
   const files = { ...tpl.files };
-  const entry = tpl.entry && files[tpl.entry] != null ? tpl.entry : Object.keys(files).find((f) => f.endsWith(".py")) || null;
+  const entry = tpl.entry && files[tpl.entry] != null ? tpl.entry : Object.keys(files).find((f) => RUN_LANG[f.split(".").pop().toLowerCase()]) || null;
   const dirs = new Set();
   for (const f of Object.keys(files)) { let d = dirname(f); while (d) { dirs.add(d); d = dirname(d); } }
   return {
@@ -231,8 +231,13 @@ function openLocation(file, line) {
 /* =====================================================================
  * Languages
  * ===================================================================== */
-const LANGS = { py: "python", pyi: "python", json: "json", md: "markdown", js: "javascript", ts: "typescript", html: "html", css: "css",
+const LANGS = { py: "python", pyi: "python", json: "json", md: "markdown", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", html: "html", css: "css",
   yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", sql: "sql", sh: "shell", xml: "xml", csv: "plaintext", txt: "plaintext" };
+// Languages Dexna can run. Python uses the main kernel; the rest run in a throwaway runner worker.
+const RUN_LANG = { py: "python", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", sql: "sql" };
+const RUN_LANG_NAME = { python: "Python", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL" };
+const runLangOf = (p) => RUN_LANG[p.split(".").pop().toLowerCase()] || null;
+const isRunnable = (p) => !!runLangOf(p);
 const langOf = (p) => LANGS[p.split(".").pop().toLowerCase()] || "plaintext";
 const fileIcon = (p) => { const el = h("span", { class: "fi" }); el.append(fileBadge(p)); return el; };
 const fi = (name, cls = "") => { const el = h("span", { class: "fi " + cls }); el.append(icon(name)); return el; };
@@ -784,7 +789,7 @@ treeEl.addEventListener("contextmenu", (e) => {
     items.push("-");
     if (!isDir) {
       items.push({ label: "Open", run: () => openFile(p) });
-      if (p.endsWith(".py")) {
+      if (isRunnable(p)) {
         items.push({ label: "Run This File", run: () => runFile({ path: p }) });
         items.push({ label: project.entry === p && project.pinEntry ? "Unset as Main File" : "Set as Main File", run: () => togglePinEntry(p) });
       }
@@ -904,7 +909,7 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
   renderTabs();
   updateBreadcrumbs();
   updateCursorStatus();
-  $("#sb-lang").textContent = { python: "Python", plaintext: "Plain Text" }[model.getLanguageId()] || model.getLanguageId();
+  $("#sb-lang").textContent = { python: "Python", plaintext: "Plain Text", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", json: "JSON", markdown: "Markdown", html: "HTML", css: "CSS", yaml: "YAML" }[model.getLanguageId()] || model.getLanguageId();
   updateRunTarget();
   scheduleOutline();
 }
@@ -955,7 +960,7 @@ function renderTabs() {
         "-",
         { label: "Reveal in Explorer", disabled: ext, run: () => { expandTo(key); renderTree(); setView("explorer"); selectTreeRow(key); } },
         { label: "Copy Path", run: () => navigator.clipboard?.writeText(p) },
-        { label: "Run This File", disabled: ext || !p.endsWith(".py"), run: () => runFile({ path: p }) },
+        { label: "Run This File", disabled: ext || !isRunnable(p), run: () => runFile({ path: p }) },
       ]);
     });
     tab.addEventListener("dragstart", (e) => { tab.classList.add("dragging"); e.dataTransfer.setData("dexna/tab", key); });
@@ -1125,6 +1130,22 @@ function docMarkdown(head, doc) {
 }
 
 function lspPath(model) { return pathOfModel(model) || "__ext__.py"; }
+
+function configureTypeScript() {
+  const ts = monaco.languages.typescript;
+  const options = {
+    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.NodeJs,
+    allowNonTsExtensions: true, allowJs: true, checkJs: false, strict: true, esModuleInterop: true, skipLibCheck: true,
+    lib: ["es2022", "dom"], noEmit: false,
+  };
+  ts.typescriptDefaults.setCompilerOptions(options);
+  ts.javascriptDefaults.setCompilerOptions(options);
+  ts.typescriptDefaults.setEagerModelSync(true);
+  ts.javascriptDefaults.setEagerModelSync(true);
+  const globals = "/** Prints a prompt and waits for a line typed in the terminal. */\ndeclare function input(prompt?: string): Promise<string | null>;";
+  ts.typescriptDefaults.addExtraLib(globals, "file:///dexna-globals.d.ts");
+  ts.javascriptDefaults.addExtraLib(globals, "file:///dexna-globals.d.ts");
+}
 
 function registerProviders() {
   const kinds = COMPLETION_KIND();
@@ -1463,9 +1484,9 @@ function getRunTarget() {
   if (!project) return null;
   if (project.pinEntry && project.files[project.entry] != null) return project.entry;
   const a = project.active;
-  if (a && !a.startsWith("ext:") && a.endsWith(".py")) return a;
+  if (a && !a.startsWith("ext:") && isRunnable(a)) return a;
   if (project.files[project.entry] != null) return project.entry;
-  return Object.keys(project.files).find((f) => f.endsWith(".py")) || null;
+  return Object.keys(project.files).find(isRunnable) || null;
 }
 function updateRunTarget() {
   const t = getRunTarget();
@@ -1499,7 +1520,13 @@ async function kernelReady() {
 async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
   if (state.busy) return toast("A program is already running. Press Shift+F5 to stop it.", "warn");
   path ||= getRunTarget();
-  if (!path) return toast("Create a Python file to run first.", "warn");
+  if (!path) return toast("Create a file to run first (Python, JavaScript, TypeScript, Lua or SQL).", "warn");
+  const lang = runLangOf(path);
+  if (!lang) return toast(`Dexna can't run ${basename(path)}. It runs Python, JavaScript, TypeScript, Lua and SQL files.`, "warn");
+  if (lang !== "python") {
+    if (debug) return toast("The debugger works with Python files only.", "warn");
+    return runOther(path, lang);
+  }
   if (debug && !kernel?.isolated) return toast("The debugger needs cross-origin isolation (try reloading the page in Chrome, Edge or Firefox).", "error", 6000);
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   showPanel("terminal");
@@ -1579,6 +1606,7 @@ function applyFileChanges(changes) {
 
 async function stopExecution() {
   if (!state.busy) return;
+  if (otherRun) { otherRun.stop(); return; }
   if (dbg.paused || (dbg.active && dbg.waiting)) {
     dbg.queue = [{ cmd: "stop" }];
     dbg.paused = false;
@@ -1593,6 +1621,73 @@ async function stopExecution() {
     clearTimeout(state.stopTimer);
     state.stopTimer = setTimeout(() => { if (state.busy) restartKernel("The program did not respond to the interrupt"); }, 3000);
   } else restartKernel();
+}
+
+/* ---------- other languages (JavaScript, TypeScript, Lua, SQL) ---------- */
+let otherRun = null;
+
+/** Compile every TypeScript file in the project to JavaScript with the editor's own TypeScript service. */
+async function emitTypeScript() {
+  const files = {};
+  let getWorker = null; // only start the TypeScript service when there is TypeScript to compile
+  for (const [p, content] of Object.entries(project.files)) {
+    const ext = p.split(".").pop().toLowerCase();
+    if (ext === "ts") {
+      getWorker ||= await monaco.languages.typescript.getTypeScriptWorker();
+      const model = models.get(p);
+      const client = await getWorker(model.uri);
+      const res = await client.getEmitOutput(model.uri.toString());
+      const js = res.outputFiles.find((f) => f.name.endsWith(".js"));
+      if (!js) throw new Error(`Could not compile ${p}`);
+      files[p] = js.text;
+    } else if (ext === "js" || ext === "mjs") files[p] = models.get(p)?.getValue() ?? content;
+  }
+  return files;
+}
+
+async function runOther(path, lang) {
+  if (settings.formatOnSave && lang === "typescript") await editor.getAction("editor.action.formatDocument")?.run().catch(() => {});
+  showPanel("terminal");
+  if (settings.clearOnRun) terminal.clear();
+  terminal.separator(`Running ${path} (${RUN_LANG_NAME[lang]}) at ${new Date().toLocaleTimeString()}`);
+  sink = terminal;
+  clearRuntimeError();
+  setBusy(true, "run");
+  let files;
+  try {
+    if (lang === "typescript" || lang === "javascript") files = await emitTypeScript(); // JS may import TS files too
+    else files = Object.fromEntries(Object.entries(project.files).map(([p, c]) => [p, models.get(p)?.getValue() ?? c]));
+  } catch (e) {
+    terminal.system(e.message, "stderr");
+    setBusy(false);
+    return;
+  }
+  const worker = new Worker(new URL("runner.js", import.meta.url), { type: "module" });
+  let finished = false;
+  const finish = (res) => {
+    if (finished) return;
+    finished = true;
+    worker.terminate();
+    otherRun = null;
+    if (terminal.inputActive) terminal.resolveInput(null);
+    if (res.stopped) terminal.system("Stopped", "sys");
+    else if (res.ok) terminal.system(`Process finished in ${res.time.toFixed(res.time < 10 ? 3 : 1)}s`, "ok");
+    else terminal.system(`Process exited with an error after ${res.time.toFixed(res.time < 10 ? 3 : 1)}s`, "stderr");
+    $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)}</span>`;
+    setBusy(false);
+  };
+  otherRun = { stop: () => finish({ ok: false, time: 0, stopped: true }) };
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === "stdout") terminal.write(m.text, "stdout");
+    else if (m.type === "stderr") terminal.write(m.text, "stderr");
+    else if (m.type === "input-request") {
+      terminal.requestInput((value) => worker.postMessage({ cmd: "input-reply", value: value == null ? null : value }));
+    } else if (m.type === "done") finish(m);
+  };
+  worker.onerror = (e) => { terminal.write(`${e.message || "The runner crashed"}\n`, "stderr"); finish({ ok: false, time: 0 }); };
+  setKernelStatus("busy", `Running ${RUN_LANG_NAME[lang]}`);
+  worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs });
 }
 
 async function restartKernel(reason) {
@@ -1662,7 +1757,8 @@ function runCell(line, andBelow = false) {
 }
 function runSelection() {
   const model = editor.getModel();
-  if (!model || model.getLanguageId() !== "python") return;
+  if (!model) return;
+  if (model.getLanguageId() !== "python") return toast("Running a selection in the console works with Python files only. Use Run to run the whole file.", "info");
   const sel = editor.getSelection();
   if (!sel.isEmpty()) return replExec(dedent(model.getValueInRange(sel)));
   const hasCells = model.getLinesContent().some((l) => /^\s*#\s*%%/.test(l));
@@ -2457,6 +2553,7 @@ async function boot() {
   createEditor();
   organizeImportsCommand = editor.addCommand(0, () => organizeImports());
   registerProviders();
+  configureTypeScript();
   monaco.editor.onDidChangeMarkers(() => refreshProblems());
 
   const shared = await importFromHash();
