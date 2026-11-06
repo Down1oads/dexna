@@ -484,3 +484,8 @@ table.vars .exp .icon { width: 11px; height: 11px; vertical-align: -1px; }
 .tt-prev.auto { background: linear-gradient(100deg, #14161b 50%, #f4f4f6 50%); gap: 0; justify-content: space-between; align-items: center; padding: 0 12px; }
 .tt-prev.auto b { color: #d6dae4; } .tt-prev.auto b.l { color: #1f2330; }
 .tt-name { padding: 0 8px 7px; font-size: 12px; }
+
+/* ================= Online languages ================= */
+.home h3 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--fg-dim); }
+.home-aside { margin: 0 0 4px; color: var(--fg-faint); font-size: 12px; }
+.modal-body textarea { width: 100%; font: 13px/1.45 var(--mono); resize: vertical; min-height: 100px; }

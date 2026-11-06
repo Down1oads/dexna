@@ -59,7 +59,12 @@ const TYPES = {
   py: ["Py", "#3a7bd5"], pyi: ["Py", "#3a7bd5"], md: ["M", "#6b7a99"], json: ["{}", "#c98a1b"], csv: ["Cs", "#2f9e5b"],
   txt: ["Tx", "#7d8597"], toml: ["To", "#8a6d5a"], cfg: ["Cf", "#8a6d5a"], ini: ["In", "#8a6d5a"], html: ["<>", "#d1532c"],
   js: ["Js", "#c9a515"], ts: ["Ts", "#2f74c0"], css: ["#", "#3d6fd9"], yml: ["Y", "#b8424a"], yaml: ["Y", "#b8424a"],
-  sql: ["Sq", "#4a7f9e"], lua: ["Lu", "#3b4a9c"], mjs: ["Js", "#c9a515"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
+  sql: ["Sq", "#4a7f9e"],
+  cs: ["C#", "#68217a"], java: ["Jv", "#d9731a"], c: ["C", "#5c6bc0"], h: ["H", "#5c6bc0"], cpp: ["C+", "#00599c"], cc: ["C+", "#00599c"], hpp: ["H+", "#00599c"],
+  go: ["Go", "#00a7c4"], rs: ["Rs", "#b7410e"], kt: ["Kt", "#7f52ff"], swift: ["Sw", "#f05138"], php: ["Ph", "#777bb3"], rb: ["Rb", "#cc342d"],
+  pl: ["Pl", "#39457e"], dart: ["Da", "#0175c2"], scala: ["Sc", "#dc322f"], r: ["R", "#276dc3"], hs: ["Hs", "#5e5086"], ex: ["Ex", "#6e4a7e"], exs: ["Ex", "#6e4a7e"],
+  pas: ["Pa", "#a0522d"], clj: ["Cj", "#5881d8"], groovy: ["Gv", "#4298b8"], ml: ["ML", "#ee6a1a"], fs: ["F#", "#378bba"], vb: ["VB", "#68217a"], erl: ["Er", "#a90533"],
+  d: ["D", "#b03931"], lisp: ["Ls", "#3f6e9a"], f90: ["Fo", "#734f96"], m: ["ObjC", "#438eff"], lua: ["Lu", "#3b4a9c"], mjs: ["Js", "#c9a515"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
 };
 
 export function fileIconSvg(path) {

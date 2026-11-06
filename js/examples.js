@@ -596,6 +596,159 @@ FROM books b JOIN authors a ON a.id = b.author_id;
 `,
     },
   },
+  {
+    id: "csharp",
+    name: "C# (online)",
+    desc: "Reads a name, sorts numbers. Runs on a public compiler",
+    entry: "Program.cs",
+    stdin: { "Program.cs": "Ada" },
+    files: {
+      "Program.cs": `using System;
+using System.Linq;
+
+class Program
+{
+    static void Main()
+    {
+        Console.Write("What's your name? ");
+        string name = Console.ReadLine();
+        Console.WriteLine($"Hello, {name}!");
+
+        int[] numbers = { 3, 1, 4, 1, 5, 9, 2, 6 };
+        var sorted = numbers.OrderBy(n => n);
+        Console.WriteLine("sorted: " + string.Join(", ", sorted));
+        Console.WriteLine("sum of squares: " + numbers.Sum(n => n * n));
+    }
+}
+`,
+    },
+  },
+  {
+    id: "java",
+    name: "Java (online)",
+    desc: "Scanner input and collections. Runs on a public compiler",
+    entry: "Main.java",
+    stdin: { "Main.java": "Ada" },
+    files: {
+      "Main.java": `import java.util.*;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner in = new Scanner(System.in);
+        System.out.print("What's your name? ");
+        String name = in.nextLine();
+        System.out.println("Hello, " + name + "!");
+
+        List<Integer> numbers = new ArrayList<>(List.of(3, 1, 4, 1, 5, 9, 2, 6));
+        Collections.sort(numbers);
+        System.out.println("sorted: " + numbers);
+        System.out.println("max: " + Collections.max(numbers));
+    }
+}
+`,
+    },
+  },
+  {
+    id: "cpp",
+    name: "C++ (online)",
+    desc: "STL vectors and getline. Runs on a public compiler",
+    entry: "main.cpp",
+    stdin: { "main.cpp": "Ada" },
+    files: {
+      "main.cpp": `#include <algorithm>
+#include <iostream>
+#include <numeric>
+#include <string>
+#include <vector>
+using namespace std;
+
+int main() {
+    string name;
+    cout << "What's your name? ";
+    getline(cin, name);
+    cout << "Hello, " << name << "!\\n";
+
+    vector<int> numbers = {3, 1, 4, 1, 5, 9, 2, 6};
+    sort(numbers.begin(), numbers.end());
+    cout << "sorted:";
+    for (int n : numbers) cout << " " << n;
+    cout << "\\nsum: " << accumulate(numbers.begin(), numbers.end(), 0) << "\\n";
+    return 0;
+}
+`,
+    },
+  },
+  {
+    id: "go",
+    name: "Go (online)",
+    desc: "Goroutines and channels. Runs on a public compiler",
+    entry: "main.go",
+    files: {
+      "main.go": `package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func square(n int, wg *sync.WaitGroup, out chan<- int) {
+	defer wg.Done()
+	out <- n * n
+}
+
+func main() {
+	var wg sync.WaitGroup
+	out := make(chan int, 8)
+	for i := 1; i <= 8; i++ {
+		wg.Add(1)
+		go square(i, &wg, out)
+	}
+	wg.Wait()
+	close(out)
+
+	sum := 0
+	for v := range out {
+		sum += v
+	}
+	fmt.Println("sum of squares 1..8 =", sum)
+}
+`,
+    },
+  },
+  {
+    id: "rust",
+    name: "Rust (online)",
+    desc: "Structs, traits and iterators. Runs on a public compiler",
+    entry: "main.rs",
+    files: {
+      "main.rs": `trait Shape {
+    fn area(&self) -> f64;
+    fn name(&self) -> &str;
+}
+
+struct Circle(f64);
+struct Rect(f64, f64);
+
+impl Shape for Circle {
+    fn area(&self) -> f64 { std::f64::consts::PI * self.0 * self.0 }
+    fn name(&self) -> &str { "circle" }
+}
+impl Shape for Rect {
+    fn area(&self) -> f64 { self.0 * self.1 }
+    fn name(&self) -> &str { "rectangle" }
+}
+
+fn main() {
+    let shapes: Vec<Box<dyn Shape>> = vec![Box::new(Circle(2.0)), Box::new(Rect(3.0, 4.0))];
+    for s in &shapes {
+        println!("{:<10} area = {:.2}", s.name(), s.area());
+    }
+    let total: f64 = shapes.iter().map(|s| s.area()).sum();
+    println!("total area = {:.2}", total);
+}
+`,
+    },
+  },
 ];
 
 export const BLANK = {

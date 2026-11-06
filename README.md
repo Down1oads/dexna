@@ -34,7 +34,11 @@ Open the site and pick a language on the Home page. Dexna creates an empty proje
 - **JavaScript and TypeScript:** import any npm package by name (`import dayjs from "dayjs"`). It loads from esm.sh when you run, and the Packages view can search npm and pin versions.
 - **Lua and SQL:** no package manager in the browser. Put `.lua` files in your project and use `require`.
 
-Python-only features: the debugger, the console, variables, plots and packages. C#, Java, C++ and other compiled languages are not supported yet because they need a server or very large downloads.
+**Online languages** (these are the one exception to "runs on your device")
+
+C#, Java, C, C++, Go, Rust, Kotlin, Swift, PHP, Ruby, Perl, Dart, Scala, R, Haskell, Elixir, Pascal, Fortran, Groovy, Clojure, OCaml, F#, Visual Basic, Objective-C, D, Erlang, Lisp, Prolog, COBOL, Bash and Assembly cannot run inside a browser, so Dexna sends the file you run, and any input you type, to a public compile service ([Judge0 CE](https://ce.judge0.com), with [Wandbox](https://wandbox.org) as a backup). Dexna asks for your consent the first time, and you can turn it off under Settings > Languages. These services are free and shared, so they can be slow or rate limited, and programs cannot read input while running (Dexna asks for it before the run).
+
+Python-only features: the debugger, the console, variables, plots and packages. 
 
 **Running code**
 - Full CPython 3.12 (Pyodide) in a background worker ; the UI never freezes

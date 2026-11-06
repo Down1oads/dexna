@@ -2,6 +2,7 @@
 import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
 import { registerLanguageTools } from "./langtools.js";
+import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline } from "./online.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -45,7 +46,7 @@ const LS = {
 const DEFAULT_SETTINGS = {
   theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
-  autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true,
+  autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
 // older versions stored "dark" / "light"
@@ -70,7 +71,7 @@ function makeProject(tpl, name) {
   return {
     id: newId(), name: name || tpl.name, files, dirs: [], entry, pinEntry: false,
     open: entry ? [entry] : [], active: entry, breakpoints: structuredClone(tpl.breakpoints || {}),
-    packages: [...(tpl.packages || [])], npm: { ...(tpl.npm || {}) }, watches: [], expanded: [...dirs], created: Date.now(),
+    packages: [...(tpl.packages || [])], npm: { ...(tpl.npm || {}) }, stdin: { ...(tpl.stdin || {}) }, watches: [], expanded: [...dirs], created: Date.now(),
   };
 }
 
@@ -246,6 +247,10 @@ const LANGS = { py: "python", pyi: "python", json: "json", md: "markdown", js: "
 // Languages Dexna can run. Python uses the main kernel; the rest run in a throwaway runner worker.
 const RUN_LANG = { py: "python", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", sql: "sql" };
 const RUN_LANG_NAME = { python: "Python", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL" };
+// Compiled languages run on a public online compiler (see js/online.js).
+for (const l of ONLINE_LANGS) { RUN_LANG_NAME[l.id] = l.name; for (const e of l.ext) { RUN_LANG[e] = l.id; if (!LANGS[e] || e === "sh") LANGS[e] = l.monaco; } }
+Object.assign(LANGS, { h: "c", hpp: "cpp", kts: "kotlin" });
+const isOnline = (lang) => !!ONLINE_BY_ID[lang];
 const runLangOf = (p) => RUN_LANG[p.split(".").pop().toLowerCase()] || null;
 const isRunnable = (p) => !!runLangOf(p);
 const langOf = (p) => LANGS[p.split(".").pop().toLowerCase()] || "plaintext";
@@ -891,6 +896,16 @@ const LANG_STARTS = [
   { id: "typescript", name: "TypeScript", ext: "ts", desc: "Static types and generics, checked as you type." },
   { id: "lua", name: "Lua", ext: "lua", desc: "A small, fast scripting language (Lua 5.4)." },
   { id: "sql", name: "SQL", ext: "sql", desc: "Query an in-memory SQLite database." },
+  { id: "csharp", name: "C#", ext: "cs", file: "Program.cs", online: true, desc: "Classes and LINQ on Mono." },
+  { id: "java", name: "Java", ext: "java", file: "Main.java", online: true, desc: "JDK 17." },
+  { id: "c", name: "C", ext: "c", online: true, desc: "GCC 14." },
+  { id: "cpp", name: "C++", ext: "cpp", online: true, desc: "GCC 14." },
+  { id: "go", name: "Go", ext: "go", online: true, desc: "Go 1.23." },
+  { id: "rust", name: "Rust", ext: "rs", online: true, desc: "Rust 1.85." },
+  { id: "kotlin", name: "Kotlin", ext: "kt", online: true, desc: "Kotlin 2.1." },
+  { id: "swift", name: "Swift", ext: "swift", online: true, desc: "Swift 5.2." },
+  { id: "php", name: "PHP", ext: "php", online: true, desc: "PHP 8.3." },
+  { id: "ruby", name: "Ruby", ext: "rb", online: true, desc: "Ruby 2.7." },
 ];
 let homeOpen = false, settingsOpen = false;
 const pageOpen = () => homeOpen || settingsOpen;
@@ -950,7 +965,7 @@ function startLanguage(l) {
   if (project && !Object.keys(project.files).length) {
     if (project.name === EMPTY_PROJECT.name) { project.name = uniqueProjectName(`${l.name} project`); persistProject(); persistProject.flush(); renderProjectSelect(); }
   } else createProject({ name: uniqueProjectName(`${l.name} project`), files: {} });
-  createFile(`main.${l.ext}`, "");
+  createFile(l.file || `main.${l.ext}`, "");
 }
 
 async function openRecent(id) {
@@ -968,10 +983,11 @@ function renderHome() {
     return h("button", { class: "recent-item", onclick: () => openRecent(p.id), title: p.name },
       h("span", { class: "rn" }, p.name), h("span", { class: "rm" }, `${n} file${n === 1 ? "" : "s"}${p.updated ? ", " + ago(p.updated) : ""}`));
   });
-  const langRows = LANG_STARTS.map((l) => h("button", { class: "lang-row", onclick: () => startLanguage(l) },
-    h("span", { class: "lc-icon", html: fileIconSvg("x." + l.ext) }), h("span", { class: "ln" }, l.name), h("span", { class: "ld" }, l.desc), h("span", { class: "lf" }, `main.${l.ext}`)));
+  const langRow = (l) => h("button", { class: "lang-row", onclick: () => startLanguage(l) },
+    h("span", { class: "lc-icon", html: fileIconSvg("x." + l.ext) }), h("span", { class: "ln" }, l.name), h("span", { class: "ld" }, l.desc), h("span", { class: "lf" }, l.file || `main.${l.ext}`));
+  const localRows = LANG_STARTS.filter((l) => !l.online).map(langRow), onlineRows = LANG_STARTS.filter((l) => l.online).map(langRow);
   const exRows = EXAMPLES.map((ex) => {
-    const names = [...new Set(Object.keys(ex.files).map((f) => RUN_LANG[f.split(".").pop().toLowerCase()]).filter(Boolean))].map((k) => RUN_LANG_NAME[k]);
+    const names = [...new Set(Object.keys(ex.files).map((f) => RUN_LANG[f.split(".").pop().toLowerCase()]).filter(Boolean))].map((k) => RUN_LANG_NAME[k] + (isOnline(k) ? " (online)" : ""));
     return h("button", { class: "ex-row", title: ex.desc, onclick: () => { createProject(ex); toast(`Opened ${ex.name}. Press F5 to run.`, "ok"); } },
       h("span", { class: "ex-name" }, ex.name), h("span", { class: "ex-meta" }, names.join(", ")));
   });
@@ -991,9 +1007,11 @@ function renderHome() {
         h("div", { class: "home-section" }, h("h2", {}, "Recent"),
           recent.length ? h("div", { class: "recent-list" }, recent) : h("div", { class: "muted small" }, "Projects you create will show up here."))),
       h("div", {},
-        h("div", { class: "home-section" }, h("h2", {}, "New project"), h("div", { class: "lang-list" }, langRows)),
+        h("div", { class: "home-section" }, h("h2", {}, "New project"),
+          h("h3", {}, "Runs on your device"), h("div", { class: "lang-list" }, localRows),
+          h("h3", {}, "Runs online"), h("p", { class: "home-aside" }, "These compile on a public online service. Dexna asks before sending anything."), h("div", { class: "lang-list" }, onlineRows)),
         h("div", { class: "home-section" }, h("h2", {}, "Examples"), h("div", { class: "ex-list" }, exRows)))),
-    h("p", { class: "home-note" }, "Everything runs on your device. Your code is never uploaded, and projects are saved in this browser.")));
+    h("p", { class: "home-note" }, "Python, JavaScript, TypeScript, Lua and SQL run on your device and your code stays in this browser. Online languages send the file you run to a public compiler, after you agree.")));
 }
 
 async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}) {
@@ -1657,6 +1675,7 @@ async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
   if (!lang) return toast(`Dexna can't run ${basename(path)}. It runs Python, JavaScript, TypeScript, Lua and SQL files.`, "warn");
   if (lang !== "python") {
     if (debug) return toast("The debugger works with Python files only.", "warn");
+    if (isOnline(lang)) return runOnlineFile(path, ONLINE_BY_ID[lang]);
     return runOther(path, lang);
   }
   if (debug && !kernel?.isolated) return toast("The debugger needs cross-origin isolation (try reloading the page in Chrome, Edge or Firefox).", "error", 6000);
@@ -1820,6 +1839,75 @@ async function runOther(path, lang) {
   worker.onerror = (e) => { terminal.write(`${e.message || "The runner crashed"}\n`, "stderr"); finish({ ok: false, time: 0 }); };
   setKernelStatus("busy", `Running ${RUN_LANG_NAME[lang]}`);
   worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs, npm: project.npm || {} });
+}
+
+/* ---------- online languages (C#, Java, C++, Go, Rust, ...) ---------- */
+function stdinDialog(langName, value) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; closeOverlay?.(); resolve(v); };
+    const ta = h("textarea", { rows: 6, spellcheck: "false", placeholder: "Type what the program will read, one line per Enter" });
+    ta.value = value;
+    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); finish(ta.value); } });
+    openModal(h("div", { class: "modal" },
+      h("div", { class: "modal-head" }, `Input for your ${langName} program`),
+      h("div", { class: "modal-body" }, h("p", {}, "Online runs cannot ask for input while the program is running, so type everything it will read now. Ctrl+Enter runs it."), ta),
+      h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => finish(null) }, "Cancel"), h("button", { class: "btn primary", onclick: () => finish(ta.value) }, "Run"))), () => finish(null));
+    ta.focus();
+  });
+}
+
+async function runOnlineFile(path, lang) {
+  if (!settings.onlineRunners) {
+    const ok = await confirmDialog({
+      title: `Run ${lang.name} online?`,
+      message: `${lang.name} cannot run inside the browser. Dexna will send this file, and any input you type, to a public online compiler (ce.judge0.com, with wandbox.org as a backup). Nothing else is sent, and your other languages keep running on your device. You can turn this off in Settings, under Languages.`,
+      okLabel: "Run online",
+    });
+    if (!ok) return;
+    setSetting("onlineRunners", true);
+  }
+  const code = models.get(path)?.getValue() ?? project.files[path];
+  let stdin = "";
+  if (readsInput(lang.id, code)) {
+    const v = await stdinDialog(lang.name, project.stdin?.[path] ?? "");
+    if (v === null) return;
+    stdin = v;
+    (project.stdin ||= {})[path] = v;
+    persistProject();
+  }
+  showPanel("terminal");
+  if (settings.clearOnRun) terminal.clear();
+  terminal.separator(`Running ${path} (${lang.name}, online) at ${new Date().toLocaleTimeString()}`);
+  sink = terminal;
+  clearRuntimeError();
+  setBusy(true, "run");
+  setKernelStatus("busy", `Running ${lang.name} online`);
+  const ctrl = new AbortController();
+  let finished = false;
+  const finish = (res) => {
+    if (finished) return;
+    finished = true;
+    otherRun = null;
+    if (res.stopped) terminal.system("Stopped", "sys");
+    else if (res.ok) terminal.system(`Process finished${res.time ? ` in ${res.time.toFixed(res.time < 10 ? 3 : 1)}s` : ""} on ${res.provider}${res.fallback ? " (backup compiler)" : ""}`, "ok");
+    else terminal.system(`Process exited with an error${res.provider ? ` on ${res.provider}` : ""}`, "stderr");
+    $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)}</span>`;
+    setBusy(false);
+  };
+  otherRun = { stop: () => { ctrl.abort(); finish({ ok: false, stopped: true }); } };
+  try {
+    const r = await runOnline(lang, code, stdin, ctrl.signal);
+    if (finished) return;
+    if (r.compile) terminal.write(r.compile.replace(/\s+$/, "") + "\n", "stderr");
+    if (r.stdout) terminal.write(r.stdout.endsWith("\n") ? r.stdout : r.stdout + "\n", "stdout");
+    if (r.stderr) terminal.write(r.stderr.endsWith("\n") ? r.stderr : r.stderr + "\n", "stderr");
+    finish(r);
+  } catch (e) {
+    if (finished) return;
+    terminal.write(`${e.message || e}\n`, "stderr");
+    finish({ ok: false });
+  }
 }
 
 async function restartKernel(reason) {
@@ -2408,13 +2496,14 @@ const SETTINGS_SCHEMA = [
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
   { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
+  { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (ce.judge0.com, with wandbox.org as a backup). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
   { key: "autoLint", cat: "Python", label: "Live linting", desc: "Check Python code with pyflakes as you type and underline problems.", type: "bool" },
   { key: "lineLength", cat: "Python", label: "Formatter line length", desc: "Maximum line length for black and isort. Lua and SQL formatting use it as a guide too.", type: "number", min: 40, max: 200 },
   { key: "autoInstall", cat: "Python", label: "Auto-install imports", desc: "When you run Python code, install missing packages from PyPI automatically.", type: "bool" },
   { key: "clearOnRun", cat: "Terminal", label: "Clear on run", desc: "Clear the terminal each time you run a program.", type: "bool" },
   { key: "inlineplots", cat: "Terminal", label: "Inline plots", desc: "Also show matplotlib figures inside the terminal, not just in the Plots tab.", type: "bool" },
 ];
-const SETTING_CATS = ["Appearance", "Editor", "Python", "Terminal", "Data and privacy"];
+const SETTING_CATS = ["Appearance", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
 const settingsUI = { query: "" };
 
 function setSetting(key, value) {
