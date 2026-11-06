@@ -59,13 +59,13 @@ The chat icon in the activity bar (or **Ctrl+Alt+I**) opens the Assistant: a cod
 - Pick a model and press **Download and start**. It downloads once (from Hugging Face), the browser caches it, and after that it starts offline.
   | Model | Download | Graphics memory |
   | --- | --- | --- |
-  | Small (Qwen2.5-Coder 0.5B) | about 0.4 GB | 1 GB |
-  | Medium (Qwen2.5-Coder 1.5B), recommended | about 1 GB | 2 GB |
-  | Large (Qwen2.5-Coder 7B) | about 4.5 GB | 5.5 GB |
+  | Small (Qwen2.5-Coder 0.5B) | about 0.5 GB | 1.1 GB |
+  | Medium (Qwen2.5-Coder 1.5B), recommended | about 1 GB | 1.9 GB |
+  | Large (Qwen2.5-Coder 7B) | about 4.5 GB | 5.9 GB |
 - It sees the open file (or just your selection) and, when you ask about an error, the output of your last run. Your code never leaves the browser.
 - **Explain**, **Find bugs**, **Explain the error** and **Add comments** are one click, and the same entries are in the editor's right-click menu and the command palette.
 - Code in an answer has **Copy**, **New file**, **Insert at cursor** / **Replace selection** and, for whole-file fixes, **Replace file**. Every change can be undone with Ctrl+Z.
-- **Auto** (the switch at the top of the panel) makes it do the work: ask for a new program and it creates a project and types the code into the editor as it writes it; ask for a change and it rewrites the open file. A web page goes into `index.html`, `style.css` and `script.js`. Each write is one Ctrl+Z.
+- **Auto** (the switch at the top of the panel) makes it do the work: ask for a new program and it creates a project and types the code into the editor as it writes it; ask for a change and it rewrites the open file. A web page goes into `index.html`, `style.css` and `script.js`. Each write is one Ctrl+Z. If the written file has errors, the card says so and **Fix errors** sends them back to the model.
 - Answers are typed out smoothly, at a steady pace.
 - It needs WebGPU: a recent Chrome or Edge on a computer. Phones and some older laptops cannot run it.
 - These are small models, so they are best at explaining code, finding bugs and writing short pieces of code. Check what they suggest.

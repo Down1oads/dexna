@@ -7,10 +7,11 @@ const load = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}
 const save = (v) => { try { localStorage.setItem(LS_KEY, JSON.stringify(v)); } catch (_) {} };
 
 // Sizes are approximate; "memory" is the graphics memory WebLLM asks for. All three are Apache-2.0 licensed.
+// The 32-bit builds are used: the 16-bit ones can turn long answers into garbage on some graphics cards.
 export const AI_MODELS = [
-  { id: "Qwen2.5-Coder-0.5B-Instruct", name: "Small", size: "about 0.4 GB", memory: "1 GB", desc: "Fastest. Fine for short explanations." },
-  { id: "Qwen2.5-Coder-1.5B-Instruct", name: "Medium", size: "about 1 GB", memory: "2 GB", desc: "Recommended. Explains and fixes everyday code well.", recommended: true },
-  { id: "Qwen2.5-Coder-7B-Instruct", name: "Large", size: "about 4.5 GB", memory: "5.5 GB", desc: "Best answers. Needs a strong graphics card." },
+  { id: "Qwen2.5-Coder-0.5B-Instruct", name: "Small", size: "about 0.5 GB", memory: "1.1 GB", desc: "Fastest. Fine for short explanations." },
+  { id: "Qwen2.5-Coder-1.5B-Instruct", name: "Medium", size: "about 1 GB", memory: "1.9 GB", desc: "Recommended. Explains and fixes everyday code well.", recommended: true },
+  { id: "Qwen2.5-Coder-7B-Instruct", name: "Large", size: "about 4.5 GB", memory: "5.9 GB", desc: "Best answers. Needs a strong graphics card." },
 ];
 
 const SYSTEM = [
@@ -82,7 +83,7 @@ export function createAssistant(ctx) {
     auto: !!load().auto, // Auto mode: create projects and type the code into the editor
   };
   const root = () => document.getElementById("ai-root");
-  const fullId = (id) => `${id}-${state.f16 ? "q4f16_1" : "q4f32_1"}-MLC`;
+  const fullId = (id) => `${id}-q4f32_1-MLC`;
   const modelInfo = () => AI_MODELS.find((m) => m.id === state.model) || AI_MODELS[1];
 
   async function detectGpu() {
@@ -186,6 +187,29 @@ export function createAssistant(ctx) {
     return turns;
   }
 
+  /**
+   * Tidy an answer that ended badly: a code block the model never closed (it sometimes writes a single
+   * backtick and then junk) is cut at that backtick, and junk after the last block is dropped.
+   */
+  function tidyAnswer(text) {
+    const opens = (text.match(/^```/gm) || []).length;
+    if (opens % 2 === 1) { // the last code block was never closed
+      const at = text.lastIndexOf("\n```");
+      const head = text.slice(0, at + 1), block = text.slice(at + 1);
+      const lines = block.split("\n");
+      for (let i = lines.length - 1; i > 0; i--) {
+        const m = /^(.*?)`{1,2}\s*$/.exec(lines[i]);
+        const rest = lines.slice(i + 1).join("\n");
+        if (m && (!rest.trim() || letterRatio(rest) < 0.5 || rest.trim().length < 80)) { text = head + [...lines.slice(0, i), m[1]].join("\n").replace(/\s+$/, "") + "\n```\n"; break; }
+      }
+    }
+    const end = text.lastIndexOf("```") + 3;
+    const tail = text.slice(end);
+    if (end > 2 && tail.trim() && (letterRatio(tail) < 0.45 || /^\s*`/.test(tail))) text = text.slice(0, end) + "\n";
+    return text.replace(/\s+$/, "");
+  }
+  const letterRatio = (t) => { const s = t.replace(/\s+/g, " "); return s.length ? (s.match(/[A-Za-z]/g) || []).length / s.length : 1; };
+
   /** True when the newest output has turned into repeated junk (it happens with small models). */
   function looksBroken(text) {
     const tail = text.slice(-400);
@@ -235,6 +259,7 @@ export function createAssistant(ctx) {
       reply.raw += (reply.raw ? "\n\n" : "") + "_The model lost track and started writing nonsense, so I stopped it. Press New chat and ask again, ideally a smaller question. The Large model handles long requests better if your computer can run it._";
       reply.error = true;
     }
+    if (!broken && !reply.error) { const clean = tidyAnswer(reply.raw); if (clean !== reply.raw) { reply.raw = clean; if (reply.content.length > clean.length) reply.content = clean; } }
     streamDone = true;
     await typed;
     feedWriters(reply, true);
@@ -285,7 +310,7 @@ export function createAssistant(ctx) {
       const w = msg.writers[i];
       if (w) {
         w.write(p.code);
-        if ((p.done || final) && !w.finished) w.finish();
+        if ((p.done || final) && !w.finished) { w.finish(); checkProblems(w, msg); }
       }
       i++;
     }
@@ -321,6 +346,25 @@ export function createAssistant(ctx) {
       msg.target?.whole && ctx.editor.getModel() && msg.target.path === ctx.getContext()?.path ? btn("check", "Replace file", () => apply(p.code, "file")) : null);
     return h("div", { class: "ai-code-wrap" }, p.lang ? h("div", { class: "ai-code-lang" }, p.lang) : null, pre, p.done ? actions : null);
   }
+  /** After a file is written, look for errors (the linter needs a moment) and offer to fix them. */
+  function checkProblems(w, msg) {
+    setTimeout(() => {
+      const problems = ctx.problemsFor?.(w.path) || [];
+      w.problems = problems;
+      if (problems.length) renderAt(msg);
+    }, 1800);
+  }
+  function renderAt(msg) {
+    const log = root()?.querySelector(".ai-log");
+    const i = state.messages.indexOf(msg);
+    const el = log?.querySelectorAll(":scope > .ai-msg")[i];
+    if (el) el.replaceWith(messageEl(msg));
+  }
+  function fixProblems(w) {
+    const list = w.problems.slice(0, 8).map((p) => `- line ${p.line}: ${p.message}`).join("\n");
+    ctx.open(w.path);
+    setTimeout(() => ask(`Fix these errors in ${w.path}, and give the complete corrected file:\n${list}`, "fix"), 150);
+  }
   function autoCard(w, p, msg) {
     const done = w.finished;
     const btn = (ic, label, run) => h("button", { class: "btn sm", title: label, onclick: run }, icon(ic), h("span", {}, label));
@@ -329,7 +373,10 @@ export function createAssistant(ctx) {
       h("div", { class: "ai-auto-head" }, icon(done ? "check" : "newFile"),
         h("span", {}, done ? `Wrote ${w.path}` : `Typing into ${w.path}…`), h("span", { class: "muted small" }, `${w.lines} line${w.lines === 1 ? "" : "s"}`)),
       w.note ? h("div", { class: "muted small" }, w.note) : null,
+      done && w.problems?.length ? h("div", { class: "ai-auto-warn" }, icon("warning"),
+        h("span", {}, `${w.problems.length} error${w.problems.length === 1 ? "" : "s"}, first on line ${w.problems[0].line}: ${w.problems[0].message}`)) : null,
       done ? h("div", { class: "ai-code-actions" },
+        w.problems?.length && !state.busy ? btn("bolt", "Fix errors", () => fixProblems(w)) : null,
         btn("file", "Open", () => ctx.open(w.path)),
         w.runnable ? btn("play", "Run", () => ctx.run(w.path)) : null,
         btn("chevronDown", "Show code", (e) => { code.classList.toggle("hidden"); e.currentTarget.querySelector("span").textContent = code.classList.contains("hidden") ? "Show code" : "Hide code"; })) : null,

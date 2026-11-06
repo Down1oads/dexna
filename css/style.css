@@ -594,3 +594,6 @@ section.view[data-view="assistant"].active { display: flex; flex-direction: colu
 .ai-auto-toggle.on .ai-switch { background: var(--accent); border-color: var(--accent); }
 .ai-auto-toggle.on .ai-switch::after { transform: translateX(10px); background: #fff; }
 .ai-auto-toggle input:focus-visible + .ai-switch { outline: 1px solid var(--accent); outline-offset: 2px; }
+.ai-auto-warn { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--warn); }
+.ai-auto-warn .icon { flex: none; margin-top: 2px; }
+.ai-auto-warn span { color: var(--fg-dim); word-break: break-word; }

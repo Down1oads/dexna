@@ -2016,6 +2016,8 @@ function setupAssistant() {
     workerUrl: new URL(`ai-worker.js?lib=${encodeURIComponent(libUrl)}`, import.meta.url),
     getContext: assistantContext, getLastRun: lastRunOutput,
     autoSession, open: (path) => openFile(path), run: (path) => runFile({ path }),
+    problemsFor: (path) => monaco.editor.getModelMarkers({ resource: uriFor(path) }).filter((m) => m.severity === monaco.MarkerSeverity.Error)
+      .sort((a, b) => a.startLineNumber - b.startLineNumber).map((m) => ({ line: m.startLineNumber, message: m.message.split("\n")[0] })),
     newFile: (code, lang) => { // a code block from the Assistant as its own file, named by its language
       const id = (lang || "").toLowerCase();
       const known = monaco.languages.getLanguages().find((l) => l.id === id || (l.aliases || []).some((a) => a.toLowerCase() === id) || (l.extensions || []).includes("." + id));
