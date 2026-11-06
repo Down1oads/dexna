@@ -68,11 +68,11 @@ kbd {
 .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
 .link { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; text-align: left; }
 .link:hover { text-decoration: underline; }
-.toggle {
+.toggle:where(:not(.monaco-editor *, .monaco-menu-container *)) {
   width: 24px; height: 24px; border: 1px solid transparent; background: transparent; border-radius: 2px;
   cursor: pointer; font: 11px ui-monospace, monospace; color: var(--fg-dim); flex: none;
 }
-.toggle.on { background: var(--sel); border-color: var(--accent); color: var(--fg); }
+.toggle.on:where(:not(.monaco-editor *, .monaco-menu-container *)) { background: var(--sel); border-color: var(--accent); color: var(--fg); }
 
 input:not([type=checkbox]):not([type=range]), select, textarea {
   background: var(--bg); border: 1px solid var(--border); border-radius: 2px; padding: 4px 8px; outline: none; min-width: 0;
@@ -105,7 +105,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
   background: var(--bg-1); border-right: 1px solid var(--border);
 }
 #activitybar button {
-  width: 38px; height: 38px; display: grid; place-items: center; background: none; border: none; cursor: pointer;
+  width: 38px; height: 38px; padding: 0; display: grid; place-items: center; background: none; border: none; cursor: pointer;
   color: var(--fg-faint); border-radius: 3px; position: relative;
 }
 #activitybar button:hover { color: var(--fg); }
@@ -136,7 +136,7 @@ body.resizing { user-select: none; }
 body.resizing iframe, body.resizing #editor { pointer-events: none; }
 
 /* ================= Tree ================= */
-.tree { flex: 1; overflow: auto; outline: none; padding-bottom: 8px; }
+.tree:where(:not(.monaco-editor .tree)) { flex: 1; overflow: auto; outline: none; padding-bottom: 8px; }
 .tree.small { flex: none; }
 .row {
   display: flex; align-items: center; gap: 6px; height: 24px; padding-right: 8px; cursor: pointer;
@@ -197,7 +197,7 @@ body.resizing iframe, body.resizing #editor { pointer-events: none; }
 .tab .tname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab .tname.preview { font-style: italic; }
 .tab .tdir { color: var(--fg-faint); font-size: 11px; }
-.tab .close { width: 18px; height: 18px; border-radius: 2px; display: grid; place-items: center; border: none; background: none; cursor: pointer; color: var(--fg-dim); visibility: hidden; font-size: 12px; }
+.tab .close { width: 18px; height: 18px; padding: 0; border-radius: 2px; display: grid; place-items: center; border: none; background: none; cursor: pointer; color: var(--fg-dim); visibility: hidden; font-size: 12px; }
 .tab.active .close, .tab:hover .close { visibility: visible; }
 .tab .close:hover { background: var(--bg-hover); color: var(--fg); }
 .tab.has-error .tname { color: var(--err); }
@@ -254,13 +254,14 @@ body.resizing iframe, body.resizing #editor { pointer-events: none; }
 #app.panel-max #editor-area, #app.panel-max #panel-resizer { display: none; }
 #app.panel-max #panel { flex: 1; height: auto !important; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 8px; flex: none; }
-.panel-tabs { display: flex; gap: 2px; overflow-x: auto; }
+.panel-tabs { display: flex; gap: 2px; overflow-x: auto; min-width: 0; flex: 1 1 auto; scrollbar-width: none; }
+.panel-tabs::-webkit-scrollbar { display: none; }
 .panel-tabs button { background: none; border: none; padding: 6px 10px; cursor: pointer; color: var(--fg-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .6px; border-bottom: 2px solid transparent; white-space: nowrap; }
 .panel-tabs button:hover { color: var(--fg); }
 .panel-tabs button.active { color: var(--fg); border-bottom-color: var(--accent); }
 .badge { display: inline-block; min-width: 16px; padding: 0 5px; border-radius: 3px; background: var(--bg-3); color: var(--fg); font-size: 10px; text-align: center; }
 .badge:empty { display: none; }
-.panel-actions { display: flex; gap: 2px; }
+.panel-actions { display: flex; gap: 2px; flex: none; margin-left: 4px; }
 .panel-body { flex: 1; min-height: 0; position: relative; }
 .panel-view { position: absolute; inset: 0; display: none; flex-direction: column; overflow: auto; }
 .panel-view.active { display: flex; }
@@ -302,7 +303,7 @@ table.vars tr:hover td { background: var(--bg-hover); }
 .plot img { display: block; max-height: 340px; max-width: 100%; cursor: zoom-in; }
 .plot .plot-acts { position: absolute; top: 6px; right: 6px; display: none; gap: 4px; }
 .plot:hover .plot-acts { display: flex; }
-.empty { color: var(--fg-faint); padding: 16px; text-align: center; width: 100%; }
+.empty:where(:not(.monaco-editor *, .monaco-menu-container *)) { color: var(--fg-faint); padding: 16px; text-align: center; width: 100%; }
 
 .problem .fi { font-size: 11px; }
 .problem .code { color: var(--fg-faint); font-size: 11px; }
@@ -394,12 +395,15 @@ table.vars tr:hover td { background: var(--bg-hover); }
 }
 
 /* ================= Icons ================= */
-.icon { width: 16px; height: 16px; flex: none; display: inline-block; vertical-align: -3px; }
+.icon:where(:not(.monaco-editor *, .monaco-menu-container *)) { width: 16px; height: 16px; flex: none; display: inline-block; vertical-align: -3px; }
 [data-icon] { display: inline-flex; font-style: normal; }
 .btn .icon { width: 15px; height: 15px; }
 .btn.run .icon, .btn.stop .icon { width: 14px; height: 14px; }
 .btn.icon .icon { width: 16px; height: 16px; }
 .btn.icon.sm .icon { width: 14px; height: 14px; }
+/* Icon-only buttons also carry the class "icon": keep them square and their glyph centered. */
+.btn.icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; vertical-align: middle; }
+.btn.icon.sm { width: 22px; height: 22px; }
 .row .fi { display: inline-flex; align-items: center; justify-content: center; }
 .row .twisty { display: inline-flex; align-items: center; justify-content: center; }
 .row .twisty .icon { width: 12px; height: 12px; }
@@ -511,3 +515,8 @@ table.vars .exp .icon { width: 11px; height: 11px; vertical-align: -1px; }
 .about-row { display: flex; gap: 12px; padding: 2px 0; }
 .about-row > span:first-child { width: 90px; flex: none; }
 .about a { color: var(--accent); }
+
+/* Suggest widget footer ("Insert", "Show More"): center the labels so they are not cut off at the bottom. */
+.monaco-editor .suggest-widget .suggest-status-bar { align-items: center; }
+.monaco-editor .suggest-widget .suggest-status-bar .monaco-action-bar { height: 100%; display: flex; align-items: center; }
+.monaco-editor .suggest-widget .suggest-status-bar .action-label { padding: 0 3px; min-height: 0; line-height: 16px; }

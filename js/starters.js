@@ -1,8 +1,11 @@
-// The text a new project starts with, one per language. "@@" marks where the cursor goes.
-// Compiled languages follow the usual new-project template of their tooling (C# is the current .NET console template).
+// The preset a new project starts with, one per language. Where Visual Studio has a template
+// (C#, Visual Basic, F#, C++, and JavaScript/TypeScript Node.js apps) it is used as-is; other languages
+// use the standard new-project template of their usual tools. "@@" marks where the cursor goes.
+// Every starter compiles and runs as-is.
 const L = (...lines) => lines.join("\n") + "\n";
 
 export const STARTERS = {
+  // ---------------- run on your device ----------------
   python: L(
     "def main():",
     '    print("Hello, world!")',
@@ -12,35 +15,60 @@ export const STARTERS = {
     'if __name__ == "__main__":',
     "    main()",
   ),
-  javascript: L('console.log("Hello, world!");', "@@"),
-  typescript: L('const greeting: string = "Hello, world!";', "console.log(greeting);", "@@"),
+  javascript: L("console.log('Hello world');", "@@"), // Visual Studio: Node.js Console App
+  typescript: L("console.log('Hello world');", "@@"), // Visual Studio: TypeScript Node.js Console App
   lua: L('print("Hello, world!")', "@@"),
   sql: L("-- A fresh in-memory SQLite database is created every time you run this file.", "SELECT 'Hello, world!' AS greeting;", "", "@@"),
-  csharp: L('Console.WriteLine("Hello, world!");', "@@"),
-  java: L(
+
+  // ---------------- online ----------------
+  csharp: L( // Visual Studio: C# Console App (.NET Framework)
+    "using System;",
+    "using System.Collections.Generic;",
+    "using System.Linq;",
+    "using System.Text;",
+    "using System.Threading.Tasks;",
+    "",
+    "namespace ConsoleApp1",
+    "{",
+    "    internal class Program",
+    "    {",
+    "        static void Main(string[] args)",
+    "        {",
+    "            @@",
+    "        }",
+    "    }",
+    "}",
+  ),
+  java: L( // Visual Studio Code: Java project
     "public class Main {",
-    "    public static void main(String[] args) {",
-    '        System.out.println("Hello, world!");',
+    "    public static void main(String[] args) throws Exception {",
+    '        System.out.println("Hello, World!");',
     "        @@",
     "    }",
     "}",
   ),
-  c: L(
+  c: L( // Visual Studio style (the C++ Console App template, in C)
+    "// main.c : This file contains the 'main' function. Program execution begins and ends there.",
+    "//",
+    "",
     "#include <stdio.h>",
     "",
-    "int main(void) {",
-    '    printf("Hello, world!\\n");',
+    "int main()",
+    "{",
+    '    printf("Hello World!\\n");',
     "    @@",
-    "    return 0;",
     "}",
   ),
-  cpp: L(
+  cpp: L( // Visual Studio: C++ Console App
+    "// main.cpp : This file contains the 'main' function. Program execution begins and ends there.",
+    "//",
+    "",
     "#include <iostream>",
     "",
-    "int main() {",
-    '    std::cout << "Hello, world!" << std::endl;',
+    "int main()",
+    "{",
+    '    std::cout << "Hello World!\\n";',
     "    @@",
-    "    return 0;",
     "}",
   ),
   go: L(
@@ -58,6 +86,77 @@ export const STARTERS = {
   swift: L('print("Hello, world!")', "@@"),
   php: L("<?php", "", 'echo "Hello, world!\\n";', "@@"),
   ruby: L('puts "Hello, world!"', "@@"),
+  perl: L("use strict;", "use warnings;", "", 'print "Hello, world!\\n";', "@@"),
+  dart: L("void main() {", "  print('Hello, world!');", "  @@", "}"),
+  scala: L(
+    "object Main {",
+    "  def main(args: Array[String]): Unit = {",
+    '    println("Hello, world!")',
+    "    @@",
+    "  }",
+    "}",
+  ),
+  r: L('cat("Hello, world!\\n")', "@@"),
+  haskell: L("main :: IO ()", "main = do", '  putStrLn "Hello, world!"', "  @@"),
+  elixir: L('IO.puts("Hello, world!")', "@@"),
+  pascal: L("program Main;", "", "begin", "  writeln('Hello, world!');", "  @@", "end."),
+  fortran: L("program main", "  implicit none", '  print *, "Hello, world!"', "  @@", "end program main"),
+  groovy: L('println "Hello, world!"', "@@"),
+  clojure: L('(println "Hello, world!")', "@@"),
+  ocaml: L('let () = print_endline "Hello, world!"', "@@"),
+  fsharp: L("// For more information see https://aka.ms/fsharp-console-apps", 'printfn "Hello from F#"', "@@"), // Visual Studio: F# Console App
+  vb: L( // Visual Studio: Visual Basic Console App (.NET Framework)
+    "Module Module1",
+    "",
+    "    Sub Main()",
+    "        @@",
+    "    End Sub",
+    "",
+    "End Module",
+  ),
+  objc: L(
+    "#import <Foundation/Foundation.h>",
+    "",
+    "int main(int argc, const char *argv[]) {",
+    "    @autoreleasepool {",
+    '        printf("Hello, world!\\n");',
+    "        @@",
+    "    }",
+    "    return 0;",
+    "}",
+  ),
+  d: L("import std.stdio;", "", "void main() {", '    writeln("Hello, world!");', "    @@", "}"),
+  erlang: L("-module(main).", "-export([main/1]).", "", "main(_Args) ->", '    io:fwrite("Hello, world!~n"),', "    @@", "    ok."),
+  lisp: L('(format t "Hello, world!~%")', "@@"),
+  prolog: L(":- initialization(main).", "", "main :-", "    write('Hello, world!'), nl,", "    @@", "    halt."),
+  cobol: L(
+    "       IDENTIFICATION DIVISION.",
+    "       PROGRAM-ID. HELLO.",
+    "       PROCEDURE DIVISION.",
+    '           DISPLAY "Hello, world!".',
+    "           @@",
+    "           STOP RUN.",
+  ),
+  bash: L("#!/bin/bash", "", 'echo "Hello, world!"', "@@"),
+  asm: L(
+    "section .data",
+    '    msg db "Hello, world!", 10',
+    "    len equ $ - msg",
+    "",
+    "section .text",
+    "    global _start",
+    "",
+    "_start:",
+    "    mov rax, 1          ; write(stdout, msg, len)",
+    "    mov rdi, 1",
+    "    mov rsi, msg",
+    "    mov rdx, len",
+    "    syscall",
+    "    @@",
+    "    mov rax, 60         ; exit(0)",
+    "    xor rdi, rdi",
+    "    syscall",
+  ),
 };
 
 /** The starter for a language, with the cursor marker removed: { text, line, column } (1-based). */

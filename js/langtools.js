@@ -708,7 +708,7 @@ export function registerLanguageTools(monaco, ctx) {
   let clang = null, gofmt = null;
   const getClang = () => (clang ||= (async () => { const m = await import(ctx.libs.clangformat + "clang-format-web.js"); await m.default(); return m; })().catch((e) => { clang = null; throw e; }));
   const getGofmt = () => (gofmt ||= (async () => { const m = await import(ctx.libs.gofmt + "gofmt_web.js"); await m.default(); return m; })().catch((e) => { gofmt = null; throw e; }));
-  const CLANG = { csharp: ["Microsoft", "Program.cs"], java: ["Google", "Main.java"], c: ["LLVM", "main.c"], cpp: ["LLVM", "main.cpp"] };
+  const CLANG = { csharp: ["Microsoft", "Program.cs"], java: ["Google", "Main.java"], c: ["Microsoft", "main.c"], cpp: ["Microsoft", "main.cpp"] }; // Microsoft = Visual Studio's brace style
   for (const [lang, [style, file]] of Object.entries(CLANG)) {
     L.registerDocumentFormattingEditProvider(lang, {
       displayName: "clang-format",
@@ -716,7 +716,7 @@ export function registerLanguageTools(monaco, ctx) {
         let m;
         try { m = await getClang(); } catch (e) { ctx.toast("Could not load the formatter: " + e.message, "error"); return []; }
         try {
-          const cfg = JSON.stringify({ BasedOnStyle: style, IndentWidth: ctx.getSettings().tabSize, ContinuationIndentWidth: ctx.getSettings().tabSize, ColumnLimit: ctx.getSettings().lineLength + 12, UseTab: "Never" });
+          const cfg = JSON.stringify({ BasedOnStyle: style, IndentWidth: ctx.getSettings().tabSize, ContinuationIndentWidth: ctx.getSettings().tabSize, ColumnLimit: ctx.getSettings().lineLength + 12, UseTab: "Never", ...(style === "Microsoft" ? { NamespaceIndentation: "All" } : {}) }); // Visual Studio indents namespace bodies
           const text = m.format(model.getValue(), file, cfg);
           const ed = ctx.minimalEdit(model, text);
           return ed ? [ed] : [];

@@ -977,6 +977,16 @@ async function openRecent(id) {
   if (project.active) showHome(false);
 }
 
+/** The online languages that are not listed on Home, in a searchable picker. Each starts with its own preset. */
+function pickMoreLanguages() {
+  const extra = ONLINE_LANGS.filter((o) => !LANG_STARTS.some((l) => l.id === o.id));
+  quickPick({
+    placeholder: "Start a project in another language (runs online)",
+    source: (q) => extra.map((o) => ({ o, m: fuzzy(q, o.name) })).filter((x) => x.m).sort((a, b) => (q ? b.m.score - a.m.score : a.o.name.localeCompare(b.o.name)))
+      .map(({ o, m }) => ({ iconHtml: fileIconSvg("x." + o.ext[0]), label: o.name, labelHtml: highlight(o.name, m.idx), desc: `main.${o.ext[0]}`, run: () => startLanguage({ id: o.id, name: o.name, ext: o.ext[0], online: true }) })),
+  });
+}
+
 function renderHome() {
   const home = $("#home");
   const action = (iconName, label, run, kb) => h("button", { class: "home-action", onclick: run }, icon(iconName), h("span", {}, label), kb ? h("kbd", {}, kbLabel(kb)) : null);
@@ -989,6 +999,9 @@ function renderHome() {
   const langRow = (l) => h("button", { class: "lang-row", onclick: () => startLanguage(l) },
     h("span", { class: "lc-icon", html: fileIconSvg("x." + l.ext) }), h("span", { class: "ln" }, l.name), h("span", { class: "ld" }, l.desc), h("span", { class: "lf" }, l.file || `main.${l.ext}`));
   const localRows = LANG_STARTS.filter((l) => !l.online).map(langRow), onlineRows = LANG_STARTS.filter((l) => l.online).map(langRow);
+  const extra = ONLINE_LANGS.filter((o) => !LANG_STARTS.some((l) => l.id === o.id));
+  onlineRows.push(h("button", { class: "lang-row", onclick: pickMoreLanguages },
+    h("span", { class: "lc-icon" }, icon("more")), h("span", { class: "ln" }, "More..."), h("span", { class: "ld" }, `${extra.length} more: ${extra.slice(0, 6).map((o) => o.name).join(", ")} and others.`), h("span", { class: "lf" }, "")));
   const exRows = EXAMPLES.map((ex) => {
     const names = [...new Set(Object.keys(ex.files).map((f) => RUN_LANG[f.split(".").pop().toLowerCase()]).filter(Boolean))].map((k) => RUN_LANG_NAME[k] + (isOnline(k) ? " (online)" : ""));
     return h("button", { class: "ex-row", title: ex.desc, onclick: () => { createProject(ex); toast(`Opened ${ex.name}. Press F5 to run.`, "ok"); } },
@@ -2934,9 +2947,10 @@ const GUIDE = [
 function showLanguageGuide() {
   const groups = [["On your device", GUIDE.filter((g) => g.where === "device")], ["Online (sent to a public compiler, with your consent)", GUIDE.filter((g) => g.where === "online")]];
   const body = h("div", { class: "guide" },
-    h("p", { class: "muted" }, "Every language gets a few snippets: type the trigger, then press Tab. Ctrl+Space shows suggestions anywhere. Online languages also take input in a box before the run, because they cannot ask while running."));
+    h("p", { class: "muted" }, "A new project starts with that language's preset, like Visual Studio does. Every language also gets a few snippets: type the trigger, then press Tab. Ctrl+Space shows suggestions anywhere. Online languages also take input in a box before the run, because they cannot ask while running."));
   for (const [title, list] of groups) {
     body.append(h("h3", {}, title));
+    if (title.startsWith("Online")) body.append(h("p", { class: "muted small" }, "Also online, each with its own starter (Home > More...): " + ONLINE_LANGS.filter((o) => !GUIDE.some((g) => g.id === o.id)).map((o) => o.name).join(", ") + "."));
     for (const g of list) {
       const snippets = (SNIPPETS[g.id] || []).map((x) => x.label);
       body.append(h("div", { class: "guide-item" },

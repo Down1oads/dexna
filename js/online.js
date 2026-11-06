@@ -73,7 +73,7 @@ function adaptJava(code) {
 
 const timeout = (ms, signal) => { const c = new AbortController(); const t = setTimeout(() => c.abort(new DOMException("timeout", "TimeoutError")), ms); signal?.addEventListener("abort", () => c.abort(signal.reason)); return { signal: c.signal, done: () => clearTimeout(t) }; };
 
-// Judge0 wants base64 so that any text (å, ä, ö, emoji) survives in both directions
+// Judge0 wants base64 so that any text (accented letters, emoji) survives in both directions
 const b64enc = (str) => { const bytes = new TextEncoder().encode(str); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
 const b64dec = (b64) => {
   if (!b64) return "";
@@ -89,7 +89,7 @@ async function judge0(lang, prep, stdin, signal) {
   try {
     const r = await fetch(`${JUDGE0}/submissions?base64_encoded=true&wait=true&fields=stdout,stderr,compile_output,message,time,memory,status`, {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: t.signal,
-      body: JSON.stringify({ source_code: b64enc(src), language_id: lang.judge0, stdin: b64enc(stdin || "") }),
+      body: JSON.stringify({ source_code: b64enc(src), language_id: lang.judge0, stdin: b64enc(stdin || ""), cpu_time_limit: 10, wall_time_limit: 15 }), // slow-starting runtimes (R, the JVM languages) need more than the default 5 s
     });
     if (r.status === 429) throw transient("The online compiler is busy (rate limit). Try again in a few seconds.");
     if (!r.ok) throw Object.assign(new Error(`The online compiler returned ${r.status}.`), { transient: r.status >= 500 });
