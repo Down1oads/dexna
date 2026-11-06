@@ -137,6 +137,16 @@ export function createAssistant(ctx) {
     state.worker?.terminate(); state.worker = null; state.engine = null;
     render();
   }
+  /** Free the current model and start another one (one click from the "too slow" hint). */
+  async function switchModel(id) {
+    if (state.busy) return;
+    try { await state.engine?.unload?.(); } catch (_) {}
+    state.worker?.terminate(); state.worker = null; state.engine = null;
+    state.model = id; save({ ...load(), model: id });
+    state.slowHint = false; state.speed = 0;
+    state.phase = "setup";
+    await start();
+  }
   async function stopEngine() {
     try { await state.engine?.unload?.(); } catch (_) {}
     state.worker?.terminate(); state.worker = null; state.engine = null;
@@ -428,8 +438,13 @@ export function createAssistant(ctx) {
       const target = lastBlock?.querySelector?.("pre:not(.hidden)") || lastBlock?.querySelector?.("p:last-of-type, li:last-child") || body;
       target.append(h("span", { class: "ai-caret" }));
     }
-    if (msg.slow) body.append(h("div", { class: "ai-auto-warn ai-slow" }, icon("warning"), h("span", {},
-      `This model is slow on your computer (${msg.speed.toFixed(1)} tokens a second) and can make it lag. A smaller model will be much faster: press × at the top to stop the Assistant, then pick ${state.model === AI_MODELS[2].id ? "Medium or Small" : "Small"}.`)));
+    if (msg.slow) {
+      const lighter = state.model === AI_MODELS[2].id ? AI_MODELS[1] : AI_MODELS[0];
+      body.append(h("div", { class: "ai-auto-warn ai-slow" }, icon("warning"), h("span", {},
+        `This model is slow on your computer (${msg.speed.toFixed(1)} tokens a second) and can make it lag. The ${lighter.name.toLowerCase()} model will be much faster.`)));
+      if (msg === state.messages.at(-1) && !state.busy) body.append(h("div", { class: "ai-code-actions ai-slow-actions" },
+        h("button", { class: "btn sm primary", onclick: () => switchModel(lighter.id) }, `Switch to ${lighter.name}`)));
+    }
     return h("div", { class: "ai-msg assistant" + (msg.error ? " error" : "") }, body);
   }
   function renderLast() {
@@ -458,7 +473,11 @@ export function createAssistant(ctx) {
     }
     if (state.phase === "setup" || state.phase === "error") {
       const cards = AI_MODELS.map((m) => h("label", { class: "ai-model" + (state.model === m.id ? " on" : "") },
-        h("input", { type: "radio", name: "ai-model", checked: state.model === m.id, onchange: () => { state.model = m.id; save({ ...load(), model: m.id }); render(); } }),
+        h("input", { type: "radio", name: "ai-model", checked: state.model === m.id, onchange: async () => {
+          if (m.id === AI_MODELS[2].id && !(await ctx.confirm({ title: "Use the Large model?", okLabel: "Use Large",
+            message: `It needs a graphics card with about ${m.memory[state.f16 ? 0 : 1]} of its own memory (a gaming-class card). On most laptops it is very slow and makes the whole computer lag, however much RAM it has. Medium is the better choice for most computers.` }))) { render(); return; }
+          state.model = m.id; save({ ...load(), model: m.id }); render();
+        } }),
         h("div", {}, h("div", { class: "ai-model-name" }, m.name, m.recommended ? h("span", { class: "ai-tag" }, "Recommended") : null, state.cached[m.id] ? h("span", { class: "ai-tag ok" }, "Downloaded") : null),
           h("div", { class: "muted small" }, `${m.desc} Download ${m.size}, needs ${m.memory[state.f16 ? 0 : 1]} of graphics memory.`)),
         state.cached[m.id] ? h("button", { class: "btn icon sm", title: "Delete this model from the browser", onclick: (e) => { e.preventDefault(); deleteModel(m.id); } }, icon("trash")) : null));

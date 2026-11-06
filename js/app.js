@@ -2015,7 +2015,7 @@ function setupAssistant() {
     h, icon, monaco, editor, toast, libUrl,
     workerUrl: new URL(`ai-worker.js?lib=${encodeURIComponent(libUrl)}`, import.meta.url),
     getContext: assistantContext, getLastRun: lastRunOutput,
-    autoSession, open: (path) => openFile(path), run: (path) => runFile({ path }),
+    autoSession, open: (path) => openFile(path), run: (path) => runFile({ path }), confirm: confirmDialog,
     problemsFor: (path) => monaco.editor.getModelMarkers({ resource: uriFor(path) }).filter((m) => m.severity === monaco.MarkerSeverity.Error)
       .sort((a, b) => a.startLineNumber - b.startLineNumber).map((m) => ({ line: m.startLineNumber, message: m.message.split("\n")[0] })),
     newFile: (code, lang) => { // a code block from the Assistant as its own file, named by its language
