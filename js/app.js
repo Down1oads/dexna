@@ -2,6 +2,7 @@
 import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
 import { registerLanguageTools, SNIPPETS } from "./langtools.js";
+import { starterFor } from "./starters.js";
 import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline } from "./online.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
@@ -960,12 +961,14 @@ function uniqueProjectName(base) {
   return `${base} ${n}`;
 }
 
-/** Start coding in a language: an empty project with a single empty main file. */
+/** Start coding in a language: a project with one file holding that language's starter template. */
 function startLanguage(l) {
   if (project && !Object.keys(project.files).length) {
     if (project.name === EMPTY_PROJECT.name) { project.name = uniqueProjectName(`${l.name} project`); persistProject(); persistProject.flush(); renderProjectSelect(); }
   } else createProject({ name: uniqueProjectName(`${l.name} project`), files: {} });
-  createFile(l.file || `main.${l.ext}`, "");
+  const starter = starterFor(l.id);
+  const path = createFile(l.file || `main.${l.ext}`, starter.text);
+  if (path && editor.getModel()) { editor.setPosition({ lineNumber: starter.line, column: starter.column }); editor.revealLineInCenterIfOutsideViewport(starter.line); editor.focus(); }
 }
 
 async function openRecent(id) {
@@ -1901,10 +1904,11 @@ async function runOnlineFile(path, lang) {
   try {
     const r = await runOnline(lang, code, stdin, ctrl.signal, path);
     if (finished) return;
-    if (r.wrapped) terminal.system(`No ${lang.id === "java" || lang.id === "csharp" ? "Main method" : "main function"} found, so Dexna ran your statements as a script. Write your own ${lang.id === "java" || lang.id === "csharp" ? "Main" : "main"} to take control.`, "sys");
+    if (r.wrapped && !r.ok) terminal.system(`No ${lang.id === "java" || lang.id === "csharp" ? "Main method" : "main function"} found, so Dexna ran your statements as a script. Write your own ${lang.id === "java" || lang.id === "csharp" ? "Main" : "main"} to take control.`, "sys");
     if (r.compile) terminal.write(r.compile.replace(/\s+$/, "") + "\n", "stderr");
     if (r.stdout) terminal.write(r.stdout.endsWith("\n") ? r.stdout : r.stdout + "\n", "stdout");
     if (r.stderr) terminal.write(r.stderr.endsWith("\n") ? r.stderr : r.stderr + "\n", "stderr");
+    if (r.hint) terminal.system("Hint: " + r.hint, "sys");
     finish(r);
   } catch (e) {
     if (finished) return;

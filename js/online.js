@@ -4,6 +4,7 @@
 // Only the program source and its input are sent. Dexna asks for consent before the first run.
 
 import { prepareSource, mapDiagnostics } from "./wrap.js";
+import { caseHint } from "./langdata.js";
 
 export const JUDGE0 = "https://ce.judge0.com";
 export const WANDBOX = "https://wandbox.org";
@@ -167,6 +168,12 @@ export async function runOnline(lang, code, stdin, signal, fileName = "Main") {
       r.wrapped = prep.wrapped;
       r.compile = mapDiagnostics(r.compile, prep.map, fileName);
       r.stderr = mapDiagnostics(r.stderr, prep.map, fileName);
+      if (r.ok) { // JVM start-up noise from the Kotlin and Java tools
+        const clean = (t) => (t || "").split("\n").filter((l) => !/^WARNING: /.test(l)).join("\n").replace(/^\s+$/, "");
+        r.stderr = clean(r.stderr);
+        r.compile = clean(r.compile);
+      }
+      if (!r.ok) r.hint = caseHint(lang.id, `${r.compile}\n${r.stderr}`);
       if (name !== attempts[0][0]) r.fallback = true;
       return r;
     } catch (e) {

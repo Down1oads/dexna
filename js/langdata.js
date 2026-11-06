@@ -895,3 +895,31 @@ hasSuffix | (s) | True if it ends with s.
 trimmingCharacters | (in:) | Removes characters at both ends.`),
   },
 };
+
+/** Names whose capitalisation matters (C#, Java, Kotlin, Swift and Go are case-sensitive). */
+export const CASE_LANGS = { csharp: "C#", java: "Java", kotlin: "Kotlin", swift: "Swift", go: "Go" };
+
+const caseIndex = new Map();
+/** lowercase -> the correct spellings known for `lang` (type, package and function names, keywords). */
+export function caseNames(lang) {
+  if (caseIndex.has(lang)) return caseIndex.get(lang);
+  const d = LANG_DATA[lang];
+  const names = new Set([...d.keywords, ...(d.types || []), ...(d.functions || []).map((f) => f.name.replace(/!$/, "")), ...Object.keys(d.statics || {}).filter((k) => !k.includes("."))]);
+  const byLower = new Map();
+  for (const n of names) { const k = n.toLowerCase(); byLower.set(k, [...(byLower.get(k) || []), n]); }
+  const out = { names, byLower };
+  caseIndex.set(lang, out);
+  return out;
+}
+
+/** Turn a compiler "name not found" message into a case hint, if the name is a known one spelled differently. */
+export function caseHint(lang, text) {
+  if (!CASE_LANGS[lang] || !text) return "";
+  const rx = { csharp: /The name '(\w+)' does not exist/, java: /symbol:\s+(?:variable|class)\s+(\w+)/, kotlin: /Unresolved reference:? '?(\w+)/, go: /undefined: (\w+)/, swift: /cannot find '(\w+)' in scope/ }[lang];
+  const m = rx?.exec(text);
+  if (!m) return "";
+  const { names, byLower } = caseNames(lang);
+  const found = byLower.get(m[1].toLowerCase());
+  if (!found || names.has(m[1]) || found.length !== 1) return "";
+  return `${CASE_LANGS[lang]} is case-sensitive: '${m[1]}' should be '${found[0]}'.`;
+}

@@ -1,4 +1,4 @@
-import { LANG_DATA } from "./langdata.js";
+import { LANG_DATA, CASE_LANGS, caseNames } from "./langdata.js";
 
 // Editor intelligence for every language Dexna runs, beyond Python (which has its own server):
 // snippets for all languages, Lua and SQL completion/hover/signatures, Lua syntax errors,
@@ -63,7 +63,7 @@ export const SNIPPETS = {
     S("union", "discriminated union", 'type ${1:Shape} =\n\t| { kind: "${2:a}"; ${3:x}: number }\n\t| { kind: "${4:b}"; ${5:y}: number };${0}'),
   ],
   csharp: [
-    S("main", "program with Main", 'using System;\n\nclass Program\n{\n\tstatic void Main()\n\t{\n\t\t${0}\n\t}\n}'),
+    S("main", "classic program with a Main method", 'using System;\n\nnamespace ${1:ConsoleApp1}\n{\n\tinternal class Program\n\t{\n\t\tstatic void Main(string[] args)\n\t\t{\n\t\t\t${0}\n\t\t}\n\t}\n}'),
     S("cw", "Console.WriteLine", 'Console.WriteLine(${0});'),
     S("read", "read a line", 'string ${1:line} = Console.ReadLine();${0}'),
     S("for", "for loop", 'for (int ${1:i} = 0; ${1:i} < ${2:n}; ${1:i}++)\n{\n\t${0}\n}'),
@@ -772,6 +772,62 @@ export function registerLanguageTools(monaco, ctx) {
     const close = (items, end) => items.forEach((it, idx) => { it.endLine = (items[idx + 1]?.line ?? end + 1) - 1 || it.line; close(it.children, it.endLine); });
     close(root, lines.length);
     return root;
+  }
+
+  /* ---- wrongly capitalised names (console -> Console), underlined with a one-click fix ---- */
+  const blank = (src) => src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`[^`]*`/g, (m) => m.replace(/[^\n]/g, " "));
+  const caseMarkers = (model, lang) => {
+    const { names, byLower } = caseNames(lang);
+    const D = LANG_DATA[lang];
+    const text = blank(model.getValue());
+    const declared = new Set();
+    for (const m of text.matchAll(/(?:\b[A-Za-z_][\w<>\[\],.?]*\s+|\bvar\s+|\blet\s+|\bval\s+)([A-Za-z_]\w*)\s*(?==|;|,|\)|:|\bin\b)/g)) declared.add(m[1]);
+    for (const m of text.matchAll(/\b([A-Za-z_]\w*)\s*:=/g)) declared.add(m[1]);
+    const out = [];
+    const mark = (index, word, fix, what) => {
+      const a = model.getPositionAt(index);
+      out.push({ startLineNumber: a.lineNumber, startColumn: a.column, endLineNumber: a.lineNumber, endColumn: a.column + word.length, severity: monaco.MarkerSeverity.Warning, code: "dexna-case", source: "Dexna", message: `${CASE_LANGS[lang]} is case-sensitive. Did you mean '${fix}'?${what ? " (" + what + ")" : ""}` });
+    };
+    // a name used like a type or package: console.WriteLine(...), system.out, fmt -> Fmt
+    for (const m of text.matchAll(/(^|[^\w.$@])([A-Za-z_]\w*)(?=\s*(?:\.|::|\())/g)) {
+      const word = m[2];
+      if (names.has(word) || declared.has(word)) continue;
+      const c = byLower.get(word.toLowerCase());
+      if (c && c.length === 1) mark(m.index + m[1].length, word, c[0]);
+    }
+    // a member of a known type spelled with the wrong case: Console.writeline(...)
+    const statics = D.statics || {};
+    for (const m of text.matchAll(/\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*\(/g)) {
+      const owner = Object.keys(statics).find((o) => o === m[1]);
+      if (!owner) continue;
+      const list = statics[owner];
+      if (list.some((x) => x.name === m[2])) continue;
+      const c = list.filter((x) => x.name.toLowerCase() === m[2].toLowerCase());
+      if (c.length === 1) mark(m.index + m[1].length + 1, m[2], c[0].name);
+    }
+    return out;
+  };
+  const caseTimers = new WeakMap();
+  const attachCase = (model) => {
+    const lang = model.getLanguageId();
+    if (!CASE_LANGS[lang] || caseTimers.has(model)) return;
+    caseTimers.set(model, 0);
+    const run = () => { clearTimeout(caseTimers.get(model)); caseTimers.set(model, setTimeout(() => { if (!model.isDisposed()) monaco.editor.setModelMarkers(model, "dexna-case", caseMarkers(model, lang)); }, 350)); };
+    model.onDidChangeContent(run);
+    run();
+  };
+  monaco.editor.onDidCreateModel(attachCase);
+  monaco.editor.getModels().forEach(attachCase);
+  for (const lang of Object.keys(CASE_LANGS)) {
+    L.registerCodeActionProvider(lang, {
+      provideCodeActions(model, range, context) {
+        const actions = context.markers.filter((m) => m.code === "dexna-case").map((m) => {
+          const fix = /'([^']+)'/.exec(m.message)[1];
+          return { title: `Change to '${fix}'`, kind: "quickfix", diagnostics: [m], isPreferred: true, edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: { range: new monaco.Range(m.startLineNumber, m.startColumn, m.endLineNumber, m.endColumn), text: fix } }] } };
+        });
+        return { actions, dispose() {} };
+      },
+    });
   }
 
   /* ---- outline ---- */

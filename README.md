@@ -9,7 +9,7 @@ No install, no account.</p>
 
 ## Getting started
 
-Open the site and pick a language on the Home page. Dexna creates an empty project with one empty file (`main.py`, `main.js`, `Program.cs`, `Main.java` and so on) and you start typing. Press **F5** or **Ctrl+Enter** to run it. The examples are on the Home page too, and Home is always one click away on the Dexna logo or under **Help > Home**.
+Open the site and pick a language on the Home page. Dexna creates a project with one file (`main.py`, `main.js`, `Program.cs`, `Main.java` and so on) holding that language's standard starter, such as a `main` function or `Console.WriteLine`, and puts the cursor ready for your code. Press **F5** or **Ctrl+Enter** to run it. The examples are on the Home page too, and Home is always one click away on the Dexna logo or under **Help > Home**.
 
 You do not need boilerplate in the compiled languages. In C#, Java, C, C++, Go, Rust and Kotlin you can write just the statements:
 
