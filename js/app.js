@@ -1997,7 +1997,7 @@ function assistantContext() {
   const selection = sel && !sel.isEmpty() ? model.getValueInRange(sel) : "";
   const lang = runLangOf(path);
   return {
-    path, code: model.getValue(), selection, selStart: sel?.startLineNumber, selEnd: sel?.endLineNumber, cursorLine: editor.getPosition()?.lineNumber || 1,
+    path, code: model.getValue(), selection, range: selection ? sel : null, selStart: sel?.startLineNumber, selEnd: sel?.endLineNumber, cursorLine: editor.getPosition()?.lineNumber || 1,
     language: RUN_LANG_NAME[lang] || model.getLanguageId(), fence: lang === "web" ? "html" : model.getLanguageId() === "plaintext" ? "" : model.getLanguageId(),
   };
 }
@@ -2015,6 +2015,7 @@ function setupAssistant() {
     h, icon, monaco, editor, toast, libUrl,
     workerUrl: new URL(`ai-worker.js?lib=${encodeURIComponent(libUrl)}`, import.meta.url),
     getContext: assistantContext, getLastRun: lastRunOutput,
+    autoSession, open: (path) => openFile(path), run: (path) => runFile({ path }),
     newFile: (code, lang) => { // a code block from the Assistant as its own file, named by its language
       const id = (lang || "").toLowerCase();
       const known = monaco.languages.getLanguages().find((l) => l.id === id || (l.aliases || []).some((a) => a.toLowerCase() === id) || (l.extensions || []).includes("." + id));
@@ -2029,6 +2030,94 @@ function setupAssistant() {
     editor.addAction({ id, label, contextMenuGroupId: "0_assistant", contextMenuOrder: order, run: () => askAssistant(kind) });
   }
 }
+/* Auto mode: where each code block of an answer goes, and typing it into the editor as it arrives. */
+const FENCE_LANG = {
+  py: "python", python: "python", python3: "python", js: "javascript", javascript: "javascript", node: "javascript", jsx: "javascript", ts: "typescript", typescript: "typescript",
+  lua: "lua", sql: "sql", sqlite: "sql", html: "web", htm: "web", css: "css", cs: "csharp", csharp: "csharp", "c#": "csharp", java: "java", c: "c", cpp: "cpp", "c++": "cpp", cc: "cpp",
+  go: "go", golang: "go", rust: "rust", rs: "rust", kotlin: "kotlin", kt: "kotlin", swift: "swift", php: "php", ruby: "ruby", rb: "ruby",
+};
+const SHELL_FENCE = /^(bash|sh|shell|zsh|console|terminal|cmd|bat|powershell|ps1|text|txt|plaintext|output)$/i;
+/** The language a code block is in: its fence, else a language named in the question, else the open file's. */
+function langForBlock(fence, question, targetPath) {
+  const f = (fence || "").toLowerCase();
+  const asksShell = /\b(bash|shell) script\b/i.test(question);
+  if (SHELL_FENCE.test(f) && !(asksShell && /^(bash|sh|shell)$/.test(f))) return null; // "how to run it" snippets stay in the chat
+  let id = FENCE_LANG[f] || ONLINE_LANGS.find((l) => l.id === f || l.monaco === f || l.name.toLowerCase() === f || l.ext.includes(f))?.id;
+  if (!id && !f) {
+    const q = question.toLowerCase();
+    const named = [["c#", "csharp"], ["c++", "cpp"], ["html", "web"], ...LANG_STARTS.map((l) => [l.name.toLowerCase(), l.id]), ...ONLINE_LANGS.map((l) => [l.name.toLowerCase(), l.id])]
+      .find(([name]) => new RegExp(`(^|[^\\w#+])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\w#+])`).test(q));
+    id = named?.[1] || (targetPath && runLangOf(targetPath)) || "python";
+  }
+  if (!id) return null;
+  if (id === "css") return { id: "web", name: "HTML/CSS", file: "style.css", part: "css" };
+  if (id === "bash" && !asksShell) return null;
+  const start = LANG_STARTS.find((l) => l.id === id), online = ONLINE_BY_ID[id];
+  if (!start && !online) return null;
+  return { id, name: start?.name || online.name, file: start?.file || `main.${start?.ext || online.ext[0]}` };
+}
+function autoSession({ question, kind, target }) {
+  const s = { lang: null, files: [] };
+  const wantsEdit = !!target?.path && (kind !== "chat" || !!target.selection || /\b(fix|change|add|update|modify|improve|refactor|rename|remove|delete|edit|instead|make it|optimi[sz]e|clean up|comment)\b/i.test(question));
+  const track = (w) => { s.files.push(w.path); return w; };
+  return {
+    block(fence) {
+      const L = langForBlock(fence, question, target?.path);
+      if (!L) return null;
+      if (s.files.length) { // after the first block, only the other parts of a web page
+        if (s.lang !== "web") return null;
+        const file = L.part === "css" ? "style.css" : L.id === "javascript" ? "script.js" : null;
+        if (!file || s.files.includes(file)) return null;
+        return track(autoWriter(file, "file", null, s.note));
+      }
+      s.lang = L.id;
+      const sameLang = target?.path && (runLangOf(target.path) === L.id || (L.id === "web" && /\.(html?|css|js)$/i.test(target.path)));
+      if (wantsEdit && sameLang && project.files[target.path] != null) return track(autoWriter(target.path, target.selection ? "selection" : "file", target));
+      // a new program: a new project (or the current one, if it is still empty)
+      if (Object.keys(project.files).length) createProject({ name: uniqueProjectName(`${L.name} project`), files: {} });
+      else if (project.name === EMPTY_PROJECT.name) { project.name = uniqueProjectName(`${L.name} project`); persistProject(); persistProject.flush(); renderProjectSelect(); }
+      s.note = `In the project "${project.name}"`;
+      const path = L.id === "web" && L.part !== "css" ? "index.html" : L.file;
+      const w = track(autoWriter(path, "file", null, s.note));
+      if (L.id === "web" || isRunnable(path)) { project.entry = path; persistProject(); updateRunTarget(); }
+      return w;
+    },
+  };
+}
+/** Types code into a file as it arrives. All of it is one undo step. */
+function autoWriter(path, mode, target, note) {
+  if (project.files[path] == null) createFile(path, "", { open: true });
+  else if (project.active !== path) openFile(path);
+  const model = ensureModel(path);
+  const range = mode === "selection" && target?.range ? monaco.Range.lift(target.range) : model.getFullModelRange();
+  const start = model.getOffsetAt(range.getStartPosition());
+  let written = "";
+  model.pushStackElement();
+  model.pushEditOperations([], [{ range, text: "" }], () => null);
+  return {
+    path, note, finished: false, runnable: isRunnable(path) || runLangOf(path) === "web",
+    get lines() { return written ? written.split("\n").length : 0; },
+    write(full) {
+      if (full === written || model.isDisposed()) return;
+      const end = model.getPositionAt(start + written.length);
+      if (full.startsWith(written)) model.pushEditOperations([], [{ range: monaco.Range.fromPositions(end), text: full.slice(written.length) }], () => null);
+      else model.pushEditOperations([], [{ range: monaco.Range.fromPositions(model.getPositionAt(start), end), text: full }], () => null);
+      written = full;
+      if (editor.getModel() === model) {
+        const pos = model.getPositionAt(start + written.length);
+        editor.setPosition(pos);
+        editor.revealLineInCenterIfOutsideViewport(pos.lineNumber);
+      }
+    },
+    finish() {
+      this.finished = true;
+      if (model.isDisposed()) return;
+      if (mode !== "selection" && written && !written.endsWith("\n")) model.pushEditOperations([], [{ range: monaco.Range.fromPositions(model.getPositionAt(start + written.length)), text: "\n" }], () => null);
+      model.pushStackElement();
+    },
+  };
+}
+
 function askAssistant(kind) {
   setView("assistant");
   if (assistant?.ready) assistant.quick(kind);

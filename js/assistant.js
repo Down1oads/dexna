@@ -21,6 +21,9 @@ const SYSTEM = [
   "If you are not sure, say so instead of guessing.",
 ].join(" ");
 
+// Added in Auto mode, where the code is typed straight into the user's files.
+const SYSTEM_AUTO = " Auto mode is on: the code you write is typed straight into the user's files. When the user asks for a program or a change, reply with one short sentence, then the complete code in ONE fenced code block with the language name (a web page may use separate html, css and javascript blocks), then at most two short sentences. Never leave parts out or write placeholders like '...'.";
+
 const QUICK = {
   explain: { label: "Explain", prompt: "Explain what this code does, step by step, in simple words." },
   fix: { label: "Find bugs", prompt: "Find the bugs in this code. Give the fixed code and explain each fix briefly." },
@@ -76,6 +79,7 @@ export function createAssistant(ctx) {
     model: load().model || AI_MODELS[1].id, cached: {},
     engine: null, worker: null, webllm: null,
     messages: [], busy: false,
+    auto: !!load().auto, // Auto mode: create projects and type the code into the editor
   };
   const root = () => document.getElementById("ai-root");
   const fullId = (id) => `${id}-${state.f16 ? "q4f16_1" : "q4f32_1"}-MLC`;
@@ -203,34 +207,88 @@ export function createAssistant(ctx) {
     if (size() > PROMPT_CHARS) context = contextBlock(kind, Math.max(1000, CONTEXT_CHARS - (size() - PROMPT_CHARS))).text;
 
     state.messages.push({ role: "user", content: question, kind });
-    const reply = { role: "assistant", content: "", target: { path: target?.path, hasSelection: !!target?.selection, whole: !target?.selection && (kind === "fix" || kind === "comment") } };
+    const reply = { role: "assistant", content: "", raw: "", typing: true, target: { path: target?.path, hasSelection: !!target?.selection, whole: !target?.selection && (kind === "fix" || kind === "comment") } };
+    if (state.auto) { reply.session = ctx.autoSession({ question, kind, target }); reply.writers = []; }
     state.messages.push(reply);
     state.busy = true;
     render();
-    const messages = [{ role: "system", content: SYSTEM }, ...history, { role: "user", content: context ? `${context}\n\n${question}` : question }];
-    let broken = false;
+    const system = SYSTEM + (state.auto ? SYSTEM_AUTO : "");
+    const messages = [{ role: "system", content: system }, ...history, { role: "user", content: context ? `${context}\n\n${question}` : question }];
+    let broken = false, streamDone = false;
+    const typed = typeOut(reply, () => streamDone);
     try {
       await state.engine.resetChat(); // every request carries its own history; never reuse the previous state
       const chunks = await state.engine.chat.completions.create({ messages, stream: true, temperature: 0.2, repetition_penalty: 1.05, max_tokens: MAX_OUTPUT });
       for await (const chunk of chunks) {
-        reply.content += chunk.choices?.[0]?.delta?.content || "";
-        if (looksBroken(reply.content)) { broken = true; state.engine.interruptGenerate(); break; }
-        renderLast();
+        reply.raw += chunk.choices?.[0]?.delta?.content || "";
+        if (looksBroken(reply.raw)) { broken = true; state.engine.interruptGenerate(); break; }
       }
     } catch (e) {
       const msg = String(e?.message || e);
-      reply.content += reply.content ? "\n\n" : "";
-      reply.content += /context window|ContextWindow|prompt tokens exceed/i.test(msg) ? "_That was too long for the model. Press New chat, or select a smaller part of the code, and ask again._" : `_Something went wrong: ${msg}_`;
+      reply.raw += reply.raw ? "\n\n" : "";
+      reply.raw += /context window|ContextWindow|prompt tokens exceed/i.test(msg) ? "_That was too long for the model. Press New chat, or select a smaller part of the code, and ask again._" : `_Something went wrong: ${msg}_`;
       reply.error = true;
     }
     if (broken) {
-      reply.content = reply.content.slice(0, Math.max(0, reply.content.length - 400)).trimEnd();
-      reply.content += (reply.content ? "\n\n" : "") + "_The model lost track and started writing nonsense, so I stopped it. Press New chat and ask again, ideally a smaller question. The Large model handles long requests better if your computer can run it._";
+      reply.raw = reply.raw.slice(0, Math.max(0, reply.raw.length - 400)).trimEnd();
+      reply.content = reply.content.slice(0, reply.raw.length);
+      reply.raw += (reply.raw ? "\n\n" : "") + "_The model lost track and started writing nonsense, so I stopped it. Press New chat and ask again, ideally a smaller question. The Large model handles long requests better if your computer can run it._";
       reply.error = true;
     }
+    streamDone = true;
+    await typed;
+    feedWriters(reply, true);
     state.busy = false;
+    reply.typing = false;
     reply.done = true;
     render();
+  }
+
+  /**
+   * Reveal the answer at a steady pace (like typing) instead of in the bursts the model produces.
+   * Speeds up when it falls behind, so it never lags far behind the model.
+   */
+  function typeOut(msg, streamDone) {
+    return new Promise((resolve) => {
+      let last = performance.now(), carry = 0;
+      const next = (f) => (document.hidden ? setTimeout(() => f(performance.now()), 50) : requestAnimationFrame(f));
+      const tick = (now) => {
+        const backlog = msg.raw.length - msg.content.length;
+        if (backlog > 0) {
+          if (document.hidden || msg.skipTyping) msg.content = msg.raw;
+          else {
+            const rate = Math.max(120, backlog * 5); // characters per second
+            carry += (rate * Math.min(100, now - last)) / 1000;
+            const n = Math.floor(carry);
+            if (n > 0) { carry -= n; msg.content = msg.raw.slice(0, msg.content.length + n); }
+          }
+          feedWriters(msg, false);
+          renderLast();
+        }
+        last = now;
+        if (msg.raw.length === msg.content.length && streamDone()) return resolve();
+        next(tick);
+      };
+      next(tick);
+    });
+  }
+
+  /** Auto mode: send each code block, as it is typed, to the file it belongs in. */
+  function feedWriters(msg, final) {
+    if (!msg.session) return;
+    let i = 0;
+    for (const p of renderMarkdown(msg.content)) {
+      if (p.type !== "code") continue;
+      if (msg.writers[i] === undefined) {
+        try { msg.writers[i] = msg.session.block(p.lang) || null; } catch (e) { msg.writers[i] = null; ctx.toast("Could not write the code: " + (e.message || e), "error"); }
+      }
+      const w = msg.writers[i];
+      if (w) {
+        w.write(p.code);
+        if ((p.done || final) && !w.finished) w.finish();
+      }
+      i++;
+    }
   }
   function stopAnswer() { try { state.engine?.interruptGenerate(); } catch (_) {} }
 
@@ -251,7 +309,7 @@ export function createAssistant(ctx) {
   /* ---------- rendering ---------- */
   function codeBlock(p, msg) {
     const pre = h("pre", { class: "ai-code" }, p.code);
-    if (p.done && p.lang) {
+    if (p.done && p.lang && !msg.typing) {
       const lang = ctx.monaco.languages.getLanguages().find((l) => l.id === p.lang.toLowerCase() || (l.aliases || []).some((a) => a.toLowerCase() === p.lang.toLowerCase()) || (l.extensions || []).includes("." + p.lang.toLowerCase()));
       if (lang) ctx.monaco.editor.colorize(p.code, lang.id, { tabSize: 4 }).then((html) => { pre.innerHTML = html; }).catch(() => {});
     }
@@ -263,11 +321,34 @@ export function createAssistant(ctx) {
       msg.target?.whole && ctx.editor.getModel() && msg.target.path === ctx.getContext()?.path ? btn("check", "Replace file", () => apply(p.code, "file")) : null);
     return h("div", { class: "ai-code-wrap" }, p.lang ? h("div", { class: "ai-code-lang" }, p.lang) : null, pre, p.done ? actions : null);
   }
+  function autoCard(w, p, msg) {
+    const done = w.finished;
+    const btn = (ic, label, run) => h("button", { class: "btn sm", title: label, onclick: run }, icon(ic), h("span", {}, label));
+    const code = h("pre", { class: "ai-code hidden" }, p.code);
+    return h("div", { class: "ai-auto" + (done ? " done" : "") },
+      h("div", { class: "ai-auto-head" }, icon(done ? "check" : "newFile"),
+        h("span", {}, done ? `Wrote ${w.path}` : `Typing into ${w.path}…`), h("span", { class: "muted small" }, `${w.lines} line${w.lines === 1 ? "" : "s"}`)),
+      w.note ? h("div", { class: "muted small" }, w.note) : null,
+      done ? h("div", { class: "ai-code-actions" },
+        btn("file", "Open", () => ctx.open(w.path)),
+        w.runnable ? btn("play", "Run", () => ctx.run(w.path)) : null,
+        btn("chevronDown", "Show code", (e) => { code.classList.toggle("hidden"); e.currentTarget.querySelector("span").textContent = code.classList.contains("hidden") ? "Show code" : "Hide code"; })) : null,
+      code);
+  }
   function messageEl(msg) {
     if (msg.role === "user") return h("div", { class: "ai-msg user" }, h("div", { class: "ai-bubble" }, msg.content));
     const body = h("div", { class: "ai-bubble" });
-    if (!msg.content) body.append(h("span", { class: "ai-typing" }, h("i"), h("i"), h("i")));
-    for (const p of renderMarkdown(msg.content)) body.append(p.type === "code" ? codeBlock(p, msg) : h("div", { html: p.html }));
+    if (!msg.content && msg.typing) body.append(h("span", { class: "ai-typing" }, h("i"), h("i"), h("i")));
+    let i = 0;
+    for (const p of renderMarkdown(msg.content)) {
+      if (p.type === "code") { const w = msg.writers?.[i++]; body.append(w ? autoCard(w, p, msg) : codeBlock(p, msg)); }
+      else body.append(h("div", { html: p.html }));
+    }
+    if (msg.typing && msg.content) { // the caret sits at the end of the text being typed
+      const lastBlock = body.lastElementChild;
+      const target = lastBlock?.querySelector?.("pre:not(.hidden)") || lastBlock?.querySelector?.("p:last-of-type, li:last-child") || body;
+      target.append(h("span", { class: "ai-caret" }));
+    }
     return h("div", { class: "ai-msg assistant" + (msg.error ? " error" : "") }, body);
   }
   function renderLast() {
@@ -319,8 +400,8 @@ export function createAssistant(ctx) {
     // ready
     const log = h("div", { class: "ai-log" });
     if (!state.messages.length) log.append(h("div", { class: "ai-empty muted" },
-      h("p", {}, "Ask about the open file, or select some code first and ask about that."),
-      h("p", { class: "small" }, "The model sees the open file (or your selection) and, for errors, the output of your last run.")));
+      h("p", {}, state.auto ? "Auto is on: ask for a program (for example \"make a number guessing game in Python\") and it is created and typed into the editor for you." : "Ask about the open file, or select some code first and ask about that."),
+      h("p", { class: "small" }, state.auto ? "Asking for a change to the open file rewrites that file. Ctrl+Z undoes it." : "The model sees the open file (or your selection) and, for errors, the output of your last run. Turn on Auto to have it write the code into your files.")));
     for (const m of state.messages) log.append(messageEl(m));
     const ta = h("textarea", { rows: 2, placeholder: "Ask about your code…", title: "Enter sends, Shift+Enter starts a new line", spellcheck: "true" });
     const send = () => { const q = ta.value.trim(); if (!q) return; ta.value = ""; ask(q); };
@@ -330,7 +411,10 @@ export function createAssistant(ctx) {
       Object.entries(QUICK).filter(([k]) => k !== "error" || run?.failed).map(([k, q]) => h("button", { class: "ai-chip", disabled: state.busy, onclick: () => ask(q.prompt, k) }, q.label)));
     el.append(
       h("div", { class: "ai-bar" },
-        h("span", { class: "muted small" }, `${modelInfo().name} model, on this device`),
+        h("span", { class: "muted small", title: "Runs on this device" }, `${modelInfo().name} model`),
+        h("label", { class: "ai-auto-toggle" + (state.auto ? " on" : ""), title: "Auto: the Assistant writes the code into your files as it types: a new project when you ask for a new program, or your open file when you ask for a change. Ctrl+Z undoes it." },
+          h("input", { type: "checkbox", checked: state.auto, disabled: state.busy, onchange: (e) => { state.auto = e.target.checked; save({ ...load(), auto: state.auto }); render(); } }),
+          h("span", { class: "ai-switch" }), h("span", {}, "Auto")),
         h("button", { class: "btn icon sm", title: "New chat", disabled: state.busy, onclick: () => { state.messages = []; render(); } }, icon("clear")),
         h("button", { class: "btn icon sm", title: "Stop the Assistant and free its memory", disabled: state.busy, onclick: stopEngine }, icon("close"))),
       log, chips,
