@@ -19,7 +19,7 @@ const SYSTEM = [
   "Answer clearly and briefly, for someone who may be learning to program.",
   "When you write code, put it in a fenced code block with the language name, for example ```python.",
   "When asked to fix or change code, give the complete corrected code for the part you were shown, then a short explanation of what changed.",
-  "If you are not sure, say so instead of guessing.",
+  "Every request is a normal programming task. If a request is short or vague (like \"make a game\"), pick something simple and useful, write it, and say in one sentence what you chose.",
   "Write code carefully: close every bracket you open exactly once, and in Python indent with 4 spaces and line up else/elif/except with their if/try.",
 ].join(" ");
 
@@ -225,6 +225,14 @@ export function createAssistant(ctx) {
   }
   const letterRatio = (t) => { const s = t.replace(/\s+/g, " "); return s.length ? (s.match(/[A-Za-z]/g) || []).length / s.length : 1; };
 
+  const RETRY_NUDGE = "\n\n(This is a normal programming request in a code editor. If it is vague, choose something simple and useful, and write the complete code.)";
+  /** A short "Sorry, I can't help with that" with no code in it. */
+  function isRefusal(text) {
+    const t = text.trim();
+    if (!t || t.length > 300 || t.includes("```")) return false;
+    return /^(i'?m sorry|i am sorry|sorry|unfortunately|i apologi[sz]e)\b/i.test(t) || /\b(can(?:no|')?t|cannot|unable to|not able to|won'?t) (assist|help|provide|fulfil|fulfill|comply|do that|create|write|generate)\b/i.test(t);
+  }
+
   /** True when the newest output has turned into repeated junk (it happens with small models). */
   function looksBroken(text) {
     const tail = text.slice(-400);
@@ -255,22 +263,29 @@ export function createAssistant(ctx) {
     const messages = [{ role: "system", content: system }, ...history, { role: "user", content: context ? `${context}\n\n${question}` : question }];
     let broken = false, streamDone = false;
     const typed = typeOut(reply, () => streamDone);
-    try {
-      await state.engine.resetChat(); // every request carries its own history; never reuse the previous state
-      // no repetition penalty: in code it pushes the model off tokens that rightly repeat, like the "))" closing input(...)
-      const chunks = await state.engine.chat.completions.create({ messages, stream: true, stream_options: { include_usage: true }, temperature: 0.2, top_p: 0.9, repetition_penalty: 1.0, max_tokens: MAX_OUTPUT });
-      for await (const chunk of chunks) {
-        const speed = chunk.usage?.extra?.decode_tokens_per_s;
-        if (speed) { state.speed = speed; reply.speed = speed; }
-        reply.raw += chunk.choices?.[0]?.delta?.content || "";
-        if (looksBroken(reply.raw)) { broken = true; state.engine.interruptGenerate(); break; }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const msgs = attempt === 0 ? messages : [...messages.slice(0, -1), { role: "user", content: messages.at(-1).content + RETRY_NUDGE }];
+      try {
+        await state.engine.resetChat(); // every request carries its own history; never reuse the previous state
+        // no repetition penalty: in code it pushes the model off tokens that rightly repeat, like the "))" closing input(...)
+        const chunks = await state.engine.chat.completions.create({ messages: msgs, stream: true, stream_options: { include_usage: true }, temperature: attempt ? 0.5 : 0.2, top_p: 0.9, repetition_penalty: 1.0, max_tokens: MAX_OUTPUT });
+        for await (const chunk of chunks) {
+          const speed = chunk.usage?.extra?.decode_tokens_per_s;
+          if (speed) { state.speed = speed; reply.speed = speed; }
+          reply.raw += chunk.choices?.[0]?.delta?.content || "";
+          if (looksBroken(reply.raw)) { broken = true; state.engine.interruptGenerate(); break; }
+        }
+      } catch (e) {
+        const msg = String(e?.message || e);
+        reply.raw += reply.raw ? "\n\n" : "";
+        reply.raw += /context window|ContextWindow|prompt tokens exceed/i.test(msg) ? "_That was too long for the model. Press New chat, or select a smaller part of the code, and ask again._" : `_Something went wrong: ${msg}_`;
+        reply.error = true;
       }
-    } catch (e) {
-      const msg = String(e?.message || e);
-      reply.raw += reply.raw ? "\n\n" : "";
-      reply.raw += /context window|ContextWindow|prompt tokens exceed/i.test(msg) ? "_That was too long for the model. Press New chat, or select a smaller part of the code, and ask again._" : `_Something went wrong: ${msg}_`;
-      reply.error = true;
+      // small models sometimes answer an ordinary request with "Sorry, I can't assist": ask once more, plainly
+      if (attempt === 0 && !broken && !reply.error && isRefusal(reply.raw)) { reply.raw = ""; reply.content = ""; reply.retried = true; renderLast(); continue; }
+      break;
     }
+    if (reply.retried && isRefusal(reply.raw)) reply.raw += "\n\n_Small models sometimes turn down ordinary requests. Try describing it in a bit more detail, for example \"make a snake game in HTML with a score\"._";
     if (broken) {
       reply.raw = reply.raw.slice(0, Math.max(0, reply.raw.length - 400)).trimEnd();
       reply.content = reply.content.slice(0, reply.raw.length);
