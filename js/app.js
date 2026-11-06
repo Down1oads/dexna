@@ -2127,6 +2127,108 @@ function repairPython(code) {
   return { code: out, notes };
 }
 
+/**
+ * JavaScript (and the scripts in a web page): undo slips the parser can prove are slips. At each syntax
+ * error from the TypeScript parser, try removing a stray closing bracket or joining a string that was
+ * split over two lines; keep a change only if the parser then finds fewer errors, or the first error
+ * comes later in the file.
+ */
+let repairSeq = 0;
+async function scriptErrors(code, ts) {
+  const uri = monaco.Uri.from({ scheme: "file", path: `/__repair__/${++repairSeq}.${ts ? "ts" : "js"}` });
+  const model = monaco.editor.createModel(code, ts ? "typescript" : "javascript", uri);
+  try {
+    const getWorker = ts ? monaco.languages.typescript.getTypeScriptWorker : monaco.languages.typescript.getJavaScriptWorker;
+    const client = await (await getWorker())(uri);
+    const diags = await client.getSyntacticDiagnostics(uri.toString());
+    return diags.map((d) => ({ start: d.start, msg: typeof d.messageText === "string" ? d.messageText : d.messageText?.messageText || "" })).sort((a, b) => a.start - b.start);
+  } finally { model.dispose(); }
+}
+/**
+ * Closing brackets that look out of place, in file order: ones that close the wrong kind of bracket (or
+ * nothing), and ones in the middle of a line that close a block opened on an earlier, less indented line
+ * (like the second "}" in `const head = { x: 1 } };`, which ends the function early).
+ */
+function bracketSuspects(code) {
+  const stack = [], out = [], n = code.length;
+  const lineStart = (i) => code.lastIndexOf("\n", i - 1) + 1;
+  const indent = (i) => { const s = lineStart(i); let k = s; while (code[k] === " " || code[k] === "\t") k++; return k - s; };
+  const firstOnLine = (i) => !code.slice(lineStart(i), i).trim();
+  let i = 0, prev = "";
+  const template = () => { // template text up to the closing ` or the next ${
+    while (i < n) {
+      if (code[i] === "\\") { i += 2; continue; }
+      if (code[i] === "`") { i++; prev = "`"; return; }
+      if (code[i] === "$" && code[i + 1] === "{") { stack.push({ ch: "{", at: i + 1, tmpl: true }); i += 2; prev = "{"; return; }
+      i++;
+    }
+  };
+  while (i < n) {
+    const c = code[i];
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === "/" && code[i + 1] === "/") { const e = code.indexOf("\n", i); i = e < 0 ? n : e; continue; }
+    if (c === "/" && code[i + 1] === "*") { const e = code.indexOf("*/", i + 2); i = e < 0 ? n : e + 2; continue; }
+    if (c === "'" || c === '"') { i++; while (i < n && code[i] !== c && code[i] !== "\n") i += code[i] === "\\" ? 2 : 1; i++; prev = c; continue; }
+    if (c === "`") { i++; template(); continue; }
+    if (c === "/" && (!prev || "(,=:[!&|?{};+-*%<>~^".includes(prev) || /\b(return|typeof|case|in|of|new|delete|void|throw)\s*$/.test(code.slice(Math.max(0, i - 10), i)))) { // a regex literal
+      i++;
+      let cls = false;
+      while (i < n && code[i] !== "\n") { if (code[i] === "\\") { i += 2; continue; } if (code[i] === "[") cls = true; else if (code[i] === "]") cls = false; else if (code[i] === "/" && !cls) break; i++; }
+      i++; while (/[a-z]/i.test(code[i] || "")) i++;
+      prev = "/"; continue;
+    }
+    if ("([{".includes(c)) { stack.push({ ch: c, at: i }); prev = c; i++; continue; }
+    if (")]}".includes(c)) {
+      const top = stack.at(-1);
+      if (!top || top.ch !== { ")": "(", "]": "[", "}": "{" }[c]) { out.push(i); prev = c; i++; continue; } // nothing, or the wrong kind, to close
+      stack.pop();
+      if (!firstOnLine(i) && lineStart(top.at) !== lineStart(i) && indent(i) > indent(top.at)) out.push(i);
+      prev = c; i++;
+      if (top.tmpl) template();
+      continue;
+    }
+    prev = c; i++;
+  }
+  return out.sort((a, b) => a - b);
+}
+async function repairScript(code, ts = false) {
+  const notes = [];
+  const lineAt = (text, at) => text.slice(0, at).split("\n").length;
+  let errs = await scriptErrors(code, ts);
+  for (let round = 0; round < 25 && errs.length; round++) {
+    const cut = (at) => { const from = code[at - 1] === " " && /[;,)\]}]/.test(code[at + 1] || "") ? at - 1 : at; return code.slice(0, from) + code.slice(at + 1); }; // "} ;" -> "};"
+    const cands = bracketSuspects(code).slice(0, 12).map((at) => [cut(at), `removed an extra '${code[at]}' (line ${lineAt(code, at)})`]);
+    const str = errs.find((e) => /Unterminated string literal/i.test(e.msg));
+    if (str) { // "a\n b" -> "a b", when the next line closes the string
+      const nl = code.indexOf("\n", str.start), q = code[str.start];
+      const end2 = code.indexOf("\n", nl + 1), next = nl < 0 ? "" : code.slice(nl + 1, end2 < 0 ? code.length : end2);
+      if (nl > 0 && `'"`.includes(q) && next.includes(q)) cands.unshift([code.slice(0, nl).replace(/[ \t]*$/, " ") + code.slice(nl + 1).replace(/^[ \t]+/, ""), `joined a string split over two lines (line ${lineAt(code, str.start)})`]);
+    }
+    let taken = null;
+    for (const [cand, note] of cands) {
+      const ce = await scriptErrors(cand, ts);
+      if (ce.length < errs.length) { taken = [cand, note, ce]; break; }
+    }
+    if (!taken) break;
+    [code] = taken; notes.push(taken[1]); errs = taken[2];
+  }
+  return { code, notes };
+}
+async function repairPage(html) {
+  const notes = [];
+  let out = "", last = 0;
+  for (const m of html.matchAll(/(<script\b(?![^>]*\bsrc\s*=)[^>]*>)([\s\S]*?)(<\/script>)/gi)) {
+    if (/type\s*=\s*["']?(?!module|text\/javascript|application\/javascript)[\w/+-]+/i.test(m[1])) continue; // not JavaScript (JSON, templates)
+    const start = m.index + m[1].length;
+    const r = await repairScript(m[2]);
+    out += html.slice(last, start) + r.code;
+    last = start + m[2].length;
+    const offset = html.slice(0, start).split("\n").length - 1; // report lines in the whole page
+    notes.push(...r.notes.map((n) => n.replace(/\(line (\d+)\)/, (_, l) => `(line ${+l + offset})`)));
+  }
+  return { code: out + html.slice(last), notes };
+}
+
 const autoTyping = new Set(); // files the Assistant is typing into right now (read-only meanwhile)
 /** Types code into a file as it arrives. All of it is one undo step. */
 function autoWriter(path, mode, target, note) {
@@ -2156,14 +2258,28 @@ function autoWriter(path, mode, target, note) {
         editor.revealLineInCenterIfOutsideViewport(pos.lineNumber);
       }
     },
-    finish() {
-      if (model.isDisposed()) { this.finished = true; return; }
-      if (runLangOf(path) === "python" && written) { const r = repairPython(written); if (r.notes.length) { this.write(r.code); this.repairs = r.notes; } }
+    async finish() {
+      this.finished = true; // no more live writes; the file stays locked until the checks below are done
+      if (model.isDisposed()) { autoTyping.delete(path); return; }
       // the file must hold exactly what the model wrote; if anything else changed it meanwhile, put that right
       if (mode === "file" && model.getValue().replace(/\n$/, "") !== written.replace(/\n$/, "")) model.pushEditOperations([], [{ range: model.getFullModelRange(), text: written }], () => null);
+      // repair slips that the language's own parser shows are slips
+      const notes = [];
+      try {
+        const lang = runLangOf(path);
+        if (lang === "python" && written) {
+          const quick = repairPython(written);
+          let text = quick.code; notes.push(...quick.notes);
+          if (lspReady) { const r = await lspCall("repair", [text]); if (r?.notes?.length) { text = r.code; notes.push(...r.notes); } }
+          if (text !== written) this.write(text);
+        } else if (written && (lang === "javascript" || lang === "typescript" || lang === "web") && mode === "file") {
+          const r = lang === "web" ? await repairPage(written) : await repairScript(written, lang === "typescript");
+          if (r.notes.length) { this.write(r.code); notes.push(...r.notes); }
+        }
+      } catch (_) { /* a repair is a bonus; never let it get in the way */ }
+      this.repairs = notes;
       autoTyping.delete(path);
       if (editor.getModel() === model) editor.updateOptions({ readOnly: false });
-      this.finished = true;
       if (mode !== "selection" && written && !written.endsWith("\n")) model.pushEditOperations([], [{ range: monaco.Range.fromPositions(model.getPositionAt(start + written.length)), text: "\n" }], () => null);
       model.pushStackElement();
     },

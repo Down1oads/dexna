@@ -256,3 +256,188 @@ def lsp_sort_imports(src, line_length):
         return json.dumps({"code": isort.code(src, profile="black", line_length=int(line_length))})
     except Exception as e:
         return json.dumps({"error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# Repairs for code written by the Assistant. Small models sometimes get the
+# indentation of a line wrong (an `else:` one level off) or drop a colon. Each
+# candidate fix is checked with Python's own parser and kept only when the
+# error goes away or moves past that line, so a repair never breaks code that
+# Python accepts.
+# ---------------------------------------------------------------------------
+import re as _re
+
+_BRANCH = _re.compile(r"^([ \t]*)(else|elif|except|finally)\b")
+_HEADERS = {
+    "else": ("if", "elif", "for", "async for", "while", "try", "except"),
+    "elif": ("if", "elif"),
+    "except": ("try", "except"),
+    "finally": ("try", "except", "else"),
+}
+_HEADER_LINE = _re.compile(r"^[ \t]*(if|elif|else|for|async for|while|try|except|finally|with|async with|def|async def|class|match|case)\b.*$")
+
+
+def _syntax_error(lines):
+    try:
+        compile("\n".join(lines), "<assistant>", "exec", ast.PyCF_ONLY_AST)
+        return None
+    except SyntaxError as e:
+        return e
+    except Exception:
+        return None
+
+
+def _ind(s):
+    return len(s) - len(s.lstrip(" \t"))
+
+
+def _shift(lines, i, new, children_only):
+    """Re-indent line i to `new` spaces, moving its block along: the deeper lines after it,
+    and (children_only=False) siblings at its old level too, until the code dedents below it."""
+    old = _ind(lines[i])
+    delta = new - old
+    out = list(lines)
+    out[i] = " " * new + lines[i].lstrip(" \t")
+    for j in range(i + 1, len(lines)):
+        t = lines[j]
+        if not t.strip():
+            continue
+        k = _ind(t)
+        if k < old or (children_only and k == old):
+            break
+        out[j] = " " * max(0, k + delta) + t.lstrip(" \t")
+    return out
+
+
+def _levels_above(lines, i):
+    seen, out = set(), []
+    for j in range(i - 1, -1, -1):
+        t = lines[j]
+        if t.strip() and not t.lstrip().startswith("#"):
+            k = _ind(t)
+            if k not in seen:
+                seen.add(k)
+                out.append(k)
+    return out
+
+
+def _candidates(lines, i, err):
+    msg = err.msg or ""
+    t = lines[i]
+    m = _BRANCH.match(t)
+    if m:  # else/elif/except/finally: line it up with the statement it belongs to
+        kw = m.group(2)
+        heads, seen = _HEADERS[kw], set()
+        for j in range(i - 1, -1, -1):
+            s = lines[j].lstrip(" \t")
+            if not s or s.startswith("#"):
+                continue
+            k = _ind(lines[j])
+            if any(_re.match(rf"{h}\b", s) for h in heads) and s.rstrip().endswith(":") and k not in seen:
+                seen.add(k)
+                note = f"lined up '{kw}' with the '{s.split()[0].rstrip(':')}' on line {j + 1}"
+                child = next((_ind(x) for x in lines[i + 1:] if x.strip()), None)
+                if child == k + 4:  # its block is already where it belongs: move only the line
+                    yield lines[:i] + [" " * k + t.lstrip(" \t")] + lines[i + 1:], note
+                yield _shift(lines, i, k, True), note
+    if "expected ':'" in msg and _HEADER_LINE.match(t) and not t.rstrip().endswith(":"):
+        code, _, comment = t.partition("  #")
+        yield lines[:i] + [code.rstrip() + ":" + ("  #" + comment if comment else "")] + lines[i + 1:], f"added the missing ':' on line {i + 1}"
+    if "expected an indented block" in msg:
+        head = next((j for j in range(i - 1, -1, -1) if lines[j].strip() and not lines[j].lstrip().startswith("#")), None)
+        if head is not None:
+            yield _shift(lines, i, _ind(lines[head]) + 4, False), f"indented the block on line {i + 1}"
+    if "indent" in msg or "invalid syntax" in msg:  # try the indentation levels used above
+        for k in _levels_above(lines, i):
+            if k != _ind(t):
+                yield _shift(lines, i, k, False), f"fixed the indentation of line {i + 1}"
+
+
+def _loop_breaks(lines, j, i):
+    """Can the loop starting on line j (its body ending before line i) end early: its own break, or a return/raise?"""
+    k = _ind(lines[j])
+    stack = []  # (indent, is_loop) of headers inside the body
+    for q in range(j + 1, i):
+        s = lines[q]
+        if not s.strip() or s.lstrip().startswith("#"):
+            continue
+        d = _ind(s)
+        while stack and stack[-1][0] >= d:
+            stack.pop()
+        body = s.lstrip()
+        if _re.match(r"(return|raise)\b", body) or _re.search(r":\s*(return|raise)\b", body):  # leaves the loop too, so the else means something
+            return True
+        if _re.search(r"^(if|elif|else|try|except|finally|with)\b[^#]*:\s*break\b", body) and not any(is_loop for _, is_loop in stack):  # `if x: break`
+            return True
+        if _re.match(r"break\b", body) and not any(is_loop for _, is_loop in stack):
+            return True
+        if body.rstrip().endswith(":"):
+            stack.append((d, bool(_re.match(r"(async\s+)?(for|while)\b", body))))
+    return False
+
+
+def _loop_else(lines):
+    """An `else:` attached to a for/while loop whose body ends with an if/elif chain one level in
+    almost always belongs to that `if` (beginners rarely mean for-else). Returns (lines, note) or None."""
+    for i, t in enumerate(lines):
+        m = _re.match(r"^([ \t]*)else\s*:", t)
+        if not m:
+            continue
+        k = _ind(t)
+        # the statement this else belongs to: the nearest line above at the same indentation
+        j = next((j for j in range(i - 1, -1, -1) if lines[j].strip() and not lines[j].lstrip().startswith("#") and _ind(lines[j]) <= k), None)
+        if j is None or _ind(lines[j]) != k or not _re.match(r"(async\s+)?(for|while)\b", lines[j].lstrip()):
+            continue
+        # a loop's else is certainly a mistake only when it is pointless: the loop has no break of its
+        # own (the else always runs), or it is `while True` (it only ends by break, so the else never runs)
+        if not (_re.match(r"while\s+(True|1)\s*:", lines[j].lstrip()) or not _loop_breaks(lines, j, i)):
+            continue
+        # the last statement of the loop body (one level in) must be an if/elif branch
+        inner = None
+        for q in range(i - 1, j, -1):
+            s = lines[q]
+            if s.strip() and not s.lstrip().startswith("#") and _ind(s) > k:
+                level = min(_ind(lines[r]) for r in range(j + 1, i) if lines[r].strip() and not lines[r].lstrip().startswith("#"))
+                if _ind(s) == level and _re.match(r"(if|elif)\b", s.lstrip()):
+                    inner = (q, level)
+                    break
+                if _ind(s) == level:
+                    break
+        if not inner:
+            continue
+        q, level = inner
+        cand = _shift(lines, i, level, True)
+        child = next((_ind(x) for x in lines[i + 1:] if x.strip()), None)
+        if child == level + 4:
+            cand = lines[:i] + [" " * level + t.lstrip(" \t")] + lines[i + 1:]
+        if _syntax_error(cand) is None:
+            return cand, f"moved the 'else' on line {i + 1} to the 'if' on line {q + 1} (it was attached to the loop)"
+    return None
+
+
+def lsp_repair(src, semantic=True):
+    lines = src.split("\n")
+    notes = []
+    for _ in range(40):
+        err = _syntax_error(lines)
+        if err is None or not err.lineno or err.lineno > len(lines):
+            break
+        i = err.lineno - 1
+        fixed = None
+        for cand, note in _candidates(lines, i, err):
+            e2 = _syntax_error(cand)
+            if e2 is None or (e2.lineno or 0) > err.lineno:
+                fixed = (cand, note)
+                break
+        if not fixed:
+            break
+        lines, note = fixed
+        notes.append(note)
+    if semantic and _syntax_error(lines) is None:
+        for _ in range(10):
+            r = _loop_else(lines)
+            if not r:
+                break
+            lines, note = r
+            notes.append(note)
+    return json.dumps({"code": "\n".join(lines), "notes": notes, "ok": _syntax_error(lines) is None})

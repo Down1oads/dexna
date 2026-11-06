@@ -20,6 +20,7 @@ const SYSTEM = [
   "When you write code, put it in a fenced code block with the language name, for example ```python.",
   "When asked to fix or change code, give the complete corrected code for the part you were shown, then a short explanation of what changed.",
   "If you are not sure, say so instead of guessing.",
+  "Write code carefully: close every bracket you open exactly once, and in Python indent with 4 spaces and line up else/elif/except with their if/try.",
 ].join(" ");
 
 // Added in Auto mode, where the code is typed straight into the user's files.
@@ -311,7 +312,7 @@ export function createAssistant(ctx) {
       const w = msg.writers[i];
       if (w && !w.finished) {
         w.write(p.code);
-        if ((p.done || final) && !w.finished) { w.finish(); checkProblems(w, msg); }
+        if ((p.done || final) && !w.finished) w.finish().then(() => { renderAt(msg); checkProblems(w, msg); });
       }
       i++;
     }
@@ -370,6 +371,20 @@ export function createAssistant(ctx) {
     setTimeout(() => ask(`${auto ? "(Auto) " : ""}Fix these errors in ${w.path}, and give the complete corrected file:\n${list}`, "fix", { isFix: true }), 150);
   }
   const waitIdle = () => new Promise((resolve) => { const t = () => (state.busy ? setTimeout(t, 200) : resolve()); t(); });
+  /** "removed an extra ')' (line 3)" x3 -> "removed 3 extra ')' (lines 3, 9)" */
+  function summarize(notes) {
+    const groups = new Map();
+    for (const n of notes) {
+      const m = /^(.*?)\s*\(line (\d+)\)$/.exec(n);
+      const key = m ? m[1] : n;
+      if (!groups.has(key)) groups.set(key, { count: 0, lines: [] });
+      const g = groups.get(key); g.count++; if (m && !g.lines.includes(+m[2])) g.lines.push(+m[2]);
+    }
+    return [...groups].map(([text, g]) => {
+      const t = g.count > 1 ? text.replace(/^removed an extra/, `removed ${g.count} extra`).replace(/^joined a string/, `joined ${g.count} strings`) : text;
+      return g.lines.length ? `${t} (line${g.lines.length > 1 ? "s" : ""} ${g.lines.join(", ")})` : t;
+    }).join("; ");
+  }
   function autoCard(w, p, msg) {
     const done = w.finished;
     const btn = (ic, label, run) => h("button", { class: "btn sm", title: label, onclick: run }, icon(ic), h("span", {}, label));
@@ -378,7 +393,7 @@ export function createAssistant(ctx) {
       h("div", { class: "ai-auto-head" }, icon(done ? "check" : "newFile"),
         h("span", {}, done ? `Wrote ${w.path}` : `Typing into ${w.path}…`), h("span", { class: "muted small" }, `${w.lines} line${w.lines === 1 ? "" : "s"}`)),
       w.note ? h("div", { class: "muted small" }, w.note) : null,
-      done && w.repairs?.length ? h("div", { class: "ai-auto-fixed" }, icon("check"), h("span", {}, "Fixed automatically: " + w.repairs.join("; "))) : null,
+      done && w.repairs?.length ? h("div", { class: "ai-auto-fixed" }, icon("check"), h("span", {}, "Fixed automatically: " + summarize(w.repairs))) : null,
       done && w.problems?.length ? h("div", { class: "ai-auto-warn" }, icon("warning"),
         h("span", {}, `${w.problems.length} error${w.problems.length === 1 ? "" : "s"}, first on line ${w.problems[0].line}: ${w.problems[0].message}`)) : null,
       done ? h("div", { class: "ai-code-actions" },
