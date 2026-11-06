@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dexna</title>
-  <meta name="description" content="Dexna is a code editor that runs entirely in your browser. Write and run Python, JavaScript, TypeScript, Lua and SQL with nothing to install.">
+  <meta name="description" content="Dexna is a code editor that runs entirely in your browser. Write and run Python, JavaScript, TypeScript, Lua, SQL, web pages and 43 more languages with nothing to install.">
   <meta name="theme-color" content="#0f1117">
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.webmanifest">
@@ -147,6 +147,18 @@
         <div id="breadcrumbs"></div>
         <div id="editor-wrap">
           <div id="editor"></div>
+          <div id="preview" class="preview hidden">
+            <div class="resizer v" id="preview-resizer"></div>
+            <div class="preview-head">
+              <span class="preview-title" id="preview-title">Preview</span>
+              <div class="preview-actions">
+                <button class="btn icon sm" id="preview-reload" title="Reload preview"><i data-icon="refresh"></i></button>
+                <button class="btn icon sm" id="preview-open" title="Open in a new browser tab"><i data-icon="external"></i></button>
+                <button class="btn icon sm" id="preview-close" title="Close preview"><i data-icon="close"></i></button>
+              </div>
+            </div>
+            <iframe id="preview-frame" title="Page preview" sandbox="allow-scripts allow-modals allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
+          </div>
           <div id="home" class="home hidden"></div>
           <div id="settings-page" class="settings-page hidden"></div>
         </div>
@@ -223,6 +235,7 @@
     stylua: "https://cdn.jsdelivr.net/npm/@johnnymorganz/stylua@2.6.0/",
     clangformat: "https://cdn.jsdelivr.net/npm/@wasm-fmt/clang-format@23.1.1/",
     gofmt: "https://cdn.jsdelivr.net/npm/@wasm-fmt/gofmt@0.7.3/",
+    emmet: "https://cdn.jsdelivr.net/npm/emmet-monaco-es@5.7.0/dist/emmet-monaco.esm.min.js",
     esm: "https://esm.sh/"
   }
 };</script>

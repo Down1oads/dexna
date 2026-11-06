@@ -2,8 +2,9 @@
 import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
 import { registerLanguageTools, SNIPPETS } from "./langtools.js";
-import { starterFor } from "./starters.js";
-import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline } from "./online.js";
+import { starterFor, STARTER_FILES } from "./starters.js";
+import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline, isObjC } from "./online.js";
+import { registerLanguageModes, loadEmmet, MODES } from "./langmodes.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -246,15 +247,18 @@ function openLocation(file, line) {
 const LANGS = { py: "python", pyi: "python", json: "json", md: "markdown", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", html: "html", css: "css",
   yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", sql: "sql", sh: "shell", xml: "xml", csv: "plaintext", txt: "plaintext" };
 // Languages Dexna can run. Python uses the main kernel; the rest run in a throwaway runner worker.
-const RUN_LANG = { py: "python", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", sql: "sql" };
-const RUN_LANG_NAME = { python: "Python", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL" };
+const RUN_LANG = { py: "python", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", sql: "sql", html: "web", htm: "web" };
+const RUN_LANG_NAME = { python: "Python", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", web: "Web page" };
 // Compiled languages run on a public online compiler (see js/online.js).
 for (const l of ONLINE_LANGS) { RUN_LANG_NAME[l.id] = l.name; for (const e of l.ext) { RUN_LANG[e] = l.id; if (!LANGS[e] || e === "sh") LANGS[e] = l.monaco; } }
-Object.assign(LANGS, { h: "c", hpp: "cpp", kts: "kotlin" });
+Object.assign(LANGS, { h: "c", hpp: "cpp", kts: "kotlin", htm: "html", f95: "fortran" });
 const isOnline = (lang) => !!ONLINE_BY_ID[lang];
-const runLangOf = (p) => RUN_LANG[p.split(".").pop().toLowerCase()] || null;
+const extOf = (p) => p.split(".").pop().toLowerCase();
+const textOf = (p) => models.get(p)?.getValue() ?? project?.files[p] ?? "";
+// .m is Objective-C or Octave: decided by the contents, like GitHub's Linguist does
+const runLangOf = (p) => (extOf(p) === "m" ? (isObjC(textOf(p)) ? "objc" : "octave") : RUN_LANG[extOf(p)] || null);
 const isRunnable = (p) => !!runLangOf(p);
-const langOf = (p) => LANGS[p.split(".").pop().toLowerCase()] || "plaintext";
+const langOf = (p) => (extOf(p) === "m" ? (isObjC(textOf(p)) ? "objective-c" : "octave") : LANGS[extOf(p)] || "plaintext");
 const fileIcon = (p) => { const el = h("span", { class: "fi" }); el.append(fileBadge(p)); return el; };
 const fi = (name, cls = "") => { const el = h("span", { class: "fi " + cls }); el.append(icon(name)); return el; };
 
@@ -322,7 +326,7 @@ function createEditor() {
   editor = monaco.editor.create($("#editor"), {
     model: null, automaticLayout: true, glyphMargin: true, fixedOverflowWidgets: true, smoothScrolling: true,
     cursorBlinking: "smooth", cursorSmoothCaretAnimation: "on", mouseWheelZoom: true, padding: { top: 8 },
-    scrollBeyondLastLine: true, renderLineHighlight: "all", suggest: { showStatusBar: true, preview: true }, suggestLineHeight: 24,
+    scrollBeyondLastLine: true, renderLineHighlight: "all", suggest: { showStatusBar: true, preview: false }, suggestLineHeight: 24,
     inlineSuggest: { enabled: true }, linkedEditing: true, formatOnPaste: false, lightbulb: { enabled: "on" },
     "semanticHighlighting.enabled": true, quickSuggestionsDelay: 80, ...editorOptions(),
   });
@@ -449,6 +453,7 @@ async function loadProject(id) {
   if (!data) return false;
   persistProject.flush?.();
   if (project) saveViewState();
+  if (web.path) showPreview(false); // the preview belongs to the project being left
   closeAllModels();
   project = data;
   project.dirs ||= []; project.breakpoints ||= {}; project.packages ||= []; project.npm ||= {}; project.watches ||= []; project.expanded ||= [];
@@ -897,6 +902,7 @@ const LANG_STARTS = [
   { id: "typescript", name: "TypeScript", ext: "ts", desc: "Static types and generics, checked as you type." },
   { id: "lua", name: "Lua", ext: "lua", desc: "A small, fast scripting language (Lua 5.4)." },
   { id: "sql", name: "SQL", ext: "sql", desc: "Query an in-memory SQLite database." },
+  { id: "web", name: "HTML/CSS", ext: "html", file: "index.html", desc: "A web page with a live preview beside the editor." },
   { id: "csharp", name: "C#", ext: "cs", file: "Program.cs", online: true, desc: "Modern .NET: classes, LINQ, async." },
   { id: "java", name: "Java", ext: "java", file: "Main.java", online: true, desc: "JDK 17." },
   { id: "c", name: "C", ext: "c", online: true, desc: "GCC 14." },
@@ -967,7 +973,9 @@ function startLanguage(l) {
     if (project.name === EMPTY_PROJECT.name) { project.name = uniqueProjectName(`${l.name} project`); persistProject(); persistProject.flush(); renderProjectSelect(); }
   } else createProject({ name: uniqueProjectName(`${l.name} project`), files: {} });
   const starter = starterFor(l.id);
+  for (const [p, text] of Object.entries(STARTER_FILES[l.id] || {})) if (!exists(p)) createFile(p, text, { open: false });
   const path = createFile(l.file || `main.${l.ext}`, starter.text);
+  if (l.id === "web" && path) { project.entry = path; persistProject(); updateRunTarget(); }
   if (path && editor.getModel()) { editor.setPosition({ lineNumber: starter.line, column: starter.column }); editor.revealLineInCenterIfOutsideViewport(starter.line); editor.focus(); }
 }
 
@@ -1029,7 +1037,7 @@ function renderHome() {
           h("h3", {}, "Runs on your device"), h("div", { class: "lang-list" }, localRows),
           h("h3", {}, "Runs online"), h("p", { class: "home-aside" }, "These compile on a public online service. Dexna asks before sending anything."), h("div", { class: "lang-list" }, onlineRows)),
         h("div", { class: "home-section" }, h("h2", {}, "Examples"), h("div", { class: "ex-list" }, exRows)))),
-    h("p", { class: "home-note" }, "Python, JavaScript, TypeScript, Lua and SQL run on your device and your code stays in this browser. Online languages send the file you run to a public compiler, after you agree.")));
+    h("p", { class: "home-note" }, "Python, JavaScript, TypeScript, Lua, SQL and web pages run on your device and your code stays in this browser. Online languages send the file you run to a public compiler, after you agree.")));
 }
 
 async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}) {
@@ -1652,6 +1660,7 @@ function getRunTarget() {
   if (!project) return null;
   if (project.pinEntry && project.files[project.entry] != null) return project.entry;
   const a = project.active;
+  if (a && !a.startsWith("ext:") && /\.(css|js)$/i.test(a)) { const page = pageUsing(a); if (page) return page; } // part of a web page: run the page
   if (a && !a.startsWith("ext:") && isRunnable(a)) return a;
   if (project.files[project.entry] != null) return project.entry;
   return Object.keys(project.files).find(isRunnable) || null;
@@ -1688,11 +1697,12 @@ async function kernelReady() {
 async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
   if (state.busy) return toast("A program is already running. Press Shift+F5 to stop it.", "warn");
   path ||= getRunTarget();
-  if (!path) return toast("Create a file to run first (Python, JavaScript, TypeScript, Lua or SQL).", "warn");
+  if (!path) return toast("Create a file to run first, or start a project from Home.", "warn");
   const lang = runLangOf(path);
-  if (!lang) return toast(`Dexna can't run ${basename(path)}. It runs Python, JavaScript, TypeScript, Lua and SQL files.`, "warn");
+  if (!lang) return toast(`Dexna can't run ${basename(path)}. Help > Languages lists the languages it runs.`, "warn");
   if (lang !== "python") {
     if (debug) return toast("The debugger works with Python files only.", "warn");
+    if (lang === "web") return runWeb(path);
     if (isOnline(lang)) return runOnlineFile(path, ONLINE_BY_ID[lang]);
     return runOther(path, lang);
   }
@@ -1859,6 +1869,124 @@ async function runOther(path, lang) {
   worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs, npm: project.npm || {} });
 }
 
+/* ---------- web pages: HTML with its CSS and scripts, previewed beside the editor ---------- */
+const web = { path: null, timer: 0, html: "" };
+const isExternal = (ref) => /^([a-z][\w+.-]*:|\/\/|#)/i.test(ref);
+function resolveRef(from, ref) {
+  const parts = (dirname(from) ? dirname(from).split("/") : []);
+  for (const seg of ref.split(/[?#]/)[0].split("/")) { if (seg === "..") parts.pop(); else if (seg && seg !== ".") parts.push(seg); }
+  return parts.join("/");
+}
+/** The HTML page in this project that links a style sheet or script (so Run on style.css runs the page). */
+function pageUsing(path) {
+  const pages = Object.keys(project.files).filter((p) => /\.html?$/i.test(p));
+  return pages.find((p) => [...textOf(p).matchAll(/(?:href|src)\s*=\s*["']([^"']+)["']/gi)].some((m) => !isExternal(m[1]) && resolveRef(p, m[1]) === path)) || null;
+}
+const PREVIEW_BRIDGE = (store) => `(() => {
+  const post = (m) => { try { parent.postMessage(Object.assign({ __dexna: 1 }, m), "*"); } catch (_) {} };
+  const fmt = (v) => { if (typeof v === "string") return v; if (v instanceof Error) return v.stack || String(v); try { const s = JSON.stringify(v); return s === undefined ? String(v) : s; } catch (_) { return String(v); } };
+  for (const k of ["log", "info", "warn", "error", "debug"]) { const o = console[k].bind(console); console[k] = (...a) => { post({ type: k, text: a.map(fmt).join(" ") }); o(...a); }; }
+  addEventListener("error", (e) => post({ type: "error", text: (e.error && e.error.stack) || (e.message + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "")) }));
+  addEventListener("unhandledrejection", (e) => post({ type: "error", text: "Unhandled promise rejection: " + fmt(e.reason) }));
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("a[href]"); if (!a) return;
+    const h = a.getAttribute("href");
+    if (/^#/.test(h)) return;
+    if (/^([a-z][\\w+.-]*:|\\/\\/)/i.test(h)) { a.target = "_blank"; return; }
+    e.preventDefault(); post({ type: "nav", href: h });
+  }, true);
+  // The preview has its own origin, so it gets its own localStorage, saved with the project
+  const data = new Map(Object.entries(${JSON.stringify(store).replace(/</g, "\\u003c")}));
+  const save = () => post({ type: "storage", items: Object.fromEntries(data) });
+  const storage = { getItem: (k) => (data.has(String(k)) ? data.get(String(k)) : null), setItem: (k, v) => { data.set(String(k), String(v)); save(); },
+    removeItem: (k) => { data.delete(String(k)); save(); }, clear: () => { data.clear(); save(); }, key: (i) => [...data.keys()][i] ?? null, get length() { return data.size; } };
+  try { Object.defineProperty(window, "localStorage", { value: storage, configurable: true }); } catch (_) {}
+})();`;
+function buildPage(path) {
+  const doc = new DOMParser().parseFromString(textOf(path), "text/html");
+  const missing = [];
+  const local = (ref) => { if (!ref || isExternal(ref) || ref.startsWith("data:")) return null; const p = resolveRef(path, ref); if (project.files[p] == null) { missing.push(ref); return null; } return p; };
+  for (const l of doc.querySelectorAll('link[rel~="stylesheet"][href]')) {
+    const p = local(l.getAttribute("href")); if (!p) continue;
+    const st = doc.createElement("style"); st.textContent = textOf(p).replace(/<\/style/gi, "<\\/style"); l.replaceWith(st);
+  }
+  for (const sc of doc.querySelectorAll("script[src]")) {
+    const p = local(sc.getAttribute("src")); if (!p) continue;
+    const n = doc.createElement("script");
+    for (const at of sc.attributes) if (at.name !== "src") n.setAttribute(at.name, at.value);
+    n.textContent = textOf(p).replace(/<\/script/gi, "<\\/script") + `\n//# sourceURL=${p}`;
+    sc.replaceWith(n);
+  }
+  for (const img of doc.querySelectorAll("img[src]")) { // SVG files in the project can be shown
+    const ref = img.getAttribute("src"); if (!ref || isExternal(ref) || ref.startsWith("data:")) continue;
+    const p = resolveRef(path, ref);
+    if (/\.svg$/i.test(p) && project.files[p] != null) img.setAttribute("src", "data:image/svg+xml;charset=utf-8," + encodeURIComponent(textOf(p)));
+  }
+  const bridge = doc.createElement("script");
+  let store = {}; try { store = JSON.parse(localStorage.getItem("dexna:webstore:" + project.id) || "{}"); } catch (_) {}
+  bridge.textContent = PREVIEW_BRIDGE(store);
+  (doc.head || doc.documentElement).prepend(bridge);
+  return { html: "<!DOCTYPE html>\n" + doc.documentElement.outerHTML, missing };
+}
+function setPreviewWidth(px) {
+  const wrap = $("#editor-wrap");
+  if (px) layout.previewWidth = Math.round(px);
+  wrap.style.setProperty("--preview-w", layout.previewWidth ? layout.previewWidth + "px" : "45%");
+}
+function showPreview(on) {
+  $("#preview").classList.toggle("hidden", !on);
+  $("#editor-wrap").classList.toggle("with-preview", on);
+  if (!on) { web.path = null; $("#preview-frame").srcdoc = ""; }
+}
+function refreshPreview({ announce = false } = {}) {
+  if (!web.path || project.files[web.path] == null) return showPreview(false);
+  const { html, missing } = buildPage(web.path);
+  web.html = html;
+  $("#preview-title").textContent = web.path;
+  $("#preview-frame").srcdoc = html;
+  if (announce && missing.length) terminal.system(`Not found in the project: ${[...new Set(missing)].join(", ")}`, "stderr");
+}
+function runWeb(path) {
+  showPanel("terminal");
+  if (settings.clearOnRun) terminal.clear();
+  terminal.separator(`Previewing ${path} at ${new Date().toLocaleTimeString()}`);
+  terminal.system("The page updates as you type. console.log output from the page shows here.", "sys");
+  web.path = path;
+  setPreviewWidth();
+  showPreview(true);
+  refreshPreview({ announce: true });
+  $("#sb-run").innerHTML = `${iconSvg("check")}<span>${esc(path)}</span>`;
+}
+function schedulePreview() {
+  if (!web.path) return;
+  clearTimeout(web.timer);
+  web.timer = setTimeout(() => refreshPreview(), 450);
+}
+function setupPreview() {
+  $("#preview-reload").onclick = () => refreshPreview({ announce: true });
+  $("#preview-close").onclick = () => showPreview(false);
+  $("#preview-open").onclick = () => { if (!web.html) return; const url = URL.createObjectURL(new Blob([web.html], { type: "text/html" })); window.open(url, "_blank"); setTimeout(() => URL.revokeObjectURL(url), 60000); };
+  window.addEventListener("message", (e) => {
+    const m = e.data;
+    if (!m || m.__dexna !== 1 || e.source !== $("#preview-frame").contentWindow) return;
+    if (m.type === "nav") {
+      const p = resolveRef(web.path, m.href);
+      if (project.files[p] != null && /\.html?$/i.test(p)) { web.path = p; refreshPreview({ announce: true }); }
+      else terminal.system(`The page links to ${m.href}, which is not a page in this project.`, "stderr");
+    } else if (m.type === "storage") {
+      try { localStorage.setItem("dexna:webstore:" + project.id, JSON.stringify(m.items || {})); } catch (_) {}
+    } else terminal.write(String(m.text) + "\n", m.type === "error" || m.type === "warn" ? "stderr" : "stdout");
+  });
+  const handle = $("#preview-resizer");
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault(); handle.setPointerCapture(e.pointerId); document.body.classList.add("resizing");
+    const r = $("#editor-wrap").getBoundingClientRect();
+    const move = (ev) => setPreviewWidth(Math.max(200, Math.min(r.width - 200, r.right - ev.clientX)));
+    const up = () => { document.body.classList.remove("resizing"); handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", up); saveLayout(); };
+    handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", up);
+  });
+}
+
 /* ---------- online languages (C#, Java, C++, Go, Rust, ...) ---------- */
 function stdinDialog(langName, value) {
   return new Promise((resolve) => {
@@ -1875,11 +2003,17 @@ function stdinDialog(langName, value) {
   });
 }
 
+/** The services a language runs on, in the order they are tried, for the consent text. */
+function servicesOf(lang) {
+  const list = [lang.ce && "godbolt.org", lang.judge0 && "ce.judge0.com", lang.wandbox && "wandbox.org"].filter(Boolean);
+  return list.length > 1 ? `${list[0]}, with ${list.slice(1).join(" and ")} as a backup` : list[0];
+}
+
 async function runOnlineFile(path, lang) {
   if (!settings.onlineRunners) {
     const ok = await confirmDialog({
       title: `Run ${lang.name} online?`,
-      message: `${lang.name} cannot run inside the browser. Dexna will send this file, and any input you type, to a public online compiler (godbolt.org for C#, otherwise ce.judge0.com, with wandbox.org as a backup). Nothing else is sent, and your other languages keep running on your device. You can turn this off in Settings, under Languages.`,
+      message: `${lang.name} cannot run inside the browser. Dexna will send this file, and any input you type, to a public online compiler (${servicesOf(lang)}). Nothing else is sent, and your other languages keep running on your device. You can turn this off in Settings, under Languages.`,
       okLabel: "Run online",
     });
     if (!ok) return;
@@ -2516,7 +2650,7 @@ const SETTINGS_SCHEMA = [
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
   { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
-  { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (godbolt.org for C#, otherwise ce.judge0.com, with wandbox.org as a backup). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
+  { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (godbolt.org, ce.judge0.com or wandbox.org, depending on the language). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
   { key: "autoLint", cat: "Python", label: "Live linting", desc: "Check Python code with pyflakes as you type and underline problems.", type: "bool" },
   { key: "lineLength", cat: "Python", label: "Formatter line length", desc: "Maximum line length for black and isort. Lua and SQL formatting use it as a guide too.", type: "number", min: 40, max: 200 },
   { key: "autoInstall", cat: "Python", label: "Auto-install imports", desc: "When you run Python code, install missing packages from PyPI automatically.", type: "bool" },
@@ -2931,6 +3065,7 @@ const GUIDE = [
   { id: "javascript", name: "JavaScript", where: "device", notes: ["ES modules across your files, top-level await, input() and a Node-style console", "Completion, hover, errors and rename from the TypeScript service; format; outline", "Import any npm package by name (loaded from esm.sh)"] },
   { id: "typescript", name: "TypeScript", where: "device", notes: ["Everything JavaScript has, plus live type checking", "Type errors never block a run"] },
   { id: "lua", name: "Lua", where: "device", notes: ["Lua 5.4 with require between your files and io.read for input", "Completion for the standard library and your own functions, hover docs, parameter hints", "Syntax errors as you type; format with StyLua"] },
+  { id: "web", name: "HTML/CSS", where: "device", notes: ["Run shows the page beside the editor and updates it as you type; console output appears in the Terminal", "Your CSS and script files are linked in automatically; links between your pages work", "Emmet like in VS Code: ! then Tab for a new page, ul>li*3 then Tab, and so on", "Libraries from jsDelivr, unpkg or cdnjs load; localStorage works and is saved with the project"] },
   { id: "sql", name: "SQL", where: "device", notes: ["SQLite in memory; every run starts a fresh database and prints results as tables", "Completion for keywords, functions, and tables and columns from your own CREATE TABLE", "Format with sql-formatter"] },
   { id: "csharp", name: "C#", where: "online", notes: ["Modern .NET. Write bare statements, or a class with Main", "Format with clang-format"] },
   { id: "java", name: "Java", where: "online", notes: ["JDK 17. Bare statements work; the class with main can have any name", "Format with clang-format"] },
@@ -2947,12 +3082,12 @@ const GUIDE = [
 function showLanguageGuide() {
   const groups = [["On your device", GUIDE.filter((g) => g.where === "device")], ["Online (sent to a public compiler, with your consent)", GUIDE.filter((g) => g.where === "online")]];
   const body = h("div", { class: "guide" },
-    h("p", { class: "muted" }, "A new project starts with that language's preset, like Visual Studio does. Every language also gets a few snippets: type the trigger, then press Tab. Ctrl+Space shows suggestions anywhere. Online languages also take input in a box before the run, because they cannot ask while running."));
+    h("p", { class: "muted" }, "A new project starts with that language's preset, like Visual Studio and VS Code do. Every language also gets a few snippets: type the trigger, then press Tab. Ctrl+Space shows suggestions anywhere. Online languages also take input in a box before the run, because they cannot ask while running."));
   for (const [title, list] of groups) {
     body.append(h("h3", {}, title));
     if (title.startsWith("Online")) body.append(h("p", { class: "muted small" }, "Also online, each with its own starter (Home > More...): " + ONLINE_LANGS.filter((o) => !GUIDE.some((g) => g.id === o.id)).map((o) => o.name).join(", ") + "."));
     for (const g of list) {
-      const snippets = (SNIPPETS[g.id] || []).map((x) => x.label);
+      const snippets = (SNIPPETS[g.id] || MODES[g.id === "web" ? "html" : g.id]?.snippets || []).map((x) => x.label);
       body.append(h("div", { class: "guide-item" },
         h("div", { class: "guide-head" }, h("span", { class: "lc-icon", html: fileIconSvg("x." + (LANG_STARTS.find((l) => l.id === g.id)?.ext || "txt")) }), h("b", {}, g.name)),
         h("ul", {}, g.notes.map((n) => h("li", {}, n))),
@@ -2969,12 +3104,12 @@ function showAbout() {
     h("div", { class: "modal-body about" },
       h("p", {}, "Dexna is a code editor and runner that lives in your browser. Open the page, pick a language and run code. There is nothing to install and no account."),
       h("h3", {}, "Privacy"),
-      h("p", {}, "Python, JavaScript, TypeScript, Lua and SQL run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (ce.judge0.com, godbolt.org, or wandbox.org as a backup). Dexna asks first, and you can turn it off in Settings."),
+      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings."),
       h("h3", {}, "Runtimes"),
       row("Python", `${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}, WebAssembly)`), row("JavaScript", "your browser, in a worker"), row("TypeScript", "the editor's compiler, then your browser"),
-      row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
+      row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("HTML/CSS", "your browser, in a preview beside the editor"), row("Online", `${ONLINE_LANGS.length} languages`), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
       h("h3", {}, "Built with"),
-      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
+      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
       h("p", {}, h("a", { href: "https://github.com/Down1oads/dexna", target: "_blank", rel: "noopener" }, "Source code on GitHub"))),
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { closeOverlay(); showLanguageGuide(); } }, "Languages"), h("button", { class: "btn", onclick: () => { closeOverlay(); showShortcuts(); } }, "Shortcuts"), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
@@ -3049,6 +3184,12 @@ async function boot() {
   registerProviders();
   configureTypeScript();
   langTools = registerLanguageTools(monaco, { libs: cfg.libs, getSettings: () => settings, minimalEdit, toast });
+  // Monaco cancels a pending suggestion or hover request when the text changes under it; like VS Code, ignore that
+  window.addEventListener("unhandledrejection", (e) => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
+  registerLanguageModes(monaco);
+  for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
+  editor.onDidChangeModelContent(() => schedulePreview());
+  setupPreview();
   monaco.editor.onDidChangeMarkers(() => refreshProblems());
 
   const shared = await importFromHash();

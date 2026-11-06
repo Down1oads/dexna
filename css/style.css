@@ -520,3 +520,13 @@ table.vars .exp .icon { width: 11px; height: 11px; vertical-align: -1px; }
 .monaco-editor .suggest-widget .suggest-status-bar { align-items: center; }
 .monaco-editor .suggest-widget .suggest-status-bar .monaco-action-bar { height: 100%; display: flex; align-items: center; }
 .monaco-editor .suggest-widget .suggest-status-bar .action-label { padding: 0 3px; min-height: 0; line-height: 16px; }
+
+/* ================= Web page preview (beside the editor) ================= */
+#editor-wrap.with-preview #editor { right: var(--preview-w, 45%); }
+.preview { position: absolute; top: 0; right: 0; bottom: 0; width: var(--preview-w, 45%); display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--border); min-width: 0; }
+.preview #preview-resizer { position: absolute; left: -3px; top: 0; bottom: 0; width: 6px; z-index: 2; }
+.preview-head { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 10px; border-bottom: 1px solid var(--border); flex: none; }
+.preview-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--fg-dim); }
+.preview-actions { display: flex; gap: 2px; flex: none; }
+#preview-frame { flex: 1; width: 100%; border: 0; background: #fff; color-scheme: light; }
+@media (max-width: 700px) { #editor-wrap.with-preview #editor { right: 0; } .preview { width: 100%; } #preview-resizer { display: none; } }

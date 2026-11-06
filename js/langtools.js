@@ -655,7 +655,8 @@ export function registerLanguageTools(monaco, ctx) {
           else for (const it of instance) out.push(itemFor(it, it.sig ? K.Method : K.Property, range, "2", ""));
           return { suggestions: out };
         }
-        for (const k of D.keywords) out.push({ label: k, kind: K.Keyword, insertText: k, range, sortText: "6" + k });
+        const snipLabels = new Set((SNIPPETS[lang] || []).map((x) => x.label)); // a snippet named like a keyword wins, so Tab expands it
+        for (const k of D.keywords) if (!snipLabels.has(k)) out.push({ label: k, kind: K.Keyword, insertText: k, range, sortText: "6" + k });
         for (const t of D.types || []) out.push({ label: t, kind: K.Class, insertText: t, range, sortText: "4" + t });
         for (const it of fns) out.push(itemFor(it, K.Function, range, "3", ""));
         for (const o of owners) if (!o.includes(".")) out.push({ label: o, kind: K.Module, detail: lang === "go" ? "package" : "type", insertText: o, range, sortText: "2" + o });

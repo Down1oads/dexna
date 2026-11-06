@@ -2,14 +2,14 @@
 
 <h1 align="center">Dexna</h1>
 <p align="center"><b>A code editor and runner that lives entirely in your browser.</b><br>
-Write and run Python, JavaScript, TypeScript, Lua and SQL on your device, plus C#, Java, C++, Go, Rust and more online.<br>
+Write and run Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) on your device, plus 43 more languages online: C#, Java, C++, Go, Rust, Julia, Zig and more.<br>
 No install, no account.</p>
 
 ---
 
 ## Getting started
 
-Open the site and pick a language on the Home page (**More...** lists every other language). Like Visual Studio, Dexna starts the project with that language's preset: C# gets the Console App template (`namespace`, `class Program`, `static void Main`), Java a `Main` class, C and C++ a `main` function, Go `package main`, and so on. The cursor is placed where you write your code. Every preset compiles and runs as-is. Press **F5** or **Ctrl+Enter** to run it. The examples are on the Home page too, and Home is always one click away on the Dexna logo or under **Help > Home**.
+Open the site and pick a language on the Home page (**More...** lists every other language). Like Visual Studio and VS Code, Dexna starts the project with that language's preset: C# gets the Console App template (`namespace`, `class Program`, `static void Main`), Java a `Main` class, C and C++ a `main` function, Go `package main`, a web page VS Code's `!` HTML boilerplate with `style.css` and `script.js`, and so on. The cursor is placed where you write your code. Every preset compiles and runs as-is. Press **F5** or **Ctrl+Enter** to run it. The examples are on the Home page too, and Home is always one click away on the Dexna logo or under **Help > Home**.
 
 You do not need boilerplate in the compiled languages. In C#, Java, C, C++, Go, Rust and Kotlin you can write just the statements:
 
@@ -32,6 +32,7 @@ Your code never leaves the browser.
 | TypeScript | The editor's TypeScript compiler | Everything JavaScript has, plus live type checking. Type errors never block a run |
 | Lua 5.4 | wasmoon (WebAssembly) | Standard library and your own functions in completion, hover docs, parameter hints, syntax errors as you type, format (StyLua), snippets, outline. `require` between files |
 | SQL | SQLite (WebAssembly) | Keyword, function, table and column completion (from your own `CREATE TABLE`), hover docs, format (sql-formatter), snippets, outline |
+| HTML/CSS (web pages) | Your browser: a live preview beside the editor | HTML and CSS completion and formatting, **Emmet** like VS Code (`!` + Tab, `ul>li*3` + Tab), snippets. The page updates as you type, your CSS and script files are linked in, links between your pages work, `console.log` shows in the Terminal, `localStorage` is saved with the project. Libraries load from jsDelivr, unpkg or cdnjs |
 
 ### Online
 
@@ -42,9 +43,14 @@ These cannot run inside a browser, so Dexna sends **the file you run, and any in
 | C# (modern .NET) | [Compiler Explorer](https://godbolt.org), then [Judge0](https://ce.judge0.com) (old Mono compiler) | Completion for `Console`, `string`, `Math`, LINQ and more, hover docs, parameter hints, format (clang-format), snippets, outline |
 | Java 17, C and C++ (GCC 14) | Judge0, then Wandbox for C and C++ | Same, with `System.out`, `Arrays`, `Collections`, streams, `std::`, stdio and string functions |
 | Go 1.23, Rust 1.85, Kotlin 2.1 | Judge0, then Wandbox for Go and Rust | Completion for common packages, macros and methods, format (gofmt for Go), snippets, outline |
-| PHP, Ruby, Swift, Perl, Dart, Scala, R, Haskell, Elixir, Pascal, Fortran, Groovy, Clojure, OCaml, F#, Visual Basic, Objective-C, D, Erlang, Lisp, Prolog, COBOL, Bash, Assembly | Judge0 (Wandbox for some) | Highlighting; PHP, Ruby and Swift also get completion and snippets |
+| PHP, Ruby, Swift | Judge0, then Wandbox | Completion for common functions and methods, hover docs, snippets |
+| Perl, Dart, Scala, R, Haskell, Elixir, Pascal, Fortran, Groovy, Clojure, OCaml, F#, Visual Basic, Objective-C, D, Erlang, Common Lisp, Prolog, COBOL, Bash, Assembly (NASM), FreeBASIC, Octave | Judge0 (Wandbox as backup for many) | Highlighting, comment toggling, keyword completion and snippets |
+| Julia, Zig, Crystal, Ada, Odin, Raku, Vala, Mojo, Modula-2 | Compiler Explorer (Wandbox as backup for Julia and Zig) | Same |
+| Nim | Wandbox | Same |
 
-These services are free and shared, so they can be slow or rate limited. If the main service is down, Dexna tries the next one. Online programs cannot read input while running, so Dexna shows an input box before the run when the code reads from standard input.
+Octave and Objective-C both use `.m`: a `.m` file is Objective-C when it has `#import`, `@interface` or `int main(...)`, and Octave otherwise (the same rule GitHub uses).
+
+These services are free and shared, so they can be slow or rate limited. If the main service is down, Dexna tries the next one, and if they are all unreachable it tries once more after a moment. Online programs cannot read input while running, so Dexna shows an input box before the run when the code reads from standard input.
 
 ## Editor
 
@@ -101,10 +107,12 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/pyworker.js`, `py/kernel.py`, `py/lsp.py` | Pyodide in a Web Worker, as the Python **kernel** (your code, debugger) and the Python **language server** (jedi, pyflakes, black, isort) |
 | `js/runner.js` | A worker that runs JavaScript, TypeScript (compiled by the editor), Lua and SQL |
 | `js/langtools.js`, `js/langdata.js` | Completion, hover, signatures, formatting and outlines for every language except Python |
+| `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
+| `js/starters.js` | The preset each new project starts with |
 | `js/online.js`, `js/wrap.js` | The online runners, and the logic that adds a missing `Main` and maps compiler errors back to your lines |
 | `coi-serviceworker.js` | Adds the COOP/COEP headers GitHub Pages cannot send, enabling `SharedArrayBuffer` (needed for `input()`, interrupts and the debugger) |
 
-The first visit reloads once while the service worker installs. Pyodide, Monaco and the other runtimes load from the jsDelivr CDN.
+The first visit reloads once while the service worker installs. Pyodide, Monaco, Emmet and the other runtimes load from the jsDelivr CDN.
 
 ## Run locally
 

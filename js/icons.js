@@ -12,6 +12,7 @@ const P = {
   newFolder: '<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v2"/><path d="M2 4.5v7A1.5 1.5 0 0 0 3.5 13H8"/><path d="M12 9.5v5M9.5 12h5"/>',
   more: '<circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/>',
   download: '<path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10"/>',
+  external: '<path d="M9.5 2.5h4v4"/><path d="M13.5 2.5L7.5 8.5"/><path d="M12 9.5V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V4.5A.5.5 0 0 1 3 4h3.5"/>',
   refresh: '<path d="M13 8a5 5 0 1 1-1.5-3.5"/><path d="M13 2.5V5h-2.5"/>',
   clear: '<path d="M3 13h10"/><path d="M5.5 10.5l6-6.5 2 2-5 5.5"/><path d="M5.5 10.5L4 9l3-3.5"/>',
   maximize: '<path d="M9.5 2.5h4v4M6.5 13.5h-4v-4M13.5 2.5L9 7M2.5 13.5L7 9"/>',
@@ -64,7 +65,9 @@ const TYPES = {
   go: ["Go", "#00a7c4"], rs: ["Rs", "#b7410e"], kt: ["Kt", "#7f52ff"], swift: ["Sw", "#f05138"], php: ["Ph", "#777bb3"], rb: ["Rb", "#cc342d"],
   pl: ["Pl", "#39457e"], dart: ["Da", "#0175c2"], scala: ["Sc", "#dc322f"], r: ["R", "#276dc3"], hs: ["Hs", "#5e5086"], ex: ["Ex", "#6e4a7e"], exs: ["Ex", "#6e4a7e"],
   pas: ["Pa", "#a0522d"], clj: ["Cj", "#5881d8"], groovy: ["Gv", "#4298b8"], ml: ["ML", "#ee6a1a"], fs: ["F#", "#378bba"], vb: ["VB", "#68217a"], erl: ["Er", "#a90533"],
-  d: ["D", "#b03931"], lisp: ["Ls", "#3f6e9a"], f90: ["Fo", "#734f96"], m: ["ObjC", "#438eff"], lua: ["Lu", "#3b4a9c"], mjs: ["Js", "#c9a515"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
+  pro: ["Pr", "#e61b23"], cob: ["Cb", "#005ca5"], asm: ["As", "#6e4c13"], f95: ["Fo", "#734f96"], jl: ["Jl", "#9558b2"], zig: ["Zg", "#f7a41d"], nim: ["Nm", "#c9a227"],
+  cr: ["Cr", "#2e2e2e"], adb: ["Ad", "#02a8ef"], odin: ["Od", "#3882d2"], raku: ["Rk", "#7b5ea7"], vala: ["Va", "#7239b3"], mojo: ["Mo", "#ff4c1f"], mod: ["M2", "#5a6e8c"],
+  bas: ["Ba", "#2f6db5"], d: ["D", "#b03931"], lisp: ["Ls", "#3f6e9a"], f90: ["Fo", "#734f96"], m: ["M", "#438eff"], lua: ["Lu", "#3b4a9c"], mjs: ["Js", "#c9a515"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
 };
 
 export function fileIconSvg(path) {

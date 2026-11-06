@@ -1,6 +1,6 @@
 // The preset a new project starts with, one per language. Where Visual Studio has a template
-// (C#, Visual Basic, F#, C++, and JavaScript/TypeScript Node.js apps) it is used as-is; other languages
-// use the standard new-project template of their usual tools. "@@" marks where the cursor goes.
+// (C#, Visual Basic, F#, C++, and JavaScript/TypeScript Node.js apps) it is used as-is; the web page uses
+// VS Code's "!" boilerplate; other languages use the standard new-project template of their usual tools. "@@" marks where the cursor goes.
 // Every starter compiles and runs as-is.
 const L = (...lines) => lines.join("\n") + "\n";
 
@@ -19,6 +19,22 @@ export const STARTERS = {
   typescript: L("console.log('Hello world');", "@@"), // Visual Studio: TypeScript Node.js Console App
   lua: L('print("Hello, world!")', "@@"),
   sql: L("-- A fresh in-memory SQLite database is created every time you run this file.", "SELECT 'Hello, world!' AS greeting;", "", "@@"),
+  // Web page: VS Code's "!" (Emmet) HTML boilerplate, linked to a style sheet and a script
+  web: L(
+    "<!DOCTYPE html>",
+    '<html lang="en">',
+    "<head>",
+    '    <meta charset="UTF-8">',
+    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">',
+    "    <title>Document</title>",
+    '    <link rel="stylesheet" href="style.css">',
+    "</head>",
+    "<body>",
+    "    @@",
+    '    <script src="script.js"></script>',
+    "</body>",
+    "</html>",
+  ),
 
   // ---------------- online ----------------
   csharp: L( // Visual Studio: C# Console App (.NET Framework)
@@ -138,6 +154,44 @@ export const STARTERS = {
     "           STOP RUN.",
   ),
   bash: L("#!/bin/bash", "", 'echo "Hello, world!"', "@@"),
+  julia: L('println("Hello, world!")', "@@"),
+  zig: L( // zig init
+    'const std = @import("std");',
+    "",
+    "pub fn main() !void {",
+    "    const stdout = std.io.getStdOut().writer();",
+    '    try stdout.print("Hello, world!\\n", .{});',
+    "    @@",
+    "}",
+  ),
+  nim: L('echo "Hello, world!"', "@@"),
+  crystal: L('puts "Hello, world!"', "@@"),
+  ada: L( // GNAT Studio / Alire: a main procedure
+    "with Ada.Text_IO; use Ada.Text_IO;",
+    "",
+    "procedure Main is",
+    "begin",
+    '   Put_Line ("Hello, world!");',
+    "   @@",
+    "end Main;",
+  ),
+  odin: L("package main", "", 'import "core:fmt"', "", "main :: proc() {", '\tfmt.println("Hello, world!")', "\t@@", "}"),
+  raku: L("say 'Hello, world!';", "@@"),
+  vala: L("void main () {", '    print ("Hello, world!\\n");', "    @@", "}"),
+  mojo: L("def main():", '    print("Hello, world!")', "    @@"),
+  modula2: L(
+    "MODULE Main;",
+    "",
+    "FROM StrIO IMPORT WriteString, WriteLn;",
+    "",
+    "BEGIN",
+    '   WriteString ("Hello, world!");',
+    "   WriteLn;",
+    "   @@",
+    "END Main.",
+  ),
+  basic: L('Print "Hello, world!"', "@@"),
+  octave: L("disp('Hello, world!')", "@@"),
   asm: L(
     "section .data",
     '    msg db "Hello, world!", 10',
@@ -157,6 +211,11 @@ export const STARTERS = {
     "    xor rdi, rdi",
     "    syscall",
   ),
+};
+
+/** Extra files some presets come with (the web page's style sheet and script). */
+export const STARTER_FILES = {
+  web: { "style.css": "", "script.js": "" },
 };
 
 /** The starter for a language, with the cursor marker removed: { text, line, column } (1-based). */

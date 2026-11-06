@@ -1,5 +1,6 @@
 // Online runners: compiled languages that cannot run inside the browser are sent to a public
-// compile service. Judge0 CE is the main service; Wandbox is the backup if Judge0 is unreachable.
+// compile service: Compiler Explorer (godbolt.org), Judge0 CE or Wandbox. Each language lists the
+// services it runs on, tried in that order; the next one is used only if one is down or busy.
 //
 // Only the program source and its input are sent. Dexna asks for consent before the first run.
 
@@ -10,7 +11,8 @@ export const JUDGE0 = "https://ce.judge0.com";
 export const WANDBOX = "https://wandbox.org";
 export const CE = "https://godbolt.org";
 
-// id: Dexna language id; judge0: Judge0 language id; wandbox: { language, prefer } (optional backup)
+// id: Dexna language id; judge0: Judge0 language id (or null); ce: Compiler Explorer compiler;
+// wandbox: { language, prefer, options } (optional backup); monaco: the editor language id
 const L = (id, name, ext, judge0, extra = {}) => ({ id, name, ext, judge0, ...extra });
 export const ONLINE_LANGS = [
   L("csharp", "C#", ["cs"], 51, { monaco: "csharp", ce: { compiler: "dotnet100csharpcoreclr", lang: "csharp" }, wandbox: { language: "C#", prefer: "mono" }, note: ".NET 10 on Compiler Explorer (Mono 6.6 if that is down)." }),
@@ -27,26 +29,42 @@ export const ONLINE_LANGS = [
   L("dart", "Dart", ["dart"], 90, { monaco: "dart" }),
   L("scala", "Scala", ["scala"], 112, { monaco: "scala", wandbox: { language: "Scala", prefer: "scala-" } }),
   L("r", "R", ["r"], 99, { monaco: "r", wandbox: { language: "R", prefer: "r-" } }),
-  L("haskell", "Haskell", ["hs"], 61, { monaco: "plaintext", wandbox: { language: "Haskell", prefer: "ghc-" } }),
+  L("haskell", "Haskell", ["hs"], 61, { monaco: "haskell", wandbox: { language: "Haskell", prefer: "ghc-" } }),
   L("elixir", "Elixir", ["ex", "exs"], 57, { monaco: "elixir", wandbox: { language: "Elixir", prefer: "elixir-" } }),
   L("pascal", "Pascal", ["pas"], 67, { monaco: "pascal", wandbox: { language: "Pascal", prefer: "fpc-" } }),
-  L("fortran", "Fortran", ["f90", "f95"], 59, { monaco: "plaintext" }),
-  L("groovy", "Groovy", ["groovy"], 88, { monaco: "plaintext", wandbox: { language: "Groovy", prefer: "groovy-" } }),
+  L("fortran", "Fortran", ["f90", "f95"], 59, { monaco: "fortran" }),
+  L("groovy", "Groovy", ["groovy"], 88, { monaco: "groovy", wandbox: { language: "Groovy", prefer: "groovy-" } }),
   L("clojure", "Clojure", ["clj"], 86, { monaco: "clojure" }),
-  L("ocaml", "OCaml", ["ml"], 65, { monaco: "plaintext", wandbox: { language: "OCaml", prefer: "ocaml-" } }),
+  L("ocaml", "OCaml", ["ml"], 65, { monaco: "ocaml", wandbox: { language: "OCaml", prefer: "ocaml-" } }),
   L("fsharp", "F#", ["fs"], 87, { monaco: "fsharp" }),
   L("vb", "Visual Basic", ["vb"], 84, { monaco: "vb" }),
   L("objc", "Objective-C", ["m"], 79, { monaco: "objective-c" }),
-  L("d", "D", ["d"], 56, { monaco: "plaintext", wandbox: { language: "D", prefer: "dmd-" } }),
-  L("erlang", "Erlang", ["erl"], 58, { monaco: "plaintext", wandbox: { language: "Erlang", prefer: "erlang-" } }),
-  L("lisp", "Common Lisp", ["lisp"], 55, { monaco: "plaintext", wandbox: { language: "Lisp", prefer: "sbcl-" } }),
-  L("prolog", "Prolog", ["pro"], 69, { monaco: "plaintext" }),
-  L("cobol", "COBOL", ["cob"], 77, { monaco: "plaintext" }),
+  L("d", "D", ["d"], 56, { monaco: "dlang", wandbox: { language: "D", prefer: "dmd-" } }),
+  L("erlang", "Erlang", ["erl"], 58, { monaco: "erlang", wandbox: { language: "Erlang", prefer: "erlang-" } }),
+  L("lisp", "Common Lisp", ["lisp"], 55, { monaco: "commonlisp", wandbox: { language: "Lisp", prefer: "sbcl-" } }),
+  L("prolog", "Prolog", ["pro"], 69, { monaco: "prolog" }),
+  L("cobol", "COBOL", ["cob"], 77, { monaco: "cobol" }),
   L("bash", "Bash", ["sh"], 46, { monaco: "shell" }),
-  L("asm", "Assembly (NASM)", ["asm"], 45, { monaco: "plaintext" }),
+  L("asm", "Assembly (NASM)", ["asm"], 45, { monaco: "nasm" }),
+  L("julia", "Julia", ["jl"], null, { monaco: "julia", ce: { compiler: "julia_1_12_5", lang: "julia" }, wandbox: { language: "Julia", prefer: "julia-1.10" }, note: "Julia 1.12" }),
+  L("zig", "Zig", ["zig"], null, { monaco: "zig", ce: { compiler: "z0140", lang: "zig" }, wandbox: { language: "Zig", prefer: "zig-0.13" }, note: "Zig 0.14" }),
+  L("nim", "Nim", ["nim"], null, { monaco: "nim", wandbox: { language: "Nim", prefer: "nim-2", options: "--hints:off" }, note: "Nim 2.2" }),
+  L("crystal", "Crystal", ["cr"], null, { monaco: "crystal", ce: { compiler: "crystal1221", lang: "crystal" }, note: "Crystal 1.22" }),
+  L("ada", "Ada", ["adb"], null, { monaco: "ada", ce: { compiler: "gnat162", lang: "ada" }, note: "GNAT 16" }),
+  L("odin", "Odin", ["odin"], null, { monaco: "odin", ce: { compiler: "odin202610", lang: "odin" }, note: "Odin dev-2026-10" }),
+  L("raku", "Raku", ["raku"], null, { monaco: "raku", ce: { compiler: "rakudo-moar-2026-06-01", lang: "raku" }, note: "Rakudo 2026.06" }),
+  L("vala", "Vala", ["vala"], null, { monaco: "vala", ce: { compiler: "valac05606", lang: "vala" }, note: "Vala 0.56" }),
+  L("mojo", "Mojo", ["mojo"], null, { monaco: "mojo", ce: { compiler: "mojo_1_2_0", lang: "mojo" }, note: "Mojo 1.2" }),
+  L("modula2", "Modula-2", ["mod"], null, { monaco: "modula2", ce: { compiler: "gm2162", lang: "modula2" }, note: "GNU Modula-2 (GCC 16)" }),
+  L("basic", "FreeBASIC", ["bas"], 47, { monaco: "freebasic", note: "FreeBASIC 1.07" }),
+  L("octave", "Octave", ["m"], 66, { monaco: "octave", note: "GNU Octave 5.1. Shares .m with Objective-C: a .m file is Objective-C if it has #import, @interface or int main(...)." }),
 ];
 export const ONLINE_BY_ID = Object.fromEntries(ONLINE_LANGS.map((l) => [l.id, l]));
 export const ONLINE_BY_EXT = Object.fromEntries(ONLINE_LANGS.flatMap((l) => l.ext.map((e) => [e, l])));
+ONLINE_BY_EXT.m = ONLINE_BY_ID.objc;
+
+/** Objective-C and Octave both use .m (like GitHub's Linguist, decide by the contents). */
+export const isObjC = (code) => /^\s*#\s*(import|include)\b|@(interface|implementation|autoreleasepool)\b|\bint\s+main\s*\(/m.test(code || "");
 
 /** Does this source look like it reads from standard input? Used to ask for input before running. */
 export function readsInput(lang, code) {
@@ -56,7 +74,9 @@ export function readsInput(lang, code) {
     kotlin: /\breadLine\s*\(|\breadln\s*\(|System\.`in`|readLine/, swift: /\breadLine\s*\(/, php: /\b(fgets|fscanf|readline|stream_get_contents)\s*\(|STDIN|php:\/\/stdin/,
     ruby: /\bgets\b|STDIN|\$stdin/, perl: /<STDIN>|<>/, dart: /stdin\./, scala: /StdIn|scala\.io/, r: /readLines|scan\s*\(|readline/,
     haskell: /\bgetLine\b|getContents|interact/, elixir: /IO\.(gets|read)/, pascal: /\bread(ln)?\b/i, fortran: /\bread\s*\(/i, groovy: /System\.in|\.nextLine|readLine/,
-    bash: /\bread\b/, ocaml: /read_line|input_line/, d: /readln|stdin/, erlang: /io:(get_line|read)/, lisp: /read-line|\(read\)/, prolog: /\bread\s*\(/, cobol: /ACCEPT/i,
+    bash: /\bread\b/, julia: /\breadline\s*\(|readlines|stdin/, zig: /getStdIn|stdin/, nim: /readLine|stdin/, crystal: /\bgets\b|STDIN/, ada: /Get_Line|\bGet\s*\(/,
+    odin: /os\.stdin|bufio/, raku: /\bget\b|\bprompt\b|\$\*IN|lines\(\)/, vala: /stdin\.read_line|stdin\./, mojo: /\binput\s*\(/, modula2: /ReadString|ReadInt|ReadCard|\bRead\s*\(/,
+    basic: /\b(Input|Line\s+Input)\b/i, octave: /\binput\s*\(|fgetl|fgets|scanf/, ocaml: /read_line|input_line/, d: /readln|stdin/, erlang: /io:(get_line|read)/, lisp: /read-line|\(read\)/, prolog: /\bread\s*\(/, cobol: /ACCEPT/i,
   }[lang];
   return !!rx && rx.test(code);
 }
@@ -121,7 +141,8 @@ async function compilerExplorer(lang, prep, stdin, signal) {
     if (!r.ok) throw Object.assign(new Error(`Compiler Explorer returned ${r.status}.`), { transient: r.status >= 500 });
     const j = await r.json();
     const build = j.buildResult || {};
-    const buildText = ceText(build.stdout) + ceText(build.stderr);
+    const noise = (l) => /file name does not match unit name/.test(l.text) || /^Compiler returned: 0$/.test(l.text); // CE always names the file example.*
+    const buildText = ceText((build.stdout || []).filter((l) => !noise(l))) + ceText((build.stderr || []).filter((l) => !noise(l)));
     const base = { provider: "godbolt.org", time: (j.execTime || 0) / 1000, memory: 0, stdout: "", stderr: "", compile: "" };
     if (!j.didExecute && j.code !== 0) return { ...base, ok: false, kind: "compile", compile: buildText || ceText(j.stderr) };
     const ok = j.code === 0;
@@ -142,7 +163,7 @@ async function wandbox(lang, prep, stdin, signal) {
     const all = wandboxList.filter((c) => c.language === lang.wandbox.language);
     const compiler = (all.find((c) => c.name.startsWith(lang.wandbox.prefer) && !c.name.includes("head")) || all.find((c) => !c.name.includes("head")) || all[0])?.name;
     if (!compiler) throw new Error(`${lang.name} is not available on the backup compiler.`);
-    const r = await fetch(`${WANDBOX}/api/compile.json`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: t.signal, body: JSON.stringify({ compiler, code, stdin: stdin || "", save: false }) });
+    const r = await fetch(`${WANDBOX}/api/compile.json`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: t.signal, body: JSON.stringify({ compiler, code, stdin: stdin || "", save: false, ...(lang.wandbox.options ? { "compiler-option-raw": lang.wandbox.options } : {}) }) });
     if (!r.ok) throw new Error(`The backup compiler returned ${r.status}.`);
     const j = await r.json();
     const failedCompile = j.status !== "0" && (j.compiler_error || "").trim() && !(j.program_output || j.program_error);
@@ -157,28 +178,32 @@ async function wandbox(lang, prep, stdin, signal) {
 export async function runOnline(lang, code, stdin, signal, fileName = "Main") {
   const attempts = [];
   if (lang.ce) attempts.push(["ce", compilerExplorer, { modern: true }]);
-  attempts.push(["judge0", judge0, {}]);
+  if (lang.judge0) attempts.push(["judge0", judge0, {}]);
   if (lang.wandbox) attempts.push(["wandbox", wandbox, {}]);
   let firstError = null;
-  for (const [name, run, opts] of attempts) {
-    // programs without an entry point (just statements) get one added; error lines are mapped back afterwards
-    const prep = prepareSource(lang.id, code, opts);
-    try {
-      const r = await run(lang, prep, stdin, signal);
-      r.wrapped = prep.wrapped;
-      r.compile = mapDiagnostics(r.compile, prep.map, fileName);
-      r.stderr = mapDiagnostics(r.stderr, prep.map, fileName);
-      if (r.ok) { // JVM start-up noise from the Kotlin and Java tools
-        const clean = (t) => (t || "").split("\n").filter((l) => !/^WARNING: /.test(l)).join("\n").replace(/^\s+$/, "");
-        r.stderr = clean(r.stderr);
-        r.compile = clean(r.compile);
+  for (const round of [0, 1]) { // one more round after a short pause when every service was unreachable or busy
+    if (round) { if (!firstError?.transient) break; await new Promise((r) => setTimeout(r, 1500)); if (signal?.aborted) throw signal.reason; firstError = null; }
+    for (const [name, run, opts] of attempts) {
+      // programs without an entry point (just statements) get one added; error lines are mapped back afterwards
+      const prep = prepareSource(lang.id, code, opts);
+      try {
+        const r = await run(lang, prep, stdin, signal);
+        r.wrapped = prep.wrapped;
+        r.compile = mapDiagnostics(r.compile, prep.map, fileName);
+        r.stderr = mapDiagnostics(r.stderr, prep.map, fileName);
+        if (r.ok) { // JVM start-up noise from the Kotlin and Java tools
+          const clean = (t) => (t || "").split("\n").filter((l) => !/^WARNING: /.test(l)).join("\n").replace(/^\s+$/, "");
+          r.stderr = clean(r.stderr);
+          r.compile = clean(r.compile);
+        }
+        if (!r.ok) r.hint = caseHint(lang.id, `${r.compile}\n${r.stderr}`);
+        if (name !== attempts[0][0]) r.fallback = true;
+        return r;
+      } catch (e) {
+        if (isAbort(e, signal)) throw e;
+        firstError ||= e; // this service is down or busy: try the next one
+        if (!e.transient) firstError.transient = false;
       }
-      if (!r.ok) r.hint = caseHint(lang.id, `${r.compile}\n${r.stderr}`);
-      if (name !== attempts[0][0]) r.fallback = true;
-      return r;
-    } catch (e) {
-      if (isAbort(e, signal)) throw e;
-      firstError ||= e; // this service is down or busy: try the next one
     }
   }
   throw new Error(`${firstError?.message || "The online compilers are unavailable."}${attempts.length > 1 ? " The backup compilers failed too." : ""}`);
