@@ -2015,6 +2015,14 @@ function setupAssistant() {
     h, icon, monaco, editor, toast, libUrl,
     workerUrl: new URL(`ai-worker.js?lib=${encodeURIComponent(libUrl)}`, import.meta.url),
     getContext: assistantContext, getLastRun: lastRunOutput,
+    newFile: (code, lang) => { // a code block from the Assistant as its own file, named by its language
+      const id = (lang || "").toLowerCase();
+      const known = monaco.languages.getLanguages().find((l) => l.id === id || (l.aliases || []).some((a) => a.toLowerCase() === id) || (l.extensions || []).includes("." + id));
+      const ext = { csharp: "cs", "c#": "cs", python: "py", javascript: "js", typescript: "ts", cpp: "cpp", "c++": "cpp", shell: "sh", bash: "sh" }[id] || known?.extensions?.[0]?.slice(1) || "txt";
+      let name = `snippet.${ext}`;
+      for (let n = 2; exists(name); n++) name = `snippet-${n}.${ext}`;
+      if (createFile(name, code.endsWith("\n") ? code : code + "\n")) toast(`Created ${name}. Rename it from the Explorer if you like.`);
+    },
   });
   // in the editor's right-click menu, like VS Code's chat entries
   for (const [id, label, kind, order] of [["dexna.ai.explain", "Assistant: Explain This", "explain", 1], ["dexna.ai.fix", "Assistant: Find Bugs", "fix", 2]]) {

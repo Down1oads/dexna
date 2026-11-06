@@ -28,8 +28,9 @@ const QUICK = {
   comment: { label: "Add comments", prompt: "Add short, helpful comments to this code. Return the complete code with the comments." },
 };
 
-// The models have a 4096-token window; roughly 3.2 characters per token for code.
-const CONTEXT_CHARS = 6000, HISTORY_CHARS = 2400, MAX_OUTPUT = 1024;
+// The models have a 4096-token window that must hold the whole request and the answer. Code averages
+// about 3 characters per token, so the request is kept under PROMPT_CHARS, leaving room for MAX_OUTPUT.
+const MAX_OUTPUT = 1024, PROMPT_CHARS = 8000, CONTEXT_CHARS = 4500, HISTORY_CHARS = 1800;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -143,56 +144,88 @@ export function createAssistant(ctx) {
   }
 
   /* ---------- asking ---------- */
-  function contextBlock(kind) {
+  function contextBlock(kind, limit = CONTEXT_CHARS) {
     const c = ctx.getContext();
     const parts = [];
-    if (c && c.code != null) {
+    if (c && c.code != null && c.code.trim()) {
       let code = c.selection || c.code, where = c.selection ? `selected lines ${c.selStart}-${c.selEnd} of ${c.path}` : c.path;
-      if (code.length > CONTEXT_CHARS) { // keep the part around the cursor
+      if (code.length > limit) { // keep the part around the cursor
         const lines = code.split("\n"), at = Math.max(0, (c.selection ? 0 : c.cursorLine - 1));
-        let lo = at, hi = at, size = 0;
-        while ((lo > 0 || hi < lines.length - 1) && size < CONTEXT_CHARS) {
+        let lo = at, hi = at, size = lines[at]?.length || 0;
+        while ((lo > 0 || hi < lines.length - 1) && size < limit) {
           if (hi < lines.length - 1) size += lines[++hi].length + 1;
-          if (lo > 0 && size < CONTEXT_CHARS) size += lines[--lo].length + 1;
+          if (lo > 0 && size < limit) size += lines[--lo].length + 1;
         }
-        code = lines.slice(lo, hi + 1).join("\n");
+        code = lines.slice(lo, hi + 1).join("\n").slice(0, limit);
         where = `lines ${lo + 1}-${hi + 1} of ${c.path}`;
       }
-      parts.push(`Code (${where}, ${c.language}):\n\`\`\`${c.fence}\n${code}\n\`\`\``);
+      const label = c.selection || kind !== "chat" ? `My code (${where}, ${c.language})` : `My open file (${where}, ${c.language}); use it only if my question is about it`;
+      parts.push(`${label}:\n\`\`\`${c.fence}\n${code}\n\`\`\``);
     }
     const run = ctx.getLastRun();
-    if (run && (kind === "error" || kind === "fix" || (run.failed && kind === "chat"))) parts.push(`Output of the last run${run.failed ? " (it failed)" : ""}:\n\`\`\`\n${run.text.slice(-1500)}\n\`\`\``);
+    if (run && (kind === "error" || kind === "fix" || (run.failed && kind === "chat"))) parts.push(`Output of the last run${run.failed ? " (it failed)" : ""}:\n\`\`\`\n${run.text.slice(-1200)}\n\`\`\``);
     return { text: parts.join("\n\n"), target: c };
+  }
+
+  /** Earlier turns, newest kept first: code blocks in answers are replaced by a note, so they stay short and whole. */
+  function historyFor(previous, budget) {
+    const turns = [];
+    for (let i = previous.length - 1; i >= 1; i -= 2) {
+      const u = previous[i - 1], a = previous[i];
+      if (u?.role !== "user" || a?.role !== "assistant" || a.error || !a.content.trim()) continue;
+      let answer = a.content.replace(/```[\s\S]*?(```|$)/g, "[code block, see above]").replace(/\n{3,}/g, "\n\n").trim();
+      if (answer.length > 600) answer = answer.slice(0, 600).replace(/\s+\S*$/, "") + " …";
+      const q = u.content.length > 400 ? u.content.slice(0, 400) + " …" : u.content;
+      if ((budget -= q.length + answer.length) < 0) break;
+      turns.unshift({ role: "user", content: q }, { role: "assistant", content: answer });
+    }
+    return turns;
+  }
+
+  /** True when the newest output has turned into repeated junk (it happens with small models). */
+  function looksBroken(text) {
+    const tail = text.slice(-400);
+    if (tail.length < 200) return false;
+    const letters = (tail.match(/[A-Za-z0-9]/g) || []).length;
+    if (letters / tail.length < 0.25) return true; // mostly spaces and symbols
+    const words = tail.split(/\s+/).filter(Boolean);
+    if (words.length >= 40 && new Set(words).size / words.length < 0.15) return true; // the same few words over and over
+    return /(.{4,30}?)\1{7,}/s.test(tail); // one piece repeated many times
   }
 
   async function ask(question, kind = "chat") {
     if (state.phase !== "ready" || state.busy) return;
-    const { text: context, target } = contextBlock(kind);
-    const shown = { role: "user", content: question, kind };
-    state.messages.push(shown);
+    const previous = state.messages.slice();
+    let { text: context, target } = contextBlock(kind);
+    let history = historyFor(previous, HISTORY_CHARS);
+    const size = () => SYSTEM.length + context.length + question.length + history.reduce((n, m) => n + m.content.length, 0);
+    while (size() > PROMPT_CHARS && history.length) history = history.slice(2); // oldest turns go first
+    if (size() > PROMPT_CHARS) context = contextBlock(kind, Math.max(1000, CONTEXT_CHARS - (size() - PROMPT_CHARS))).text;
+
+    state.messages.push({ role: "user", content: question, kind });
     const reply = { role: "assistant", content: "", target: { path: target?.path, hasSelection: !!target?.selection, whole: !target?.selection && (kind === "fix" || kind === "comment") } };
     state.messages.push(reply);
     state.busy = true;
     render();
-    // older turns go in without their code, newest first, within the history budget
-    const history = [];
-    let budget = HISTORY_CHARS;
-    for (const m of state.messages.slice(0, -2).reverse()) {
-      const c = m.content.length > 1200 ? m.content.slice(0, 1200) + " …" : m.content;
-      if ((budget -= c.length) < 0) break;
-      history.unshift({ role: m.role, content: c });
-    }
     const messages = [{ role: "system", content: SYSTEM }, ...history, { role: "user", content: context ? `${context}\n\n${question}` : question }];
+    let broken = false;
     try {
-      const chunks = await state.engine.chat.completions.create({ messages, stream: true, temperature: 0.2, max_tokens: MAX_OUTPUT });
+      await state.engine.resetChat(); // every request carries its own history; never reuse the previous state
+      const chunks = await state.engine.chat.completions.create({ messages, stream: true, temperature: 0.2, repetition_penalty: 1.05, max_tokens: MAX_OUTPUT });
       for await (const chunk of chunks) {
         reply.content += chunk.choices?.[0]?.delta?.content || "";
+        if (looksBroken(reply.content)) { broken = true; state.engine.interruptGenerate(); break; }
         renderLast();
       }
     } catch (e) {
       const msg = String(e?.message || e);
       reply.content += reply.content ? "\n\n" : "";
-      reply.content += /context window|ContextWindow|prompt tokens exceed/i.test(msg) ? "_That was too long for the model. Select a smaller part of the code and ask again._" : `_Something went wrong: ${msg}_`;
+      reply.content += /context window|ContextWindow|prompt tokens exceed/i.test(msg) ? "_That was too long for the model. Press New chat, or select a smaller part of the code, and ask again._" : `_Something went wrong: ${msg}_`;
+      reply.error = true;
+    }
+    if (broken) {
+      reply.content = reply.content.slice(0, Math.max(0, reply.content.length - 400)).trimEnd();
+      reply.content += (reply.content ? "\n\n" : "") + "_The model lost track and started writing nonsense, so I stopped it. Press New chat and ask again, ideally a smaller question. The Large model handles long requests better if your computer can run it._";
       reply.error = true;
     }
     state.busy = false;
@@ -225,6 +258,7 @@ export function createAssistant(ctx) {
     const btn = (ic, label, run) => h("button", { class: "btn sm", title: label, onclick: run }, icon(ic), h("span", {}, label));
     const actions = h("div", { class: "ai-code-actions" },
       btn("copy", "Copy", () => { navigator.clipboard?.writeText(p.code).then(() => ctx.toast("Copied")).catch(() => ctx.toast("Could not copy", "error")); }),
+      btn("newFile", "New file", () => ctx.newFile(p.code, p.lang)),
       ctx.editor.getModel() ? btn("insert", ctx.editor.getSelection()?.isEmpty() === false ? "Replace selection" : "Insert at cursor", () => apply(p.code, "cursor")) : null,
       msg.target?.whole && ctx.editor.getModel() && msg.target.path === ctx.getContext()?.path ? btn("check", "Replace file", () => apply(p.code, "file")) : null);
     return h("div", { class: "ai-code-wrap" }, p.lang ? h("div", { class: "ai-code-lang" }, p.lang) : null, pre, p.done ? actions : null);
