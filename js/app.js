@@ -1,7 +1,7 @@
 // Dexna: a Python IDE in the browser.
 import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
-import { registerLanguageTools } from "./langtools.js";
+import { registerLanguageTools, SNIPPETS } from "./langtools.js";
 import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline } from "./online.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
@@ -896,7 +896,7 @@ const LANG_STARTS = [
   { id: "typescript", name: "TypeScript", ext: "ts", desc: "Static types and generics, checked as you type." },
   { id: "lua", name: "Lua", ext: "lua", desc: "A small, fast scripting language (Lua 5.4)." },
   { id: "sql", name: "SQL", ext: "sql", desc: "Query an in-memory SQLite database." },
-  { id: "csharp", name: "C#", ext: "cs", file: "Program.cs", online: true, desc: "Classes and LINQ on Mono." },
+  { id: "csharp", name: "C#", ext: "cs", file: "Program.cs", online: true, desc: "Modern .NET: classes, LINQ, async." },
   { id: "java", name: "Java", ext: "java", file: "Main.java", online: true, desc: "JDK 17." },
   { id: "c", name: "C", ext: "c", online: true, desc: "GCC 14." },
   { id: "cpp", name: "C++", ext: "cpp", online: true, desc: "GCC 14." },
@@ -1003,7 +1003,9 @@ function renderHome() {
             action("download", "Import project from ZIP...", () => $("#zip-upload").click()),
             action("file", "Upload files...", () => { uploadTarget = ""; $("#file-upload").click(); }),
             action("star", "Command palette...", () => quickOpen(">"), "ctrl+shift+p"),
-            action("settings", "Settings and color themes", () => showSettings(true)))),
+            action("settings", "Settings and color themes", () => showSettings(true)),
+            action("info", "Languages and snippets", showLanguageGuide),
+            action("info", "Keyboard shortcuts", () => showShortcuts()))),
         h("div", { class: "home-section" }, h("h2", {}, "Recent"),
           recent.length ? h("div", { class: "recent-list" }, recent) : h("div", { class: "muted small" }, "Projects you create will show up here."))),
       h("div", {},
@@ -1050,7 +1052,7 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
   updateBreadcrumbs();
   updateCursorStatus();
   updateRuntimeBadge();
-  $("#sb-lang").textContent = { python: "Python", plaintext: "Plain Text", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", json: "JSON", markdown: "Markdown", html: "HTML", css: "CSS", yaml: "YAML" }[model.getLanguageId()] || model.getLanguageId();
+  $("#sb-lang").textContent = { python: "Python", plaintext: "Plain Text", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", json: "JSON", markdown: "Markdown", html: "HTML", css: "CSS", yaml: "YAML", csharp: "C#", java: "Java", c: "C", cpp: "C++", go: "Go", rust: "Rust", kotlin: "Kotlin", php: "PHP", ruby: "Ruby", swift: "Swift", perl: "Perl", dart: "Dart", scala: "Scala", r: "R", shell: "Shell", elixir: "Elixir", pascal: "Pascal", clojure: "Clojure", fsharp: "F#", vb: "Visual Basic", "objective-c": "Objective-C" }[model.getLanguageId()] || model.getLanguageId();
   updateRunTarget();
   scheduleOutline();
 }
@@ -1861,7 +1863,7 @@ async function runOnlineFile(path, lang) {
   if (!settings.onlineRunners) {
     const ok = await confirmDialog({
       title: `Run ${lang.name} online?`,
-      message: `${lang.name} cannot run inside the browser. Dexna will send this file, and any input you type, to a public online compiler (ce.judge0.com, with wandbox.org as a backup). Nothing else is sent, and your other languages keep running on your device. You can turn this off in Settings, under Languages.`,
+      message: `${lang.name} cannot run inside the browser. Dexna will send this file, and any input you type, to a public online compiler (godbolt.org for C#, otherwise ce.judge0.com, with wandbox.org as a backup). Nothing else is sent, and your other languages keep running on your device. You can turn this off in Settings, under Languages.`,
       okLabel: "Run online",
     });
     if (!ok) return;
@@ -1897,8 +1899,9 @@ async function runOnlineFile(path, lang) {
   };
   otherRun = { stop: () => { ctrl.abort(); finish({ ok: false, stopped: true }); } };
   try {
-    const r = await runOnline(lang, code, stdin, ctrl.signal);
+    const r = await runOnline(lang, code, stdin, ctrl.signal, path);
     if (finished) return;
+    if (r.wrapped) terminal.system(`No ${lang.id === "java" || lang.id === "csharp" ? "Main method" : "main function"} found, so Dexna ran your statements as a script. Write your own ${lang.id === "java" || lang.id === "csharp" ? "Main" : "main"} to take control.`, "sys");
     if (r.compile) terminal.write(r.compile.replace(/\s+$/, "") + "\n", "stderr");
     if (r.stdout) terminal.write(r.stdout.endsWith("\n") ? r.stdout : r.stdout + "\n", "stdout");
     if (r.stderr) terminal.write(r.stderr.endsWith("\n") ? r.stderr : r.stderr + "\n", "stderr");
@@ -2496,7 +2499,7 @@ const SETTINGS_SCHEMA = [
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
   { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
-  { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (ce.judge0.com, with wandbox.org as a backup). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
+  { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (godbolt.org for C#, otherwise ce.judge0.com, with wandbox.org as a backup). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
   { key: "autoLint", cat: "Python", label: "Live linting", desc: "Check Python code with pyflakes as you type and underline problems.", type: "bool" },
   { key: "lineLength", cat: "Python", label: "Formatter line length", desc: "Maximum line length for black and isort. Lua and SQL formatting use it as a guide too.", type: "number", min: 40, max: 200 },
   { key: "autoInstall", cat: "Python", label: "Auto-install imports", desc: "When you run Python code, install missing packages from PyPI automatically.", type: "bool" },
@@ -2767,6 +2770,7 @@ const COMMANDS = [
   { id: "minimap", label: "Toggle Minimap", cat: "View", run: () => setSetting("minimap", !settings.minimap) },
   { id: "wrap", label: "Toggle Word Wrap", cat: "View", kb: "alt+z", run: () => setSetting("wordWrap", !settings.wordWrap) },
   { id: "shortcuts", label: "Keyboard Shortcuts", cat: "Help", kb: "ctrl+k ctrl+s", run: () => showShortcuts() },
+  { id: "language-guide", label: "Languages and Snippets", cat: "Help", run: () => showLanguageGuide() },
   { id: "about", label: "About Dexna", cat: "Help", run: () => showAbout() },
 ];
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
@@ -2845,7 +2849,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "palette"],
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term"],
   View: ["explorer", "find-files", "outline", "debug-view", "packages", "-", "sidebar", "panel", "console", "problems", "variables", "plots", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
-  Help: ["home", "shortcuts", "examples", "about"],
+  Help: ["home", "language-guide", "shortcuts", "examples", "-", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -2863,21 +2867,98 @@ function buildMenus() {
   }
 }
 
-function showShortcuts() {
-  const rows = COMMANDS.filter((c) => c.kb && !c.hidden).map((c) => h("tr", {}, h("td", { style: { padding: "4px 12px 4px 0" } }, c.label), h("td", {}, c.kb.split(" ").map((k) => h("kbd", {}, kbLabel(k))))));
-  rows.push(h("tr", {}, h("td", { style: { padding: "4px 12px 4px 0" } }, "Go to Definition / Peek / References"), h("td", {}, h("kbd", {}, "F12"), " ", h("kbd", {}, "Alt+F12"), " ", h("kbd", {}, "Shift+F12"))));
-  rows.push(h("tr", {}, h("td", { style: { padding: "4px 12px 4px 0" } }, "Rename Symbol / Quick Fix"), h("td", {}, h("kbd", {}, "F2"), " ", h("kbd", {}, kbLabel("ctrl+.")))));
-  rows.push(h("tr", {}, h("td", { style: { padding: "4px 12px 4px 0" } }, "Multi-cursor / Add next match"), h("td", {}, h("kbd", {}, "Alt+Click"), " ", h("kbd", {}, kbLabel("ctrl+d")))));
-  openModal(h("div", { class: "modal", style: { width: "min(620px, calc(100vw - 32px))" } }, h("div", { class: "modal-head" }, "Keyboard shortcuts"),
-    h("div", { class: "modal-body", style: { maxHeight: "60vh", overflow: "auto" } }, h("table", { style: { width: "100%", borderCollapse: "collapse" } }, rows))));
+/* ---------- Help: keyboard shortcuts, language guide, about ---------- */
+function showShortcuts(initialQuery = "") {
+  const fromCommands = (cats) => COMMANDS.filter((c) => c.kb && !c.hidden && cats.includes(c.cat)).map((c) => [c.label, c.kb]);
+  const sections = [
+    ["Run and debug", fromCommands(["Run", "Debug"])],
+    ["Files and projects", fromCommands(["File"])],
+    ["Editing", [
+      ...fromCommands(["Edit"]),
+      ["Toggle line comment", "ctrl+/"], ["Toggle block comment", "shift+alt+a"], ["Move line up or down", "alt+up / alt+down"], ["Copy line up or down", "shift+alt+up / shift+alt+down"],
+      ["Delete line", "ctrl+shift+k"], ["Indent or outdent", "ctrl+] / ctrl+["], ["Select next occurrence", "ctrl+d"], ["Select all occurrences", "ctrl+shift+l"],
+      ["Add cursor above or below", "ctrl+alt+up / ctrl+alt+down"], ["Add a cursor", "alt+click"], ["Jump to matching bracket", "ctrl+shift+\\"],
+      ["Fold or unfold a block", "ctrl+shift+[ / ctrl+shift+]"], ["Undo or redo", "ctrl+z / ctrl+y"],
+    ]],
+    ["Code intelligence", [
+      ["Show suggestions", "ctrl+space"], ["Show parameter hints", "ctrl+shift+space"], ["Go to definition", "f12"], ["Peek definition", "alt+f12"], ["Find all references", "shift+f12"],
+      ["Rename symbol", "f2"], ["Quick fix", "ctrl+."], ["Show hover", "ctrl+k ctrl+i"], ["Accept a suggestion", "tab / enter"],
+    ]],
+    ["Find and navigate", [["Find in file", "ctrl+f"], ["Replace in file", "ctrl+h"], ["Find next or previous", "f3 / shift+f3"], ...fromCommands(["Go", "View"])]],
+    ["Preferences", fromCommands(["Preferences", "Help"])],
+  ];
+  const q = h("input", { placeholder: "Filter shortcuts", spellcheck: "false", value: initialQuery });
+  const body = h("div", { class: "kb-body" });
+  const render = () => {
+    const t = q.value.trim().toLowerCase();
+    body.textContent = "";
+    for (const [title, rows] of sections) {
+      const seen = new Set();
+      const list = rows.filter(([label, kb]) => { const key = label + kb; if (seen.has(key)) return false; seen.add(key); return !t || `${label} ${kb}`.toLowerCase().includes(t); });
+      if (!list.length) continue;
+      body.append(h("h3", {}, title), h("div", { class: "kb-list" }, list.map(([label, kb]) => h("div", { class: "kb-row" }, h("span", {}, label),
+        h("span", { class: "kb-keys" }, kb.split(" / ").map((alt) => h("span", { class: "kb-alt" }, alt.split(" ").map((chord) => h("kbd", {}, kbLabel(chord)))))))))) ;
+    }
+    if (!body.children.length) body.append(h("div", { class: "empty" }, "No shortcuts match."));
+  };
+  q.addEventListener("input", render);
+  render();
+  openModal(h("div", { class: "modal wide" }, h("div", { class: "modal-head" }, "Keyboard shortcuts"),
+    h("div", { class: "modal-body" }, q, body),
+    h("div", { class: "modal-foot" }, h("span", { class: "muted small", style: { marginRight: "auto" } }, "Ctrl is Cmd on a Mac. Ctrl+Shift+P opens every command."), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
+  q.focus();
 }
+
+const GUIDE = [
+  { id: "python", name: "Python", where: "device", notes: ["Run, debug with breakpoints, a console that shares your variables, a variable explorer and plots", "Completion, hover docs, go to definition, rename and live errors", "Format with black, sort imports with isort", "Install packages from PyPI in the Packages view"] },
+  { id: "javascript", name: "JavaScript", where: "device", notes: ["ES modules across your files, top-level await, input() and a Node-style console", "Completion, hover, errors and rename from the TypeScript service; format; outline", "Import any npm package by name (loaded from esm.sh)"] },
+  { id: "typescript", name: "TypeScript", where: "device", notes: ["Everything JavaScript has, plus live type checking", "Type errors never block a run"] },
+  { id: "lua", name: "Lua", where: "device", notes: ["Lua 5.4 with require between your files and io.read for input", "Completion for the standard library and your own functions, hover docs, parameter hints", "Syntax errors as you type; format with StyLua"] },
+  { id: "sql", name: "SQL", where: "device", notes: ["SQLite in memory; every run starts a fresh database and prints results as tables", "Completion for keywords, functions, and tables and columns from your own CREATE TABLE", "Format with sql-formatter"] },
+  { id: "csharp", name: "C#", where: "online", notes: ["Modern .NET. Write bare statements, or a class with Main", "Format with clang-format"] },
+  { id: "java", name: "Java", where: "online", notes: ["JDK 17. Bare statements work; the class with main can have any name", "Format with clang-format"] },
+  { id: "c", name: "C", where: "online", notes: ["GCC 14. Bare statements work; common headers are included for you", "Format with clang-format"] },
+  { id: "cpp", name: "C++", where: "online", notes: ["GCC 14. Bare statements work; <bits/stdc++.h> and using namespace std are added for you", "Format with clang-format"] },
+  { id: "go", name: "Go", where: "online", notes: ["Go 1.23. Bare statements work; package main and standard imports are added for you", "Format with gofmt"] },
+  { id: "rust", name: "Rust", where: "online", notes: ["Rust 1.85. Bare statements work; they are placed in fn main for you"] },
+  { id: "kotlin", name: "Kotlin", where: "online", notes: ["Kotlin 2.1. Bare statements work; they are placed in fun main for you"] },
+  { id: "php", name: "PHP", where: "online", notes: ["PHP 8.3"] },
+  { id: "ruby", name: "Ruby", where: "online", notes: ["Ruby 2.7"] },
+  { id: "swift", name: "Swift", where: "online", notes: ["Swift 5.2"] },
+];
+
+function showLanguageGuide() {
+  const groups = [["On your device", GUIDE.filter((g) => g.where === "device")], ["Online (sent to a public compiler, with your consent)", GUIDE.filter((g) => g.where === "online")]];
+  const body = h("div", { class: "guide" },
+    h("p", { class: "muted" }, "Every language gets a few snippets: type the trigger, then press Tab. Ctrl+Space shows suggestions anywhere. Online languages also take input in a box before the run, because they cannot ask while running."));
+  for (const [title, list] of groups) {
+    body.append(h("h3", {}, title));
+    for (const g of list) {
+      const snippets = (SNIPPETS[g.id] || []).map((x) => x.label);
+      body.append(h("div", { class: "guide-item" },
+        h("div", { class: "guide-head" }, h("span", { class: "lc-icon", html: fileIconSvg("x." + (LANG_STARTS.find((l) => l.id === g.id)?.ext || "txt")) }), h("b", {}, g.name)),
+        h("ul", {}, g.notes.map((n) => h("li", {}, n))),
+        snippets.length ? h("div", { class: "guide-snips" }, h("span", { class: "muted small" }, "Snippets: "), snippets.map((x) => h("code", {}, x))) : null));
+    }
+  }
+  openModal(h("div", { class: "modal wide" }, h("div", { class: "modal-head" }, "Languages"), h("div", { class: "modal-body" }, body),
+    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { closeOverlay(); showSettings(true, "online"); } }, "Online settings"), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
+}
+
 function showAbout() {
-  openModal(h("div", { class: "modal" }, h("div", { class: "modal-head" }, "About Dexna"),
-    h("div", { class: "modal-body" },
-      h("p", {}, "Dexna is a code editor that runs entirely in your browser. Python, JavaScript, TypeScript, Lua and SQL all run on your device, your code is never uploaded, and projects are saved in this browser."),
-      h("p", {}, `Runtimes: Python ${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}), JavaScript (your browser), TypeScript (the editor's compiler), Lua 5.4 (wasmoon) and SQLite. Editor: Monaco. Python tooling: jedi, pyflakes, black and isort.`),
-      h("p", {}, kernel?.isolated ? "Full mode: input(), Stop and the debugger are available." : "Limited mode: cross-origin isolation is unavailable, so input() and the debugger are disabled. Reloading usually fixes this.")),
-    h("div", { class: "modal-foot" }, h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
+  const row = (k, v) => h("div", { class: "about-row" }, h("span", { class: "muted" }, k), h("span", {}, v));
+  openModal(h("div", { class: "modal wide" }, h("div", { class: "modal-head" }, "About Dexna"),
+    h("div", { class: "modal-body about" },
+      h("p", {}, "Dexna is a code editor and runner that lives in your browser. Open the page, pick a language and run code. There is nothing to install and no account."),
+      h("h3", {}, "Privacy"),
+      h("p", {}, "Python, JavaScript, TypeScript, Lua and SQL run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (ce.judge0.com, godbolt.org, or wandbox.org as a backup). Dexna asks first, and you can turn it off in Settings."),
+      h("h3", {}, "Runtimes"),
+      row("Python", `${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}, WebAssembly)`), row("JavaScript", "your browser, in a worker"), row("TypeScript", "the editor's compiler, then your browser"),
+      row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
+      h("h3", {}, "Built with"),
+      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
+      h("p", {}, h("a", { href: "https://github.com/Down1oads/dexna", target: "_blank", rel: "noopener" }, "Source code on GitHub"))),
+    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { closeOverlay(); showLanguageGuide(); } }, "Languages"), h("button", { class: "btn", onclick: () => { closeOverlay(); showShortcuts(); } }, "Shortcuts"), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
 
 /* =====================================================================

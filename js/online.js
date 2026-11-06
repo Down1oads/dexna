@@ -3,13 +3,16 @@
 //
 // Only the program source and its input are sent. Dexna asks for consent before the first run.
 
+import { prepareSource, mapDiagnostics } from "./wrap.js";
+
 export const JUDGE0 = "https://ce.judge0.com";
 export const WANDBOX = "https://wandbox.org";
+export const CE = "https://godbolt.org";
 
 // id: Dexna language id; judge0: Judge0 language id; wandbox: { language, prefer } (optional backup)
 const L = (id, name, ext, judge0, extra = {}) => ({ id, name, ext, judge0, ...extra });
 export const ONLINE_LANGS = [
-  L("csharp", "C#", ["cs"], 51, { monaco: "csharp", wandbox: { language: "C#", prefer: "mono" }, note: "Mono 6.6 (C# 7/8 features). Write a class with a static Main method." }),
+  L("csharp", "C#", ["cs"], 51, { monaco: "csharp", ce: { compiler: "dotnet100csharpcoreclr", lang: "csharp" }, wandbox: { language: "C#", prefer: "mono" }, note: ".NET 10 on Compiler Explorer (Mono 6.6 if that is down)." }),
   L("java", "Java", ["java"], 91, { monaco: "java", note: "JDK 17. The class with main can have any name." }),
   L("c", "C", ["c"], 103, { monaco: "c", wandbox: { language: "C", prefer: "gcc-1" }, note: "GCC 14" }),
   L("cpp", "C++", ["cpp", "cc", "cxx"], 105, { monaco: "cpp", wandbox: { language: "C++", prefer: "gcc-1" }, note: "GCC 14" }),
@@ -69,34 +72,68 @@ function adaptJava(code) {
 
 const timeout = (ms, signal) => { const c = new AbortController(); const t = setTimeout(() => c.abort(new DOMException("timeout", "TimeoutError")), ms); signal?.addEventListener("abort", () => c.abort(signal.reason)); return { signal: c.signal, done: () => clearTimeout(t) }; };
 
-async function judge0(lang, code, stdin, signal) {
-  const src = lang.id === "java" ? adaptJava(code) : code;
+// Judge0 wants base64 so that any text (å, ä, ö, emoji) survives in both directions
+const b64enc = (str) => { const bytes = new TextEncoder().encode(str); let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin); };
+const b64dec = (b64) => {
+  if (!b64) return "";
+  const bin = atob(b64), bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch (_) { return new TextDecoder("windows-1252").decode(bytes); } // a program that printed Latin-1
+};
+const transient = (message) => Object.assign(new Error(message), { transient: true });
+const isAbort = (e, signal) => e.name === "AbortError" || e.name === "TimeoutError" || signal?.aborted;
+
+async function judge0(lang, prep, stdin, signal) {
+  const src = lang.id === "java" ? adaptJava(prep.code) : prep.code;
   const t = timeout(45000, signal);
   try {
-    const r = await fetch(`${JUDGE0}/submissions?base64_encoded=false&wait=true&fields=stdout,stderr,compile_output,message,time,memory,status`, {
+    const r = await fetch(`${JUDGE0}/submissions?base64_encoded=true&wait=true&fields=stdout,stderr,compile_output,message,time,memory,status`, {
       method: "POST", headers: { "Content-Type": "application/json" }, signal: t.signal,
-      body: JSON.stringify({ source_code: src, language_id: lang.judge0, stdin: stdin || "" }),
+      body: JSON.stringify({ source_code: b64enc(src), language_id: lang.judge0, stdin: b64enc(stdin || "") }),
     });
-    if (r.status === 429) throw Object.assign(new Error("The online compiler is busy (rate limit). Try again in a few seconds."), { transient: true });
+    if (r.status === 429) throw transient("The online compiler is busy (rate limit). Try again in a few seconds.");
     if (!r.ok) throw Object.assign(new Error(`The online compiler returned ${r.status}.`), { transient: r.status >= 500 });
     const j = await r.json();
     const id = j.status?.id;
-    const out = { provider: "ce.judge0.com", stdout: j.stdout || "", stderr: "", compile: j.compile_output || "", time: j.time ? Number(j.time) : 0, memory: j.memory || 0, status: j.status?.description || "" };
+    const out = { provider: "ce.judge0.com", stdout: b64dec(j.stdout), stderr: "", compile: b64dec(j.compile_output), time: j.time ? Number(j.time) : 0, memory: j.memory || 0, status: j.status?.description || "" };
+    const msg = b64dec(j.message), err = b64dec(j.stderr);
     if (id === 6) { out.ok = false; out.kind = "compile"; }
     else if (id === 5) { out.ok = false; out.kind = "timeout"; out.stderr = "Time limit exceeded."; }
-    else if (id === 13 || id === 14) { out.ok = false; out.kind = "internal"; out.stderr = j.message || j.status?.description || "The online compiler had an internal error."; }
-    else if (id >= 7 && id <= 12) { out.ok = false; out.kind = "runtime"; out.stderr = j.stderr || j.message || j.status.description; }
-    else { out.ok = true; out.stderr = j.stderr || ""; }
+    else if (id === 13 || id === 14) { out.ok = false; out.kind = "internal"; out.stderr = msg || j.status?.description || "The online compiler had an internal error."; }
+    else if (id >= 7 && id <= 12) { out.ok = false; out.kind = "runtime"; out.stderr = err || msg || j.status.description; }
+    else { out.ok = true; out.stderr = err; }
     return out;
   } catch (e) {
-    if (e.name === "AbortError" || e.name === "TimeoutError" || e === signal?.reason) throw e;
-    if (e.transient !== undefined) throw e;
-    throw Object.assign(new Error("Could not reach the online compiler (" + (e.message || e) + ")."), { transient: true });
+    if (isAbort(e, signal) || e.transient !== undefined) throw e;
+    throw transient("Could not reach the online compiler (" + (e.message || e) + ").");
+  } finally { t.done(); }
+}
+
+const ceText = (lines) => (lines || []).map((l) => l.text).join("\n") + (lines?.length ? "\n" : "");
+async function compilerExplorer(lang, prep, stdin, signal) {
+  const t = timeout(60000, signal);
+  try {
+    const r = await fetch(`${CE}/api/compiler/${lang.ce.compiler}/compile`, {
+      method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, signal: t.signal,
+      body: JSON.stringify({ source: prep.code, lang: lang.ce.lang, options: { userArguments: "", executeParameters: { args: [], stdin: stdin || "" }, compilerOptions: { executorRequest: true }, filters: { execute: true }, tools: [], libraries: [] } }),
+    });
+    if (r.status === 429) throw transient("Compiler Explorer is busy (rate limit).");
+    if (!r.ok) throw Object.assign(new Error(`Compiler Explorer returned ${r.status}.`), { transient: r.status >= 500 });
+    const j = await r.json();
+    const build = j.buildResult || {};
+    const buildText = ceText(build.stdout) + ceText(build.stderr);
+    const base = { provider: "godbolt.org", time: (j.execTime || 0) / 1000, memory: 0, stdout: "", stderr: "", compile: "" };
+    if (!j.didExecute && j.code !== 0) return { ...base, ok: false, kind: "compile", compile: buildText || ceText(j.stderr) };
+    const ok = j.code === 0;
+    return { ...base, ok, kind: ok ? "" : "runtime", stdout: ceText(j.stdout), stderr: ceText(j.stderr), time: (j.execTime || 0) / 1000 };
+  } catch (e) {
+    if (isAbort(e, signal) || e.transient !== undefined) throw e;
+    throw transient("Could not reach Compiler Explorer (" + (e.message || e) + ").");
   } finally { t.done(); }
 }
 
 let wandboxList = null;
-async function wandbox(lang, code, stdin, signal) {
+async function wandbox(lang, prep, stdin, signal) {
+  const code = prep.code;
   if (!lang.wandbox) throw new Error(`${lang.name} is not available on the backup compiler.`);
   const t = timeout(45000, signal);
   try {
@@ -113,16 +150,29 @@ async function wandbox(lang, code, stdin, signal) {
 }
 
 /**
- * Compile and run `code` online.
+ * Compile and run `code` online. Tries the services in order and moves on only when one is down or busy.
  * @returns {Promise<{ok:boolean, kind:string, stdout:string, stderr:string, compile:string, time:number, memory:number, provider:string}>}
  */
-export async function runOnline(lang, code, stdin, signal) {
-  try {
-    return await judge0(lang, code, stdin, signal);
-  } catch (e) {
-    if (e.name === "AbortError" || signal?.aborted) throw e;
-    if (!e.transient || !lang.wandbox) throw e;
-    try { const r = await wandbox(lang, code, stdin, signal); r.fallback = true; return r; }
-    catch (e2) { if (e2.name === "AbortError" || signal?.aborted) throw e2; throw new Error(`${e.message} The backup compiler failed too: ${e2.message}`); }
+export async function runOnline(lang, code, stdin, signal, fileName = "Main") {
+  const attempts = [];
+  if (lang.ce) attempts.push(["ce", compilerExplorer, { modern: true }]);
+  attempts.push(["judge0", judge0, {}]);
+  if (lang.wandbox) attempts.push(["wandbox", wandbox, {}]);
+  let firstError = null;
+  for (const [name, run, opts] of attempts) {
+    // programs without an entry point (just statements) get one added; error lines are mapped back afterwards
+    const prep = prepareSource(lang.id, code, opts);
+    try {
+      const r = await run(lang, prep, stdin, signal);
+      r.wrapped = prep.wrapped;
+      r.compile = mapDiagnostics(r.compile, prep.map, fileName);
+      r.stderr = mapDiagnostics(r.stderr, prep.map, fileName);
+      if (name !== attempts[0][0]) r.fallback = true;
+      return r;
+    } catch (e) {
+      if (isAbort(e, signal)) throw e;
+      firstError ||= e; // this service is down or busy: try the next one
+    }
   }
+  throw new Error(`${firstError?.message || "The online compilers are unavailable."}${attempts.length > 1 ? " The backup compilers failed too." : ""}`);
 }

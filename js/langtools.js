@@ -1,3 +1,5 @@
+import { LANG_DATA } from "./langdata.js";
+
 // Editor intelligence for every language Dexna runs, beyond Python (which has its own server):
 // snippets for all languages, Lua and SQL completion/hover/signatures, Lua syntax errors,
 // formatting for Lua (StyLua) and SQL (sql-formatter), and outlines for JS/TS/Lua/SQL.
@@ -7,7 +9,7 @@
 /* ------------------------------------------------------------------ */
 const S = (label, detail, body) => ({ label, detail, body });
 
-const SNIPPETS = {
+export const SNIPPETS = {
   python: [
     S("def", "function", 'def ${1:name}(${2:args}):\n\t${0:pass}'),
     S("class", "class with __init__", 'class ${1:Name}:\n\tdef __init__(self${2:, args}):\n\t\t${0:pass}'),
@@ -387,6 +389,7 @@ function loadScript(url) {
   }
   return loadedScripts.get(url);
 }
+const CURATED_NAMES = { csharp: "C#", java: "Java", c: "C", cpp: "C++", go: "Go", rust: "Rust", kotlin: "Kotlin", php: "PHP", ruby: "Ruby", swift: "Swift" };
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
 
 /**
@@ -621,11 +624,162 @@ export function registerLanguageTools(monaco, ctx) {
   monaco.editor.onDidCreateModel(attach);
   monaco.editor.getModels().forEach(attach);
 
+  /* ---- the online languages: C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby, Swift ---- */
+  const CURATED = ["csharp", "java", "c", "cpp", "go", "rust", "kotlin", "php", "ruby", "swift"];
+  const insertFor = (it) => (it.sig.startsWith("(") ? { text: it.name + "($0)", snippet: true } : it.sig.startsWith("{") ? { text: it.name + " { $0 }", snippet: true } : { text: it.name, snippet: false });
+  const itemFor = (it, kind, range, sort, owner) => {
+    const ins = insertFor(it);
+    return { label: it.name, kind, detail: `${owner ? owner + "." : ""}${it.name}${it.sig}`, documentation: it.doc ? md(`${owner ? owner + "." : ""}${it.name}${it.sig}`, it.doc) : undefined, insertText: ins.text, insertTextRules: ins.snippet ? L.CompletionItemInsertTextRule.InsertAsSnippet : undefined, range, sortText: sort + it.name };
+  };
+
+  for (const lang of CURATED) {
+    const D = LANG_DATA[lang];
+    const statics = D.statics || {}, instance = D.instance || [], fns = lang === "cpp" ? LANG_DATA.c.functions : D.functions || [];
+    const owners = Object.keys(statics);
+    const findOwner = (name) => { const k = owners.find((o) => o === name) ?? owners.find((o) => o.toLowerCase() === name.toLowerCase()); return k ? statics[k] : null; };
+    const commentRx = lang === "php" || lang === "ruby" ? /^\s*(\/\/|#)/ : /^\s*\/\//;
+
+    L.registerCompletionItemProvider(lang, {
+      triggerCharacters: [".", ":"],
+      provideCompletionItems(model, position) {
+        const w = model.getWordUntilPosition(position);
+        const range = new monaco.Range(position.lineNumber, w.startColumn, position.lineNumber, w.endColumn);
+        const before = model.getLineContent(position.lineNumber).slice(0, w.startColumn - 1);
+        if (commentRx.test(before)) return { suggestions: [] };
+        const out = [];
+        const mem = /([A-Za-z_][\w]*(?:\.[A-Za-z_]\w*)*)\s*(?:\.|::|->)\s*$/.exec(before);
+        if (mem) {
+          const owner = mem[1];
+          const list = findOwner(owner) || (owner.includes(".") ? findOwner(owner.split(".").pop()) : null);
+          if (list) for (const it of list) out.push(itemFor(it, it.sig && !it.sig.startsWith("<") ? K.Function : K.Property, range, "1", owner));
+          else for (const it of instance) out.push(itemFor(it, it.sig ? K.Method : K.Property, range, "2", ""));
+          return { suggestions: out };
+        }
+        for (const k of D.keywords) out.push({ label: k, kind: K.Keyword, insertText: k, range, sortText: "6" + k });
+        for (const t of D.types || []) out.push({ label: t, kind: K.Class, insertText: t, range, sortText: "4" + t });
+        for (const it of fns) out.push(itemFor(it, K.Function, range, "3", ""));
+        for (const o of owners) if (!o.includes(".")) out.push({ label: o, kind: K.Module, detail: lang === "go" ? "package" : "type", insertText: o, range, sortText: "2" + o });
+        return { suggestions: out };
+      },
+    });
+
+    L.registerHoverProvider(lang, {
+      provideHover(model, position) {
+        const w = model.getWordAtPosition(position);
+        if (!w) return null;
+        const line = model.getLineContent(position.lineNumber);
+        const qual = /([A-Za-z_][\w]*(?:\.[A-Za-z_]\w*)*)\s*(?:\.|::)\s*$/.exec(line.slice(0, w.startColumn - 1))?.[1];
+        let it = null, owner = "";
+        if (qual) { const list = findOwner(qual) || (qual.includes(".") ? findOwner(qual.split(".").pop()) : null); it = list?.find((x) => x.name === w.word) || null; owner = qual; }
+        it ||= fns.find((x) => x.name === w.word || x.name === w.word + "!") || null;
+        if (!it) { const list = findOwner(w.word); if (list) return { contents: [md(`${w.word}`, list.slice(0, 8).map((x) => x.name).join(", ") + (list.length > 8 ? ", ..." : ""))] }; }
+        if (!it && qual) it = instance.find((x) => x.name === w.word) || null;
+        if (it) return { contents: [md(`${owner ? owner + "." : ""}${it.name}${it.sig}`, it.doc)] };
+        if (D.keywords.includes(w.word)) return { contents: [md(w.word, `${CURATED_NAMES[lang]} keyword`)] };
+        return null;
+      },
+    });
+
+    L.registerSignatureHelpProvider(lang, {
+      signatureHelpTriggerCharacters: ["(", ","],
+      provideSignatureHelp(model, position) {
+        const before = model.getValueInRange(new monaco.Range(Math.max(1, position.lineNumber - 10), 1, position.lineNumber, position.column));
+        let depth = 0, idx = 0, i = before.length - 1;
+        for (; i >= 0; i--) {
+          const c = before[i];
+          if (c === ")" || c === "]" || c === "}") depth++;
+          else if (c === "(" || c === "[" || c === "{") { if (!depth) break; depth--; }
+          else if (c === "," && !depth) idx++;
+        }
+        if (i < 0 || before[i] !== "(") return null;
+        const name = /([A-Za-z_][\w.]*!?)\s*$/.exec(before.slice(0, i))?.[1];
+        if (!name) return null;
+        const last = name.split(".").pop(), owner = name.includes(".") ? name.slice(0, name.lastIndexOf(".")) : "";
+        const found = (owner && (findOwner(owner) || findOwner(owner.split(".").pop()))?.find((x) => x.name === last)) || fns.find((x) => x.name === last) || (owner ? instance.find((x) => x.name === last) : null);
+        if (!found || !found.sig.startsWith("(")) return null;
+        const inner = /^\((.*)\)/.exec(found.sig)?.[1] ?? "";
+        const params = inner.split(",").map((x) => x.replace(/[[\]]/g, "").trim()).filter(Boolean);
+        return { value: { signatures: [{ label: `${name}${found.sig}`, documentation: found.doc ? { value: found.doc } : undefined, parameters: params.map((x) => ({ label: x })) }], activeSignature: 0, activeParameter: Math.min(idx, Math.max(0, params.length - 1)) }, dispose() {} };
+      },
+    });
+  }
+
+  /* formatting: clang-format (C#, Java, C, C++) and gofmt (Go), both WebAssembly, loaded when first used */
+  let clang = null, gofmt = null;
+  const getClang = () => (clang ||= (async () => { const m = await import(ctx.libs.clangformat + "clang-format-web.js"); await m.default(); return m; })().catch((e) => { clang = null; throw e; }));
+  const getGofmt = () => (gofmt ||= (async () => { const m = await import(ctx.libs.gofmt + "gofmt_web.js"); await m.default(); return m; })().catch((e) => { gofmt = null; throw e; }));
+  const CLANG = { csharp: ["Microsoft", "Program.cs"], java: ["Google", "Main.java"], c: ["LLVM", "main.c"], cpp: ["LLVM", "main.cpp"] };
+  for (const [lang, [style, file]] of Object.entries(CLANG)) {
+    L.registerDocumentFormattingEditProvider(lang, {
+      displayName: "clang-format",
+      async provideDocumentFormattingEdits(model) {
+        let m;
+        try { m = await getClang(); } catch (e) { ctx.toast("Could not load the formatter: " + e.message, "error"); return []; }
+        try {
+          const cfg = JSON.stringify({ BasedOnStyle: style, IndentWidth: ctx.getSettings().tabSize, ContinuationIndentWidth: ctx.getSettings().tabSize, ColumnLimit: ctx.getSettings().lineLength + 12, UseTab: "Never" });
+          const text = m.format(model.getValue(), file, cfg);
+          const ed = ctx.minimalEdit(model, text);
+          return ed ? [ed] : [];
+        } catch (e) { ctx.toast("Cannot format: " + String(e.message || e).split("\n")[0], "error"); return []; }
+      },
+    });
+  }
+  L.registerDocumentFormattingEditProvider("go", {
+    displayName: "gofmt",
+    async provideDocumentFormattingEdits(model) {
+      let m;
+      try { m = await getGofmt(); } catch (e) { ctx.toast("Could not load gofmt: " + e.message, "error"); return []; }
+      try { const ed = ctx.minimalEdit(model, m.format(model.getValue())); return ed ? [ed] : []; }
+      catch (e) { ctx.toast("Cannot format: " + String(e.message || e).split("\n")[0], "error"); return []; }
+    },
+  });
+
+  /* outline for the online languages, from simple declaration patterns */
+  const OUTLINE = {
+    csharp: [[/^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|readonly|unsafe)\s+)*(class|struct|record|interface|enum)\s+(\w+)/, 1, 2, "type"], [/^\s*(?:(?:public|private|protected|internal|static|abstract|virtual|override|async|sealed|extern|unsafe|new)\s+)+[\w<>\[\],.?]+\s+(\w+)\s*\(/, 0, 1, "method"]],
+    java: [[/^\s*(?:(?:public|private|protected|static|abstract|final|sealed)\s+)*(class|interface|enum|record)\s+(\w+)/, 1, 2, "type"], [/^\s*(?:(?:public|private|protected|static|abstract|final|synchronized|native)\s+)+(?:<[^>]+>\s+)?[\w<>\[\],.?]+\s+(\w+)\s*\(/, 0, 1, "method"]],
+    c: [[/^(?:typedef\s+)?(struct|enum|union)\s+(\w+)\s*\{?/, 1, 2, "type"], [/^(?!\s*(?:if|for|while|switch|return|else|do)\b)[\w][\w\s*]*?\b(\w+)\s*\([^;]*\)\s*\{?\s*$/, 0, 1, "function"]],
+    cpp: [[/^\s*(class|struct|enum|union|namespace)\s+(\w+)/, 1, 2, "type"], [/^(?!\s*(?:if|for|while|switch|return|else|do)\b)[\w][\w\s*:<>,&]*?\b(\w+)\s*\([^;]*\)\s*(?:const)?\s*\{?\s*$/, 0, 1, "function"]],
+    go: [[/^func\s+\([^)]*\)\s*(\w+)/, 0, 1, "method"], [/^func\s+(\w+)/, 0, 1, "function"], [/^type\s+(\w+)\s+(struct|interface)/, 2, 1, "type"]],
+    rust: [[/^\s*(?:pub(?:\([^)]*\))?\s+)?(struct|enum|trait|mod|union)\s+(\w+)/, 1, 2, "type"], [/^\s*impl(?:<[^>]*>)?\s+(?:[\w:<>]+\s+for\s+)?(\w+)/, 0, 1, "type"], [/^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+|unsafe\s+|const\s+)*fn\s+(\w+)/, 0, 1, "function"]],
+    kotlin: [[/^\s*(?:(?:public|private|internal|protected|open|abstract|sealed|data|enum|inner|annotation)\s+)*(class|object|interface)\s+(\w+)/, 1, 2, "type"], [/^\s*(?:(?:public|private|internal|protected|open|override|abstract|suspend|inline|operator|infix)\s+)*fun\s+(?:<[^>]+>\s*)?(?:[\w.]+\.)?(\w+)/, 0, 1, "function"]],
+    php: [[/^\s*(?:(?:abstract|final)\s+)?(class|interface|trait|enum)\s+(\w+)/, 1, 2, "type"], [/^\s*(?:(?:public|private|protected|static|abstract|final)\s+)*function\s+(\w+)/, 0, 1, "function"]],
+    ruby: [[/^\s*(class|module)\s+([\w:]+)/, 1, 2, "type"], [/^\s*def\s+(?:self\.)?([\w?!=]+)/, 0, 1, "method"]],
+    swift: [[/^\s*(?:(?:public|private|internal|fileprivate|open|final)\s+)*(class|struct|enum|protocol|extension|actor)\s+(\w+)/, 1, 2, "type"], [/^\s*(?:(?:public|private|internal|static|final|override|mutating|class)\s+)*func\s+(\w+)/, 0, 1, "function"]],
+  };
+  const TYPE_KIND = { class: "class", struct: "class", record: "class", union: "class", namespace: "class", mod: "class", module: "class", object: "class", impl: "class", extension: "class", actor: "class", interface: "interface", trait: "interface", protocol: "interface", enum: "enum" };
+  function outlineCurated(model, lang) {
+    const rules = OUTLINE[lang];
+    const lines = model.getLinesContent();
+    const root = [], stack = [];
+    let depth = 0;
+    const endBased = lang === "ruby";
+    lines.forEach((raw, i) => {
+      const line = raw.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/.*$/g, "");
+      for (const [rx, kindGroup, nameGroup, fallback] of rules) {
+        const m = rx.exec(raw);
+        if (!m) continue;
+        const word = kindGroup ? m[kindGroup] : "";
+        const kind = word ? TYPE_KIND[word] || "class" : fallback === "type" ? "class" : fallback;
+        const item = { name: m[nameGroup], kind: kind === "function" && stack.length ? "method" : kind, detail: "", line: i + 1, col: raw.indexOf(m[nameGroup]) + 1, endLine: i + 1, endCol: raw.length + 1, children: [] };
+        while (stack.length && stack[stack.length - 1].depth >= depth) stack.pop();
+        (stack.length ? stack[stack.length - 1].item.children : root).push(item);
+        if (kind === "class" || kind === "interface" || kind === "enum") stack.push({ depth, item });
+        break;
+      }
+      if (!endBased) for (const ch of line) { if (ch === "{") depth++; else if (ch === "}") depth = Math.max(0, depth - 1); }
+    });
+    const close = (items, end) => items.forEach((it, idx) => { it.endLine = (items[idx + 1]?.line ?? end + 1) - 1 || it.line; close(it.children, it.endLine); });
+    close(root, lines.length);
+    return root;
+  }
+
   /* ---- outline ---- */
   const KIND_MAP = { class: "class", interface: "interface", enum: "enum", function: "function", method: "method", constructor: "method", const: "constant", let: "variable", var: "variable", type: "type", module: "class", property: "variable", getter: "method", setter: "method" };
 
   async function symbols(model) {
     const lang = model.getLanguageId();
+    if (CURATED.includes(lang)) return outlineCurated(model, lang);
     if (lang === "lua") {
       try { await loadScript(ctx.libs.luaparse); } catch (_) { return []; }
       let ast;
