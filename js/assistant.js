@@ -221,7 +221,7 @@ export function createAssistant(ctx) {
     return /(.{4,30}?)\1{7,}/s.test(tail); // one piece repeated many times
   }
 
-  async function ask(question, kind = "chat") {
+  async function ask(question, kind = "chat", opts = {}) {
     if (state.phase !== "ready" || state.busy) return;
     const previous = state.messages.slice();
     let { text: context, target } = contextBlock(kind);
@@ -231,7 +231,7 @@ export function createAssistant(ctx) {
     if (size() > PROMPT_CHARS) context = contextBlock(kind, Math.max(1000, CONTEXT_CHARS - (size() - PROMPT_CHARS))).text;
 
     state.messages.push({ role: "user", content: question, kind });
-    const reply = { role: "assistant", content: "", raw: "", typing: true, target: { path: target?.path, hasSelection: !!target?.selection, whole: !target?.selection && (kind === "fix" || kind === "comment") } };
+    const reply = { role: "assistant", content: "", raw: "", typing: true, isFix: !!opts.isFix, target: { path: target?.path, hasSelection: !!target?.selection, whole: !target?.selection && (kind === "fix" || kind === "comment") } };
     if (state.auto) { reply.session = ctx.autoSession({ question, kind, target }); reply.writers = []; }
     state.messages.push(reply);
     state.busy = true;
@@ -242,7 +242,8 @@ export function createAssistant(ctx) {
     const typed = typeOut(reply, () => streamDone);
     try {
       await state.engine.resetChat(); // every request carries its own history; never reuse the previous state
-      const chunks = await state.engine.chat.completions.create({ messages, stream: true, temperature: 0.2, repetition_penalty: 1.05, max_tokens: MAX_OUTPUT });
+      // no repetition penalty: in code it pushes the model off tokens that rightly repeat, like the "))" closing input(...)
+      const chunks = await state.engine.chat.completions.create({ messages, stream: true, temperature: 0.2, top_p: 0.9, repetition_penalty: 1.0, max_tokens: MAX_OUTPUT });
       for await (const chunk of chunks) {
         reply.raw += chunk.choices?.[0]?.delta?.content || "";
         if (looksBroken(reply.raw)) { broken = true; state.engine.interruptGenerate(); break; }
@@ -308,7 +309,7 @@ export function createAssistant(ctx) {
         try { msg.writers[i] = msg.session.block(p.lang) || null; } catch (e) { msg.writers[i] = null; ctx.toast("Could not write the code: " + (e.message || e), "error"); }
       }
       const w = msg.writers[i];
-      if (w) {
+      if (w && !w.finished) {
         w.write(p.code);
         if ((p.done || final) && !w.finished) { w.finish(); checkProblems(w, msg); }
       }
@@ -351,7 +352,10 @@ export function createAssistant(ctx) {
     setTimeout(() => {
       const problems = ctx.problemsFor?.(w.path) || [];
       w.problems = problems;
-      if (problems.length) renderAt(msg);
+      if (!problems.length) return;
+      renderAt(msg);
+      // Auto mode does the next step too: one attempt to fix the errors (not again for the fix itself)
+      if (state.auto && !msg.isFix && !w.autoFixed && msg === state.messages.at(-1)) { w.autoFixed = true; waitIdle().then(() => fixProblems(w, true)); }
     }, 1800);
   }
   function renderAt(msg) {
@@ -360,11 +364,12 @@ export function createAssistant(ctx) {
     const el = log?.querySelectorAll(":scope > .ai-msg")[i];
     if (el) el.replaceWith(messageEl(msg));
   }
-  function fixProblems(w) {
+  function fixProblems(w, auto = false) {
     const list = w.problems.slice(0, 8).map((p) => `- line ${p.line}: ${p.message}`).join("\n");
     ctx.open(w.path);
-    setTimeout(() => ask(`Fix these errors in ${w.path}, and give the complete corrected file:\n${list}`, "fix"), 150);
+    setTimeout(() => ask(`${auto ? "(Auto) " : ""}Fix these errors in ${w.path}, and give the complete corrected file:\n${list}`, "fix", { isFix: true }), 150);
   }
+  const waitIdle = () => new Promise((resolve) => { const t = () => (state.busy ? setTimeout(t, 200) : resolve()); t(); });
   function autoCard(w, p, msg) {
     const done = w.finished;
     const btn = (ic, label, run) => h("button", { class: "btn sm", title: label, onclick: run }, icon(ic), h("span", {}, label));
@@ -373,6 +378,7 @@ export function createAssistant(ctx) {
       h("div", { class: "ai-auto-head" }, icon(done ? "check" : "newFile"),
         h("span", {}, done ? `Wrote ${w.path}` : `Typing into ${w.path}…`), h("span", { class: "muted small" }, `${w.lines} line${w.lines === 1 ? "" : "s"}`)),
       w.note ? h("div", { class: "muted small" }, w.note) : null,
+      done && w.repairs?.length ? h("div", { class: "ai-auto-fixed" }, icon("check"), h("span", {}, "Fixed automatically: " + w.repairs.join("; "))) : null,
       done && w.problems?.length ? h("div", { class: "ai-auto-warn" }, icon("warning"),
         h("span", {}, `${w.problems.length} error${w.problems.length === 1 ? "" : "s"}, first on line ${w.problems[0].line}: ${w.problems[0].message}`)) : null,
       done ? h("div", { class: "ai-code-actions" },

@@ -1065,7 +1065,7 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
   project.active = key;
   if (!key.startsWith("ext:")) persistProject();
   if (key.startsWith("ext:") && !extTabs.includes(key)) extTabs.push(key);
-  editor.updateOptions({ readOnly: key.startsWith("ext:") });
+  editor.updateOptions({ readOnly: key.startsWith("ext:") || autoTyping.has(key) });
   showWelcome(false);
   if (line) {
     const sel = new monaco.Selection(line, col, line, col + selectLen);
@@ -2086,6 +2086,48 @@ function autoSession({ question, kind, target }) {
     },
   };
 }
+/**
+ * Repair two slips small models make in Python that are always syntax errors, so fixing them can never
+ * break working code: a closing bracket with nothing open, and a line break inside a one-line string
+ * (joined only when the next line closes that string).
+ */
+function repairPython(code) {
+  let out = "", depth = 0, i = 0;
+  const notes = [], n = code.length;
+  const line = () => out.split("\n").length;
+  while (i < n) {
+    const c = code[i];
+    if (c === "#") { const e = code.indexOf("\n", i); const end = e < 0 ? n : e; out += code.slice(i, end); i = end; continue; }
+    if (c === '"' || c === "'") {
+      const q = code.startsWith(c.repeat(3), i) ? c.repeat(3) : c;
+      let j = i + q.length, str = q;
+      while (j < n) {
+        const d = code[j];
+        if (d === "\\") { str += code.slice(j, j + 2); j += 2; continue; }
+        if (code.startsWith(q, j)) { str += q; j += q.length; break; }
+        if (d === "\n" && q.length === 1) {
+          const nl = code.indexOf("\n", j + 1), next = code.slice(j + 1, nl < 0 ? n : nl);
+          if (!next.includes(c)) break; // really unterminated: leave it for the model to fix
+          notes.push(`joined a string split over two lines (line ${line()})`);
+          let k = j + 1; while (code[k] === " " || code[k] === "\t") k++;
+          if (!str.endsWith(" ")) str += " ";
+          j = k; continue;
+        }
+        str += d; j++;
+      }
+      out += str; i = j; continue;
+    }
+    if ("([{".includes(c)) depth++;
+    else if (")]}".includes(c)) {
+      if (depth === 0) { notes.push(`removed an extra '${c}' (line ${line()})`); i++; continue; }
+      depth--;
+    }
+    out += c; i++;
+  }
+  return { code: out, notes };
+}
+
+const autoTyping = new Set(); // files the Assistant is typing into right now (read-only meanwhile)
 /** Types code into a file as it arrives. All of it is one undo step. */
 function autoWriter(path, mode, target, note) {
   if (project.files[path] == null) createFile(path, "", { open: true });
@@ -2096,6 +2138,9 @@ function autoWriter(path, mode, target, note) {
   let written = "";
   model.pushStackElement();
   model.pushEditOperations([], [{ range, text: "" }], () => null);
+  // read-only while it types, so nothing else can land in the middle of the code
+  autoTyping.add(path);
+  if (editor.getModel() === model) editor.updateOptions({ readOnly: true });
   return {
     path, note, finished: false, runnable: isRunnable(path) || runLangOf(path) === "web",
     get lines() { return written ? written.split("\n").length : 0; },
@@ -2112,8 +2157,13 @@ function autoWriter(path, mode, target, note) {
       }
     },
     finish() {
+      if (model.isDisposed()) { this.finished = true; return; }
+      if (runLangOf(path) === "python" && written) { const r = repairPython(written); if (r.notes.length) { this.write(r.code); this.repairs = r.notes; } }
+      // the file must hold exactly what the model wrote; if anything else changed it meanwhile, put that right
+      if (mode === "file" && model.getValue().replace(/\n$/, "") !== written.replace(/\n$/, "")) model.pushEditOperations([], [{ range: model.getFullModelRange(), text: written }], () => null);
+      autoTyping.delete(path);
+      if (editor.getModel() === model) editor.updateOptions({ readOnly: false });
       this.finished = true;
-      if (model.isDisposed()) return;
       if (mode !== "selection" && written && !written.endsWith("\n")) model.pushEditOperations([], [{ range: monaco.Range.fromPositions(model.getPositionAt(start + written.length)), text: "\n" }], () => null);
       model.pushStackElement();
     },

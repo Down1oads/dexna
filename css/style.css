@@ -597,3 +597,6 @@ section.view[data-view="assistant"].active { display: flex; flex-direction: colu
 .ai-auto-warn { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--warn); }
 .ai-auto-warn .icon { flex: none; margin-top: 2px; }
 .ai-auto-warn span { color: var(--fg-dim); word-break: break-word; }
+.ai-auto-fixed { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; color: var(--run); }
+.ai-auto-fixed .icon { flex: none; margin-top: 2px; }
+.ai-auto-fixed span { color: var(--fg-dim); word-break: break-word; }
