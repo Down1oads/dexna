@@ -5,6 +5,7 @@ import { registerLanguageTools, SNIPPETS } from "./langtools.js";
 import { starterFor, STARTER_FILES } from "./starters.js";
 import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline, isObjC } from "./online.js";
 import { registerLanguageModes, loadEmmet, MODES } from "./langmodes.js";
+import { createAssistant } from "./assistant.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -1987,6 +1988,45 @@ function setupPreview() {
   });
 }
 
+/* ---------- the Assistant (a free model that runs on this device) ---------- */
+let assistant = null;
+function assistantContext() {
+  const model = editor.getModel(), path = pathOfModel(model);
+  if (!model || !path || pageOpen()) return null;
+  const sel = editor.getSelection();
+  const selection = sel && !sel.isEmpty() ? model.getValueInRange(sel) : "";
+  const lang = runLangOf(path);
+  return {
+    path, code: model.getValue(), selection, selStart: sel?.startLineNumber, selEnd: sel?.endLineNumber, cursorLine: editor.getPosition()?.lineNumber || 1,
+    language: RUN_LANG_NAME[lang] || model.getLanguageId(), fence: lang === "web" ? "html" : model.getLanguageId() === "plaintext" ? "" : model.getLanguageId(),
+  };
+}
+/** The Terminal output of the most recent run, and whether it failed. */
+function lastRunOutput() {
+  const sep = $$("#terminal .run-sep").at(-1);
+  if (!sep) return null;
+  const all = $("#terminal").innerText, i = all.lastIndexOf(sep.textContent);
+  const text = all.slice(i).trim();
+  return { text, failed: /Process exited with an error|Stopped$/.test(text) || /Traceback \(most recent call last\)/.test(text) };
+}
+function setupAssistant() {
+  const libUrl = new URL(cfg.libs.webllm, location.href).href;
+  assistant = createAssistant({
+    h, icon, monaco, editor, toast, libUrl,
+    workerUrl: new URL(`ai-worker.js?lib=${encodeURIComponent(libUrl)}`, import.meta.url),
+    getContext: assistantContext, getLastRun: lastRunOutput,
+  });
+  // in the editor's right-click menu, like VS Code's chat entries
+  for (const [id, label, kind, order] of [["dexna.ai.explain", "Assistant: Explain This", "explain", 1], ["dexna.ai.fix", "Assistant: Find Bugs", "fix", 2]]) {
+    editor.addAction({ id, label, contextMenuGroupId: "0_assistant", contextMenuOrder: order, run: () => askAssistant(kind) });
+  }
+}
+function askAssistant(kind) {
+  setView("assistant");
+  if (assistant?.ready) assistant.quick(kind);
+  else toast("Start the Assistant first: pick a model and press Start. It is free and runs on your device.", "info", 5000);
+}
+
 /* ---------- online languages (C#, Java, C++, Go, Rust, ...) ---------- */
 function stdinDialog(langName, value) {
   return new Promise((resolve) => {
@@ -2803,6 +2843,7 @@ function setView(view, { toggle = false } = {}) {
   if (layout.view === "search" && layout.sidebar) setTimeout(() => $("#search-input").focus(), 0);
   if (layout.view === "packages" && layout.sidebar && !installedPkgs.length) refreshPackages();
   if (layout.view === "outline") renderOutline();
+  if (layout.view === "assistant" && layout.sidebar) assistant?.show();
   saveLayout();
 }
 $$("#activitybar [data-view]").forEach((b) => (b.onclick = () => (b.dataset.view === "settings" ? (settingsOpen ? closePage("settings") : showSettings(true)) : setView(b.dataset.view, { toggle: true }))));
@@ -2903,6 +2944,10 @@ const COMMANDS = [
   { id: "explorer", label: "Show Explorer", cat: "View", kb: "ctrl+shift+e", run: () => setView("explorer") },
   { id: "outline", label: "Show Outline", cat: "View", run: () => setView("outline") },
   { id: "debug-view", label: "Show Run & Debug", cat: "View", kb: "ctrl+shift+d", run: () => setView("debug") },
+  { id: "assistant", label: "Show Assistant", cat: "Assistant", kb: "ctrl+alt+i", run: () => setView("assistant") },
+  { id: "ai-explain", label: "Explain This Code", cat: "Assistant", run: () => askAssistant("explain") },
+  { id: "ai-fix", label: "Find Bugs in This Code", cat: "Assistant", run: () => askAssistant("fix") },
+  { id: "ai-error", label: "Explain the Last Error", cat: "Assistant", run: () => askAssistant("error") },
   { id: "packages", label: "Show Packages", cat: "View", run: () => setView("packages") },
   { id: "settings", label: "Open Settings", cat: "Preferences", kb: "ctrl+,", run: () => showSettings(true) },
   { id: "sidebar", label: "Toggle Sidebar", cat: "View", kb: "ctrl+b", run: () => setView(layout.view, { toggle: true }) },
@@ -3104,12 +3149,12 @@ function showAbout() {
     h("div", { class: "modal-body about" },
       h("p", {}, "Dexna is a code editor and runner that lives in your browser. Open the page, pick a language and run code. There is nothing to install and no account."),
       h("h3", {}, "Privacy"),
-      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings."),
+      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser."),
       h("h3", {}, "Runtimes"),
       row("Python", `${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}, WebAssembly)`), row("JavaScript", "your browser, in a worker"), row("TypeScript", "the editor's compiler, then your browser"),
       row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("HTML/CSS", "your browser, in a preview beside the editor"), row("Online", `${ONLINE_LANGS.length} languages`), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
       h("h3", {}, "Built with"),
-      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
+      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), WebLLM with Qwen2.5-Coder (the Assistant), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
       h("p", {}, h("a", { href: "https://github.com/Down1oads/dexna", target: "_blank", rel: "noopener" }, "Source code on GitHub"))),
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { closeOverlay(); showLanguageGuide(); } }, "Languages"), h("button", { class: "btn", onclick: () => { closeOverlay(); showShortcuts(); } }, "Shortcuts"), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
@@ -3187,6 +3232,7 @@ async function boot() {
   // Monaco cancels a pending suggestion or hover request when the text changes under it; like VS Code, ignore that
   window.addEventListener("unhandledrejection", (e) => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
   registerLanguageModes(monaco);
+  setupAssistant();
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => schedulePreview());
   setupPreview();

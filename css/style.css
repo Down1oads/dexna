@@ -530,3 +530,51 @@ table.vars .exp .icon { width: 11px; height: 11px; vertical-align: -1px; }
 .preview-actions { display: flex; gap: 2px; flex: none; }
 #preview-frame { flex: 1; width: 100%; border: 0; background: #fff; color-scheme: light; }
 @media (max-width: 700px) { #editor-wrap.with-preview #editor { right: 0; } .preview { width: 100%; } #preview-resizer { display: none; } }
+
+/* ================= Assistant (runs on this device) ================= */
+.ai-root { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.ai-setup { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.ai-setup p { margin: 0; line-height: 1.45; }
+.ai-models { display: flex; flex-direction: column; gap: 6px; }
+.ai-model { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; }
+.ai-model.on { border-color: var(--accent); background: var(--sel); }
+.ai-model input { margin: 2px 0 0; accent-color: var(--accent); }
+.ai-model > div { flex: 1; min-width: 0; }
+.ai-model-name { display: flex; align-items: center; gap: 6px; font-weight: 600; margin-bottom: 2px; }
+.ai-tag { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; background: var(--bg-3); color: var(--fg-dim); }
+.ai-tag.ok { color: var(--run); }
+.ai-error { padding: 8px; border-left: 3px solid var(--err); background: var(--bg-2); border-radius: 2px; }
+.ai-progress { height: 6px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+.ai-progress .fill { height: 100%; background: var(--accent); transition: width .2s; }
+.ai-progress-text { word-break: break-word; }
+.ai-bar { display: flex; align-items: center; gap: 2px; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--border); }
+.ai-bar > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-log { flex: 1; min-height: 0; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.ai-empty p { margin: 0 0 6px; }
+.ai-msg { display: flex; }
+.ai-msg.user { justify-content: flex-end; }
+.ai-msg.user .ai-bubble { background: var(--sel); border-radius: 8px 8px 2px 8px; padding: 6px 10px; white-space: pre-wrap; max-width: 90%; }
+.ai-msg.assistant .ai-bubble { width: 100%; min-width: 0; line-height: 1.5; }
+.ai-msg.error .ai-bubble { color: var(--fg-dim); }
+.ai-bubble p { margin: 0 0 6px; }
+.ai-bubble .ai-h { font-weight: 600; }
+.ai-bubble ul { margin: 0 0 6px; padding-left: 18px; }
+.ai-bubble code { font-family: var(--mono, "JetBrains Mono", monospace); font-size: 12px; background: var(--bg-3); padding: 0 3px; border-radius: 3px; }
+.ai-code-wrap { margin: 4px 0 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-2); overflow: hidden; }
+.ai-code-lang { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--fg-faint); padding: 3px 8px 0; }
+.ai-code { margin: 0; padding: 6px 8px; overflow-x: auto; font-family: var(--mono, "JetBrains Mono", monospace); font-size: 12px; line-height: 1.5; white-space: pre; }
+.ai-code-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 6px 6px; border-top: 1px solid var(--border); }
+.ai-code-actions .btn { height: 22px; padding: 0 7px; gap: 4px; }
+.ai-code-actions .icon { width: 13px; height: 13px; }
+.ai-typing { display: inline-flex; gap: 3px; padding: 4px 0; }
+.ai-typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--fg-faint); animation: ai-dot 1s infinite ease-in-out; }
+.ai-typing i:nth-child(2) { animation-delay: .15s; } .ai-typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes ai-dot { 0%, 80%, 100% { opacity: .3; } 40% { opacity: 1; } }
+.ai-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 10px 0; }
+.ai-chip { border: 1px solid var(--border); background: var(--bg-2); border-radius: 11px; padding: 2px 9px; font-size: 12px; cursor: pointer; color: var(--fg-dim); }
+.ai-chip:hover:not(:disabled) { color: var(--fg); border-color: var(--accent); }
+.ai-chip:disabled { opacity: .5; cursor: default; }
+.ai-input { display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px 10px; }
+.ai-input textarea { flex: 1; resize: none; min-height: 36px; max-height: 160px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); font: inherit; outline: none; }
+.ai-input textarea:focus { border-color: var(--accent); }
+section.view[data-view="assistant"].active { display: flex; flex-direction: column; }

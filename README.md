@@ -52,6 +52,24 @@ Octave and Objective-C both use `.m`: a `.m` file is Objective-C when it has `#i
 
 These services are free and shared, so they can be slow or rate limited. If the main service is down, Dexna tries the next one, and if they are all unreachable it tries once more after a moment. Online programs cannot read input while running, so Dexna shows an input box before the run when the code reads from standard input.
 
+## Assistant (free, runs on your device)
+
+The chat icon in the activity bar (or **Ctrl+Alt+I**) opens the Assistant: a coding helper that runs **entirely in your browser**. There is no account, no API key and no cost.
+
+- Pick a model and press **Download and start**. It downloads once (from Hugging Face), the browser caches it, and after that it starts offline.
+  | Model | Download | Graphics memory |
+  | --- | --- | --- |
+  | Small (Qwen2.5-Coder 0.5B) | about 0.4 GB | 1 GB |
+  | Medium (Qwen2.5-Coder 1.5B), recommended | about 1 GB | 2 GB |
+  | Large (Qwen2.5-Coder 7B) | about 4.5 GB | 5.5 GB |
+- It sees the open file (or just your selection) and, when you ask about an error, the output of your last run. Your code never leaves the browser.
+- **Explain**, **Find bugs**, **Explain the error** and **Add comments** are one click, and the same entries are in the editor's right-click menu and the command palette.
+- Code in an answer has **Copy**, **Insert at cursor** / **Replace selection** and, for whole-file fixes, **Replace file**. Every change can be undone with Ctrl+Z.
+- It needs WebGPU: a recent Chrome or Edge on a computer. Phones and some older laptops cannot run it.
+- These are small models, so they are best at explaining code, finding bugs and writing short pieces of code. Check what they suggest.
+
+Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https://huggingface.co/Qwen) (Apache 2.0).
+
 ## Editor
 
 - Monaco (the engine behind VS Code): multi-file projects with folders and tabs, breadcrumbs, minimap, sticky scroll, bracket pair colouring, multi-cursor, find and replace, code folding.
@@ -109,6 +127,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/langtools.js`, `js/langdata.js` | Completion, hover, signatures, formatting and outlines for every language except Python |
 | `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
 | `js/starters.js` | The preset each new project starts with |
+| `js/assistant.js`, `js/ai-worker.js` | The Assistant: the chat panel, and the worker that runs the model with WebLLM on WebGPU |
 | `js/online.js`, `js/wrap.js` | The online runners, and the logic that adds a missing `Main` and maps compiler errors back to your lines |
 | `coi-serviceworker.js` | Adds the COOP/COEP headers GitHub Pages cannot send, enabling `SharedArrayBuffer` (needed for `input()`, interrupts and the debugger) |
 
