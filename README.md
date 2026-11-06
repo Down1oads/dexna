@@ -59,9 +59,11 @@ The chat icon in the activity bar (or **Ctrl+Alt+I**) opens the Assistant: a cod
 - Pick a model and press **Download and start**. It downloads once (from Hugging Face), the browser caches it, and after that it starts offline.
   | Model | Download | Graphics memory |
   | --- | --- | --- |
-  | Small (Qwen2.5-Coder 0.5B) | about 0.5 GB | 1.1 GB |
-  | Medium (Qwen2.5-Coder 1.5B), recommended | about 1 GB | 1.9 GB |
-  | Large (Qwen2.5-Coder 7B) | about 4.5 GB | 5.9 GB |
+  | Small (Qwen2.5-Coder 0.5B) | about 0.5 GB | 1 GB |
+  | Medium (Qwen2.5-Coder 1.5B), recommended | about 1 GB | 1.6 GB |
+  | Large (Qwen2.5-Coder 7B), gaming-class graphics cards only | about 4.5 GB | 5.1 GB |
+
+  Graphics memory is what counts, not your computer's RAM: a model too big for the graphics card is very slow and can make the whole computer lag. The panel shows the speed of the last answer and suggests a smaller model when it is too slow. Graphics cards without 16-bit support use slightly larger 32-bit builds.
 - It sees the open file (or just your selection) and, when you ask about an error, the output of your last run. Your code never leaves the browser.
 - **Explain**, **Find bugs**, **Explain the error** and **Add comments** are one click, and the same entries are in the editor's right-click menu and the command palette.
 - Code in an answer has **Copy**, **New file**, **Insert at cursor** / **Replace selection** and, for whole-file fixes, **Replace file**. Every change can be undone with Ctrl+Z.

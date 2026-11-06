@@ -6,12 +6,12 @@ const LS_KEY = "dexna:assistant";
 const load = () => { try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch (_) { return {}; } };
 const save = (v) => { try { localStorage.setItem(LS_KEY, JSON.stringify(v)); } catch (_) {} };
 
-// Sizes are approximate; "memory" is the graphics memory WebLLM asks for. All three are Apache-2.0 licensed.
-// The 32-bit builds are used: the 16-bit ones can turn long answers into garbage on some graphics cards.
+// Sizes are approximate; "memory" is the graphics memory WebLLM asks for (16-bit build / 32-bit build).
+// All three are Apache-2.0 licensed. The faster 16-bit builds are used when the graphics card supports them.
 export const AI_MODELS = [
-  { id: "Qwen2.5-Coder-0.5B-Instruct", name: "Small", size: "about 0.5 GB", memory: "1.1 GB", desc: "Fastest. Fine for short explanations." },
-  { id: "Qwen2.5-Coder-1.5B-Instruct", name: "Medium", size: "about 1 GB", memory: "1.9 GB", desc: "Recommended. Explains and fixes everyday code well.", recommended: true },
-  { id: "Qwen2.5-Coder-7B-Instruct", name: "Large", size: "about 4.5 GB", memory: "5.9 GB", desc: "Best answers. Needs a strong graphics card." },
+  { id: "Qwen2.5-Coder-0.5B-Instruct", name: "Small", size: "about 0.5 GB", memory: ["1 GB", "1.1 GB"], desc: "Fastest, and light on your computer. Fine for short questions." },
+  { id: "Qwen2.5-Coder-1.5B-Instruct", name: "Medium", size: "about 1 GB", memory: ["1.6 GB", "1.9 GB"], desc: "Recommended. Explains and fixes everyday code well.", recommended: true },
+  { id: "Qwen2.5-Coder-7B-Instruct", name: "Large", size: "about 4.5 GB", memory: ["5.1 GB", "5.9 GB"], desc: "Best answers, but only for a gaming-class graphics card: on most laptops it is very slow and can make the whole computer lag." },
 ];
 
 const SYSTEM = [
@@ -84,7 +84,7 @@ export function createAssistant(ctx) {
     auto: !!load().auto, // Auto mode: create projects and type the code into the editor
   };
   const root = () => document.getElementById("ai-root");
-  const fullId = (id) => `${id}-q4f32_1-MLC`;
+  const fullId = (id) => `${id}-${state.f16 ? "q4f16_1" : "q4f32_1"}-MLC`;
   const modelInfo = () => AI_MODELS.find((m) => m.id === state.model) || AI_MODELS[1];
 
   async function detectGpu() {
@@ -150,10 +150,14 @@ export function createAssistant(ctx) {
   }
 
   /* ---------- asking ---------- */
-  function contextBlock(kind, limit = CONTEXT_CHARS) {
+  // A question about the user's own code; anything else (like "make a snake game") is sent without the
+  // open file, which keeps the request short, so the answer starts much sooner.
+  const ABOUT_CODE = /\b(this|my|the|that|our) (code|file|program|function|script|game|page|app|class|method|loop|project)\b|\b(fix|bug|bugs|error|errors|explain|why|change|add|update|improve|refactor|comment|comments|rename|remove|delete|it|line|lines|crash|crashes|work|works|doesn't|does not|wrong)\b/i;
+  function contextBlock(kind, limit = CONTEXT_CHARS, question = "") {
     const c = ctx.getContext();
     const parts = [];
-    if (c && c.code != null && c.code.trim()) {
+    const relevant = kind !== "chat" || c?.selection || ABOUT_CODE.test(question);
+    if (c && c.code != null && c.code.trim() && relevant) {
       let code = c.selection || c.code, where = c.selection ? `selected lines ${c.selStart}-${c.selEnd} of ${c.path}` : c.path;
       if (code.length > limit) { // keep the part around the cursor
         const lines = code.split("\n"), at = Math.max(0, (c.selection ? 0 : c.cursorLine - 1));
@@ -225,11 +229,11 @@ export function createAssistant(ctx) {
   async function ask(question, kind = "chat", opts = {}) {
     if (state.phase !== "ready" || state.busy) return;
     const previous = state.messages.slice();
-    let { text: context, target } = contextBlock(kind);
+    let { text: context, target } = contextBlock(kind, CONTEXT_CHARS, question);
     let history = historyFor(previous, HISTORY_CHARS);
     const size = () => SYSTEM.length + context.length + question.length + history.reduce((n, m) => n + m.content.length, 0);
     while (size() > PROMPT_CHARS && history.length) history = history.slice(2); // oldest turns go first
-    if (size() > PROMPT_CHARS) context = contextBlock(kind, Math.max(1000, CONTEXT_CHARS - (size() - PROMPT_CHARS))).text;
+    if (size() > PROMPT_CHARS) context = contextBlock(kind, Math.max(1000, CONTEXT_CHARS - (size() - PROMPT_CHARS)), question).text;
 
     state.messages.push({ role: "user", content: question, kind });
     const reply = { role: "assistant", content: "", raw: "", typing: true, isFix: !!opts.isFix, target: { path: target?.path, hasSelection: !!target?.selection, whole: !target?.selection && (kind === "fix" || kind === "comment") } };
@@ -244,8 +248,10 @@ export function createAssistant(ctx) {
     try {
       await state.engine.resetChat(); // every request carries its own history; never reuse the previous state
       // no repetition penalty: in code it pushes the model off tokens that rightly repeat, like the "))" closing input(...)
-      const chunks = await state.engine.chat.completions.create({ messages, stream: true, temperature: 0.2, top_p: 0.9, repetition_penalty: 1.0, max_tokens: MAX_OUTPUT });
+      const chunks = await state.engine.chat.completions.create({ messages, stream: true, stream_options: { include_usage: true }, temperature: 0.2, top_p: 0.9, repetition_penalty: 1.0, max_tokens: MAX_OUTPUT });
       for await (const chunk of chunks) {
+        const speed = chunk.usage?.extra?.decode_tokens_per_s;
+        if (speed) { state.speed = speed; reply.speed = speed; }
         reply.raw += chunk.choices?.[0]?.delta?.content || "";
         if (looksBroken(reply.raw)) { broken = true; state.engine.interruptGenerate(); break; }
       }
@@ -268,6 +274,11 @@ export function createAssistant(ctx) {
     state.busy = false;
     reply.typing = false;
     reply.done = true;
+    // too slow to be useful: say so once, and suggest a lighter model
+    if (reply.speed && reply.speed < 5 && state.model !== AI_MODELS[0].id && !state.slowHint) {
+      state.slowHint = true;
+      reply.slow = true;
+    }
     render();
   }
 
@@ -277,7 +288,7 @@ export function createAssistant(ctx) {
    */
   function typeOut(msg, streamDone) {
     return new Promise((resolve) => {
-      let last = performance.now(), carry = 0;
+      let last = performance.now(), carry = 0, painted = 0;
       const next = (f) => (document.hidden ? setTimeout(() => f(performance.now()), 50) : requestAnimationFrame(f));
       const tick = (now) => {
         const backlog = msg.raw.length - msg.content.length;
@@ -289,8 +300,8 @@ export function createAssistant(ctx) {
             const n = Math.floor(carry);
             if (n > 0) { carry -= n; msg.content = msg.raw.slice(0, msg.content.length + n); }
           }
-          feedWriters(msg, false);
-          renderLast();
+          // drawing the answer and editing the file are the costly part: about 20 times a second is smooth enough
+          if (now - painted > 50 || msg.raw.length === msg.content.length) { painted = now; feedWriters(msg, false); renderLast(); }
         }
         last = now;
         if (msg.raw.length === msg.content.length && streamDone()) return resolve();
@@ -417,6 +428,8 @@ export function createAssistant(ctx) {
       const target = lastBlock?.querySelector?.("pre:not(.hidden)") || lastBlock?.querySelector?.("p:last-of-type, li:last-child") || body;
       target.append(h("span", { class: "ai-caret" }));
     }
+    if (msg.slow) body.append(h("div", { class: "ai-auto-warn ai-slow" }, icon("warning"), h("span", {},
+      `This model is slow on your computer (${msg.speed.toFixed(1)} tokens a second) and can make it lag. A smaller model will be much faster: press × at the top to stop the Assistant, then pick ${state.model === AI_MODELS[2].id ? "Medium or Small" : "Small"}.`)));
     return h("div", { class: "ai-msg assistant" + (msg.error ? " error" : "") }, body);
   }
   function renderLast() {
@@ -447,7 +460,7 @@ export function createAssistant(ctx) {
       const cards = AI_MODELS.map((m) => h("label", { class: "ai-model" + (state.model === m.id ? " on" : "") },
         h("input", { type: "radio", name: "ai-model", checked: state.model === m.id, onchange: () => { state.model = m.id; save({ ...load(), model: m.id }); render(); } }),
         h("div", {}, h("div", { class: "ai-model-name" }, m.name, m.recommended ? h("span", { class: "ai-tag" }, "Recommended") : null, state.cached[m.id] ? h("span", { class: "ai-tag ok" }, "Downloaded") : null),
-          h("div", { class: "muted small" }, `${m.desc} Download ${m.size}, needs ${m.memory} of graphics memory.`)),
+          h("div", { class: "muted small" }, `${m.desc} Download ${m.size}, needs ${m.memory[state.f16 ? 0 : 1]} of graphics memory.`)),
         state.cached[m.id] ? h("button", { class: "btn icon sm", title: "Delete this model from the browser", onclick: (e) => { e.preventDefault(); deleteModel(m.id); } }, icon("trash")) : null));
       el.append(h("div", { class: "ai-setup" },
         h("p", {}, "A free coding helper that runs ", h("b", {}, "entirely on your device"), ". No account and no key: the model downloads once, then works offline, and your code never leaves this browser."),
@@ -479,7 +492,7 @@ export function createAssistant(ctx) {
       Object.entries(QUICK).filter(([k]) => k !== "error" || run?.failed).map(([k, q]) => h("button", { class: "ai-chip", disabled: state.busy, onclick: () => ask(q.prompt, k) }, q.label)));
     el.append(
       h("div", { class: "ai-bar" },
-        h("span", { class: "muted small", title: "Runs on this device" }, `${modelInfo().name} model`),
+        h("span", { class: "muted small", title: "Runs on this device" + (state.speed ? `. Last answer: ${state.speed.toFixed(1)} tokens per second` : "") }, `${modelInfo().name} model${state.speed ? ` · ${Math.round(state.speed)}/s` : ""}`),
         h("label", { class: "ai-auto-toggle" + (state.auto ? " on" : ""), title: "Auto: the Assistant writes the code into your files as it types: a new project when you ask for a new program, or your open file when you ask for a change. Ctrl+Z undoes it." },
           h("input", { type: "checkbox", checked: state.auto, disabled: state.busy, onchange: (e) => { state.auto = e.target.checked; save({ ...load(), auto: state.auto }); render(); } }),
           h("span", { class: "ai-switch" }), h("span", {}, "Auto")),
