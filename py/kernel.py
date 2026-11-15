@@ -12,7 +12,7 @@ import time
 import traceback
 import types
 
-from dexna_bridge import post, wait_reply, has_channel
+from dexna_bridge import post, wait_reply, has_channel, flush as _flush_output
 
 PROJECT = "/home/pyodide/project"
 _ns = {}
@@ -29,6 +29,31 @@ def _reset():
 
 
 _reset()
+
+# Show what was printed before a pause right away: while time.sleep runs, Python blocks the worker,
+# so output waiting to be sent would otherwise only appear after the sleep.
+_orig_sleep = time.sleep
+
+
+def _dexna_sleep(secs):
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        _flush_output()
+    except Exception:
+        pass
+    # Sleep in short steps: Python checks for the Stop button between steps, never inside one.
+    end = time.monotonic() + max(0.0, float(secs))
+    while True:
+        left = end - time.monotonic()
+        if left <= 0:
+            return None
+        _orig_sleep(min(0.05, left))
+
+
+_dexna_sleep.__doc__ = _orig_sleep.__doc__
+time.sleep = _dexna_sleep
+
 if PROJECT not in sys.path:
     sys.path.insert(0, PROJECT)
 
@@ -127,7 +152,13 @@ def _format_exc(e):
         if fn.startswith(PROJECT) or fn == "<console>":
             break
         tb = tb.tb_next
-    text = "".join(traceback.format_exception(type(e), e, tb))
+    frames = traceback.extract_tb(tb) if tb is not None else []
+    if any(f.filename.startswith("<dexna") for f in frames):
+        # leave Dexna's own helpers (like its time.sleep) out, so the traceback shows only your code
+        mine = [f for f in frames if not f.filename.startswith("<dexna")]
+        text = ("Traceback (most recent call last):\n" + "".join(traceback.format_list(mine)) if mine else "") + "".join(traceback.format_exception_only(type(e), e))
+    else:
+        text = "".join(traceback.format_exception(type(e), e, tb))
     return text.replace(PROJECT + "/", "")
 
 

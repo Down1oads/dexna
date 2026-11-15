@@ -36,11 +36,14 @@ function makeWriter(type) {
   const dec = new TextDecoder();
   let pending = "";
   let timer = null;
-  const flush = () => { timer = null; if (pending) { post(type, { text: pending }); pending = ""; } };
+  let last = 0;
+  const flush = () => { clearTimeout(timer); timer = null; last = performance.now(); if (pending) { post(type, { text: pending }); pending = ""; } };
   return {
     write(buf) {
       pending += dec.decode(buf, { stream: true });
-      if (pending.length > 8192) flush();
+      // Batch output, but never hold it for long: while Python runs without a break (a long loop,
+      // time.sleep) the timer below cannot fire, so the time since the last send is checked here too.
+      if (pending.length > 8192 || performance.now() - last > 50) flush();
       else if (!timer) timer = setTimeout(flush, 16);
       return buf.length;
     },
@@ -182,6 +185,7 @@ async function boot(msg) {
     post: (type, data) => { flushAll(); post(type, { data }); },
     wait_reply: (type, data) => { flushAll(); return waitReply(type, { data }); },
     has_channel: () => !!chan,
+    flush: () => flushAll(),
   });
   mkdirp(PROJECT);
   pyodide.FS.chdir(PROJECT);
