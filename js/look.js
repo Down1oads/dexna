@@ -9,6 +9,9 @@ export const EFFECTS = [
   ["stars", "Starfield"], ["waves", "Waves"], ["grid", "Retro grid"], ["rain", "Code rain"], ["bubbles", "Bubbles"],
   ["silk", "Silk ribbons"], ["dotsea", "Sea of dots"], ["ripples", "Ripples"], ["flow", "Flow field"], ["hills", "Rolling hills"], ["lava", "Lava lamp"], ["plasma", "Plasma"],
   ["ink", "Mouse ink"], ["snow", "Snow"], ["sakura", "Sakura petals"], ["leaves", "Autumn leaves"], ["fireflies", "Fireflies"], ["fireworks", "Fireworks"],
+  ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
+  ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
+  ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
   ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
@@ -48,6 +51,12 @@ export const LOOKS = [
   { id: "summer", name: "Summer night", desc: "Fireflies in the dark", theme: "everforest-dark", set: { bgEffect: "fireflies", bgIntensity: 95, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "glow", accentColor: "" } },
   { id: "celebrate", name: "Celebration", desc: "Fireworks", theme: "tokyo-night", set: { bgEffect: "fireworks", bgIntensity: 85, bgSpeed: 40, glass: 66, glassBlur: false, corners: "round", cursorEffect: "sparks", accentColor: "" } },
   { id: "ink", name: "Ink", desc: "Colored ink follows your mouse", theme: "catppuccin-mocha", set: { bgEffect: "ink", bgIntensity: 85, bgSpeed: 40, glass: 62, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "hyperspace", name: "Hyperspace", desc: "Stars streaking past", theme: "github-dark", set: { bgEffect: "warp", bgIntensity: 80, bgSpeed: 40, glass: 66, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "galaxy", name: "Galaxy", desc: "A slowly turning spiral galaxy", theme: "moonlight", set: { bgEffect: "galaxy", bgIntensity: 90, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "cartographer", name: "Cartographer", desc: "Moving contour lines", theme: "kanagawa", set: { bgEffect: "topo", bgIntensity: 70, bgSpeed: 35, glass: 66, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "circuit", name: "Circuit", desc: "Pulses running along traces", theme: "poimandres", set: { bgEffect: "circuit", bgIntensity: 85, bgSpeed: 40, glass: 66, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "storm", name: "Storm", desc: "Rain on the window and distant lightning", theme: "nightfox", set: { bgEffect: "rainglass", bgIntensity: 85, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "studio", name: "Studio", desc: "A soft, slowly moving gradient mesh", theme: "github-light-default", set: { bgEffect: "mesh", bgIntensity: 70, bgSpeed: 30, glass: 70, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -531,6 +540,310 @@ function makeEffects() {
           ctx.fillStyle = rgba(q.c, Math.min(1, q.life)); ctx.beginPath(); ctx.arc(q.x, q.y, 1.6 * s.px, 0, 6.3); ctx.fill();
         }
         ctx.globalCompositeOperation = "source-over";
+      },
+    },
+
+    warp: {
+      init(s) { s.st = Array.from({ length: 420 }, () => this.mk(s, true)); },
+      mk(s, any) { return { a: rand(0, 6.283), d: any ? rand(0.02, 1) : rand(0.01, 0.05), v: rand(0.25, 0.6), c: Math.random() < 0.2 ? s.colors[Math.floor(rand(0, 4))] : s.fg }; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s, cx = w / 2, cy = h / 2, R = Math.hypot(w, h) / 2;
+        ctx.clearRect(0, 0, w, h);
+        ctx.lineCap = "round";
+        for (let i = 0; i < s.st.length; i++) {
+          const q = s.st[i], d0 = q.d;
+          q.d += q.d * q.v * dt * 1.6 + 0.0005;
+          if (q.d > 1.1) { s.st[i] = this.mk(s, false); continue; }
+          const x0 = cx + Math.cos(q.a) * d0 * R, y0 = cy + Math.sin(q.a) * d0 * R, x1 = cx + Math.cos(q.a) * q.d * R, y1 = cy + Math.sin(q.a) * q.d * R;
+          ctx.strokeStyle = rgba(q.c, Math.min(1, q.d * 1.4) * (s.dark ? 0.9 : 0.6)); ctx.lineWidth = (0.6 + q.d * 2.2) * s.px;
+          ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 + (x1 - x0) * 2, y1 + (y1 - y0) * 2); ctx.stroke();
+        }
+      },
+    },
+    galaxy: {
+      init(s) {
+        const n = 1400;
+        s.g = Array.from({ length: n }, (_, i) => { const arm = i % 3, r = Math.pow(Math.random(), 0.6); return { r, a: arm * 2.094 + r * 5.5 + rand(-0.35, 0.35) * (1 - r * 0.5), z: rand(0.5, 1.6), c: s.colors[r < 0.25 ? 0 : 1 + (i % 3)] }; });
+      },
+      draw(ctx, s, t) {
+        const { w, h } = s, cx = w * 0.62, cy = h * 0.48, R = Math.min(w, h) * 0.55;
+        ctx.clearRect(0, 0, w, h);
+        const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * 0.35);
+        core.addColorStop(0, rgba(s.colors[0], s.dark ? 0.55 : 0.3)); core.addColorStop(0.35, rgba(s.colors[1], s.dark ? 0.2 : 0.12)); core.addColorStop(1, rgba(s.colors[0], 0));
+        ctx.fillStyle = core; ctx.fillRect(0, 0, w, h);
+        const rot = t * 0.05;
+        for (const q of s.g) {
+          const a = q.a + rot / (0.3 + q.r), rr = q.r * R;
+          const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr * 0.45;
+          const al = (s.dark ? 0.95 : 0.7) * (1 - q.r * 0.45), sz = (q.z * 1.7 + 0.6) * s.px;
+          ctx.fillStyle = rgba(q.c, al); ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+          if (q.z > 1.4) { ctx.fillStyle = rgba(q.c, al * 0.2); ctx.beginPath(); ctx.arc(x, y, sz * 2.6, 0, 6.3); ctx.fill(); }
+        }
+      },
+    },
+    meteors: {
+      trails: true,
+      init(s) { s.m = []; s.next = 0.5; s.stars = Array.from({ length: 160 }, () => ({ x: rand(0, s.w), y: rand(0, s.h), r: rand(0.4, 1.3) * s.px, tw: rand(0, 6.3) })); },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.globalCompositeOperation = "destination-out"; ctx.fillStyle = `rgba(0,0,0,${Math.min(1, dt * 2.2)})`; ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = "source-over";
+        for (const q of s.stars) { ctx.fillStyle = rgba(s.fg, 0.55 + 0.35 * Math.sin(t * 1.5 + q.tw)); ctx.fillRect(q.x, q.y, q.r * 1.6, q.r * 1.6); }
+        s.next -= dt;
+        if (s.next <= 0 && dt > 0) { s.m.push({ x: rand(0.1, 1.1) * w, y: rand(-0.1, 0.35) * h, v: rand(700, 1100) * s.px, life: 1, c: s.colors[Math.floor(rand(0, 3))] }); s.next = rand(0.2, 0.8); }
+        ctx.lineCap = "round";
+        s.m = s.m.filter((q) => (q.life -= dt * 0.9) > 0);
+        for (const q of s.m) {
+          const nx = q.x - q.v * dt, ny = q.y + q.v * dt * 0.55;
+          const g = ctx.createLinearGradient(q.x, q.y, nx, ny);
+          g.addColorStop(0, rgba(q.c, 0)); g.addColorStop(1, rgba("#ffffff", q.life));
+          ctx.strokeStyle = g; ctx.lineWidth = 3 * s.px; ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(nx, ny); ctx.stroke();
+          ctx.fillStyle = rgba("#ffffff", q.life); ctx.beginPath(); ctx.arc(nx, ny, 2.2 * s.px, 0, 6.3); ctx.fill();
+          q.x = nx; q.y = ny;
+        }
+      },
+    },
+    topo: {
+      draw(ctx, s, t) {
+        const { w, h } = s, cols = 96, rows = Math.max(20, Math.round(96 * h / w)), cw = w / (cols - 1), ch = h / (rows - 1);
+        const f = (x, y) => Math.sin(x * 0.11 + t * 0.12) + Math.sin(y * 0.13 - t * 0.09) + Math.sin((x + y) * 0.07 + t * 0.07) + 0.6 * Math.sin(Math.hypot(x - cols * 0.6, y - rows * 0.4) * 0.18 - t * 0.15);
+        const v = new Float32Array(cols * rows);
+        for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) v[y * cols + x] = f(x, y);
+        ctx.clearRect(0, 0, w, h);
+        ctx.lineWidth = 1.1 * s.px;
+        const levels = 9;
+        for (let L = 0; L < levels; L++) {
+          const iso = -3 + (6 / levels) * (L + 0.5);
+          ctx.strokeStyle = rgba(s.colors[L % 4], (s.dark ? 0.45 : 0.35) * (L % 3 === 0 ? 1.4 : 0.8));
+          ctx.beginPath();
+          for (let y = 0; y < rows - 1; y++) for (let x = 0; x < cols - 1; x++) {
+            const a = v[y * cols + x], b = v[y * cols + x + 1], c = v[(y + 1) * cols + x + 1], d = v[(y + 1) * cols + x];
+            const pts = [];
+            const edge = (p, q, x0, y0, x1, y1) => { if ((p < iso) !== (q < iso)) { const k = (iso - p) / (q - p); pts.push([(x0 + (x1 - x0) * k) * cw, (y0 + (y1 - y0) * k) * ch]); } };
+            edge(a, b, x, y, x + 1, y); edge(b, c, x + 1, y, x + 1, y + 1); edge(c, d, x + 1, y + 1, x, y + 1); edge(d, a, x, y + 1, x, y);
+            if (pts.length >= 2) { ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); if (pts.length === 4) { ctx.moveTo(pts[2][0], pts[2][1]); ctx.lineTo(pts[3][0], pts[3][1]); } }
+          }
+          ctx.stroke();
+        }
+      },
+    },
+    circuit: {
+      init(s) {
+        const step = 26 * s.px, cols = Math.ceil(s.w / step), rows = Math.ceil(s.h / step);
+        s.paths = Array.from({ length: Math.round(cols * rows / 9) }, () => {
+          let x = Math.floor(rand(0, cols)), y = Math.floor(rand(0, rows)); const pts = [[x * step, y * step]];
+          let dir = Math.floor(rand(0, 4));
+          for (let i = 0; i < 6; i++) { if (Math.random() < 0.4) dir = (dir + (Math.random() < 0.5 ? 1 : 3)) % 4; const len = 1 + Math.floor(rand(0, 4)); x += [1, 0, -1, 0][dir] * len; y += [0, 1, 0, -1][dir] * len; pts.push([x * step, y * step]); }
+          let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+          return { pts, L, off: rand(0, 1), sp: rand(0.15, 0.4), c: s.colors[Math.floor(rand(0, 4))] };
+        });
+      },
+      draw(ctx, s, t) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        ctx.lineWidth = 1.2 * s.px; ctx.lineJoin = "round";
+        for (const p of s.paths) {
+          ctx.strokeStyle = rgba(p.c, s.dark ? 0.22 : 0.18); ctx.beginPath(); p.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+          ctx.fillStyle = rgba(p.c, 0.5); const [ex, ey] = p.pts.at(-1); ctx.beginPath(); ctx.arc(ex, ey, 2.4 * s.px, 0, 6.3); ctx.fill();
+          // a pulse running along the trace
+          let k = ((t * p.sp + p.off) % 1) * p.L;
+          for (let i = 1; i < p.pts.length; i++) {
+            const [x0, y0] = p.pts[i - 1], [x1, y1] = p.pts[i], seg = Math.hypot(x1 - x0, y1 - y0);
+            if (k <= seg) { const x = x0 + (x1 - x0) * (k / seg), y = y0 + (y1 - y0) * (k / seg); const g = ctx.createRadialGradient(x, y, 0, x, y, 9 * s.px); g.addColorStop(0, rgba(p.c, 0.95)); g.addColorStop(1, rgba(p.c, 0)); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 9 * s.px, 0, 6.3); ctx.fill(); break; }
+            k -= seg;
+          }
+        }
+      },
+    },
+    hexgrid: {
+      init(s) { s.waves = []; s.next = 0; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s, r = 22 * s.px, hw = Math.sqrt(3) * r;
+        ctx.clearRect(0, 0, w, h);
+        s.next -= dt;
+        if (s.next <= 0 && dt > 0) { s.waves.push({ x: rand(0, w), y: rand(0, h), t: 0, c: s.colors[Math.floor(rand(0, 4))] }); s.next = rand(1.2, 2.6); }
+        if (!s.waves.length) s.waves.push({ x: w * 0.6, y: h * 0.45, t: 0.8, c: s.colors[0] });
+        s.waves = s.waves.filter((q) => (q.t += dt) < 6);
+        ctx.lineWidth = 1 * s.px;
+        for (let row = 0, y = 0; y < h + r * 2; row++, y += r * 1.5) {
+          for (let x = row % 2 ? hw / 2 : 0; x < w + hw; x += hw) {
+            let glow = 0, col = s.colors[0];
+            for (const q of s.waves) { const d = Math.hypot(x - q.x, y - q.y), front = q.t * 260 * s.px, k = Math.max(0, 1 - Math.abs(d - front) / (70 * s.px)) * (1 - q.t / 6); if (k > glow) { glow = k; col = q.c; } }
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; const px = x + Math.cos(a) * r * 0.92, py = y + Math.sin(a) * r * 0.92; i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+            ctx.closePath();
+            ctx.strokeStyle = rgba(s.fg, s.dark ? 0.07 : 0.1); ctx.stroke();
+            if (glow > 0.02) { ctx.fillStyle = rgba(col, glow * 0.45); ctx.fill(); ctx.strokeStyle = rgba(col, glow * 0.9); ctx.stroke(); }
+          }
+        }
+      },
+    },
+    shards: {
+      init(s) { const n = 26; s.sh = Array.from({ length: n }, () => ({ x: rand(0, s.w), y: rand(0, s.h), r: rand(30, 110) * s.px, a: rand(0, 6.3), va: rand(-0.15, 0.15), vx: rand(-8, 8), vy: rand(-6, 6), c1: s.colors[Math.floor(rand(0, 4))], c2: s.colors[Math.floor(rand(0, 4))], k: [rand(0.7, 1.1), rand(0.7, 1.1), rand(0.7, 1.1)] })); },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        for (const q of s.sh) {
+          q.a += q.va * dt; q.x += q.vx * dt * s.px; q.y += q.vy * dt * s.px;
+          if (q.x < -q.r) q.x = w + q.r; if (q.x > w + q.r) q.x = -q.r; if (q.y < -q.r) q.y = h + q.r; if (q.y > h + q.r) q.y = -q.r;
+          const pts = [0, 1, 2].map((i) => [q.x + Math.cos(q.a + i * 2.094) * q.r * q.k[i], q.y + Math.sin(q.a + i * 2.094) * q.r * q.k[i]]);
+          const g = ctx.createLinearGradient(pts[0][0], pts[0][1], pts[2][0], pts[2][1]);
+          g.addColorStop(0, rgba(q.c1, s.dark ? 0.2 : 0.16)); g.addColorStop(1, rgba(q.c2, s.dark ? 0.05 : 0.04));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(...pts[0]); ctx.lineTo(...pts[1]); ctx.lineTo(...pts[2]); ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = rgba(q.c1, s.dark ? 0.3 : 0.22); ctx.lineWidth = s.px; ctx.stroke();
+        }
+      },
+    },
+    beams: {
+      lowRes: 0.25,
+      draw(ctx, s, t) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        ctx.globalCompositeOperation = s.dark ? "lighter" : "source-over";
+        for (let i = 0; i < 7; i++) {
+          const ox = i % 2 ? w * 0.1 : w * 0.9, a = Math.PI / 2 + (i % 2 ? -0.5 : 0.5) + Math.sin(t * 0.15 + i * 1.7) * 0.35, spread = 0.07 + 0.03 * Math.sin(t * 0.2 + i);
+          const c = s.colors[i % 4], L = Math.hypot(w, h) * 1.2;
+          const g = ctx.createLinearGradient(ox, -10, ox + Math.cos(a) * L * 0.6, Math.sin(a) * L * 0.6);
+          g.addColorStop(0, rgba(c, s.dark ? 0.32 : 0.22)); g.addColorStop(1, rgba(c, 0));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(ox, -10);
+          ctx.lineTo(ox + Math.cos(a - spread) * L, -10 + Math.sin(a - spread) * L); ctx.lineTo(ox + Math.cos(a + spread) * L, -10 + Math.sin(a + spread) * L); ctx.closePath(); ctx.fill();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      },
+    },
+    clouds: {
+      lowRes: 0.2,
+      init(s) { s.c = Array.from({ length: 14 }, () => ({ x: rand(-0.2, 1.2), y: rand(0.05, 0.85), r: rand(0.12, 0.3), v: rand(0.006, 0.02), parts: Array.from({ length: 5 }, () => [rand(-1, 1), rand(-0.35, 0.35), rand(0.45, 0.85)]) })); },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s, m = Math.max(w, h);
+        ctx.clearRect(0, 0, w, h);
+        const tint = s.dark ? rgba(s.colors[0], 0.08) : "rgba(255,255,255,.55)";
+        for (const c of s.c) {
+          c.x += c.v * dt; if (c.x > 1.4) c.x = -0.4;
+          for (const [dx, dy, k] of c.parts) {
+            const x = (c.x + dx * c.r * 0.9) * w, y = c.y * h + dy * c.r * m, r = c.r * k * m;
+            const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+            g.addColorStop(0, s.dark ? rgba(s.fg, 0.07) : "rgba(255,255,255,.75)"); g.addColorStop(0.6, tint); g.addColorStop(1, "rgba(255,255,255,0)");
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.3); ctx.fill();
+          }
+        }
+      },
+    },
+    rainglass: {
+      init(s) {
+        s.d = Array.from({ length: Math.min(260, Math.round((s.w * s.h) / (2500 * s.px * s.px))) }, () => ({ x: rand(0, s.w), y: rand(0, s.h), r: rand(1, 3.2) * s.px }));
+        s.runs = []; s.next = 0;
+      },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        const glass = (x, y, r, a) => { const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r); g.addColorStop(0, `rgba(255,255,255,${0.85 * a})`); g.addColorStop(0.55, rgba(s.colors[0], 0.35 * a)); g.addColorStop(1, `rgba(255,255,255,${0.35 * a})`); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.3); ctx.fill(); };
+        for (const q of s.d) glass(q.x, q.y, q.r * 1.3, s.dark ? 0.75 : 0.9);
+        s.next -= dt;
+        if (s.next <= 0 && dt > 0) { s.runs.push({ x: rand(0, w), y: rand(-20, h * 0.4), r: rand(3, 6) * s.px, v: rand(20, 60) * s.px, trail: [] }); s.next = rand(0.15, 0.5); }
+        s.runs = s.runs.filter((q) => q.y < h + 20);
+        for (const q of s.runs) {
+          q.v += rand(-10, 30) * dt * s.px; q.v = Math.max(15 * s.px, Math.min(160 * s.px, q.v));
+          q.y += q.v * dt; q.x += Math.sin(q.y * 0.05) * 0.2 * s.px;
+          q.trail.push([q.x, q.y]); if (q.trail.length > 60) q.trail.shift();
+          ctx.strokeStyle = s.dark ? "rgba(255,255,255,.22)" : "rgba(255,255,255,.6)"; ctx.lineWidth = q.r * 0.7; ctx.lineCap = "round";
+          ctx.beginPath(); q.trail.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+          glass(q.x, q.y, q.r, 1);
+        }
+      },
+    },
+    lightning: {
+      init(s) { s.bolt = null; s.flash = 0; s.next = 2; },
+      bolt(s) {
+        const segs = []; let x = rand(0.2, 0.8) * s.w, y = 0;
+        while (y < s.h * rand(0.55, 0.95)) { const nx = x + rand(-40, 40) * s.px, ny = y + rand(15, 40) * s.px; segs.push([x, y, nx, ny]); if (Math.random() < 0.12) { let bx = nx, by = ny; for (let i = 0; i < 5; i++) { const ex = bx + rand(-35, 35) * s.px, ey = by + rand(10, 30) * s.px; segs.push([bx, by, ex, ey]); bx = ex; by = ey; } } x = nx; y = ny; }
+        return segs;
+      },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        const sky = ctx.createLinearGradient(0, 0, 0, h);
+        sky.addColorStop(0, rgba(s.colors[0], s.dark ? 0.12 : 0.08)); sky.addColorStop(1, rgba(s.colors[0], 0));
+        ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+        s.next -= dt;
+        if (s.next <= 0 && dt > 0) { s.bolt = this.bolt(s); s.flash = 1; s.next = rand(2.5, 7); }
+        if (s.flash > 0) {
+          ctx.fillStyle = rgba(s.dark ? "#cfd8ff" : "#ffffff", s.flash * 0.18); ctx.fillRect(0, 0, w, h);
+          ctx.strokeStyle = rgba("#eaf0ff", Math.min(1, s.flash * 1.4)); ctx.lineWidth = 2 * s.px; ctx.shadowColor = s.colors[0]; ctx.shadowBlur = 18 * s.px;
+          ctx.beginPath(); for (const [a, b, c, d] of s.bolt) { ctx.moveTo(a, b); ctx.lineTo(c, d); } ctx.stroke();
+          ctx.shadowBlur = 0;
+          s.flash -= dt * (s.flash > 0.6 ? 6 : 1.6);
+        }
+      },
+    },
+    dna: {
+      draw(ctx, s, t) {
+        const { w, h } = s, cy = h * 0.5, amp = h * 0.12, n = 70, step = w / n;
+        ctx.clearRect(0, 0, w, h);
+        for (let i = 0; i <= n; i++) {
+          const x = i * step, ph = i * 0.32 + t * 0.9, y1 = cy + Math.sin(ph) * amp, y2 = cy + Math.sin(ph + Math.PI) * amp, z1 = (Math.cos(ph) + 1) / 2, z2 = 1 - z1;
+          if (i % 2 === 0) { ctx.strokeStyle = rgba(s.fg, s.dark ? 0.12 : 0.15); ctx.lineWidth = 1.5 * s.px; ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke(); }
+          ctx.fillStyle = rgba(s.colors[0], 0.25 + z1 * 0.6); ctx.beginPath(); ctx.arc(x, y1, (2 + z1 * 3.5) * s.px, 0, 6.3); ctx.fill();
+          ctx.fillStyle = rgba(s.colors[2] || s.colors[1], 0.25 + z2 * 0.6); ctx.beginPath(); ctx.arc(x, y2, (2 + z2 * 3.5) * s.px, 0, 6.3); ctx.fill();
+        }
+      },
+    },
+    orbits: {
+      init(s) { s.p = Array.from({ length: 7 }, (_, i) => ({ r: 0.1 + i * 0.075, sp: 0.6 / Math.pow(i + 1, 1.2), a: rand(0, 6.3), size: rand(3, 8), c: s.colors[i % 4], moon: i > 2 && Math.random() < 0.5 })); },
+      draw(ctx, s, t) {
+        const { w, h } = s, cx = w * 0.62, cy = h * 0.5, m = Math.min(w, h);
+        ctx.clearRect(0, 0, w, h);
+        const sun = ctx.createRadialGradient(cx, cy, 0, cx, cy, m * 0.09);
+        sun.addColorStop(0, rgba(s.colors[1], 0.9)); sun.addColorStop(0.4, rgba(s.colors[1], 0.35)); sun.addColorStop(1, rgba(s.colors[1], 0));
+        ctx.fillStyle = sun; ctx.beginPath(); ctx.arc(cx, cy, m * 0.09, 0, 6.3); ctx.fill();
+        for (const p of s.p) {
+          const R = p.r * m * 1.4;
+          ctx.strokeStyle = rgba(p.c, s.dark ? 0.28 : 0.3); ctx.lineWidth = 1.3 * s.px; ctx.beginPath(); ctx.ellipse(cx, cy, R, R * 0.42, -0.2, 0, 6.3); ctx.stroke();
+          const a = p.a + t * p.sp, x = cx + Math.cos(a) * R * Math.cos(-0.2) - Math.sin(a) * R * 0.42 * Math.sin(-0.2), y = cy + Math.cos(a) * R * Math.sin(-0.2) + Math.sin(a) * R * 0.42 * Math.cos(-0.2);
+          const pg = ctx.createRadialGradient(x, y, 0, x, y, p.size * 3 * s.px); pg.addColorStop(0, rgba(p.c, 0.45)); pg.addColorStop(1, rgba(p.c, 0)); ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(x, y, p.size * 3 * s.px, 0, 6.3); ctx.fill();
+          ctx.fillStyle = rgba(p.c, 1); ctx.beginPath(); ctx.arc(x, y, p.size * 1.4 * s.px, 0, 6.3); ctx.fill();
+          if (p.moon) { const ma = t * 2.2 + p.a; ctx.fillStyle = rgba(s.fg, 0.6); ctx.beginPath(); ctx.arc(x + Math.cos(ma) * 14 * s.px, y + Math.sin(ma) * 6 * s.px, 1.8 * s.px, 0, 6.3); ctx.fill(); }
+        }
+      },
+    },
+    mesh: {
+      lowRes: 0.06,
+      draw(ctx, s, t) {
+        const { w, h } = s;
+        const pts = s.colors.slice(0, 4).map((c, i) => ({ c, x: (0.5 + 0.42 * Math.sin(t * (0.11 + i * 0.03) + i * 1.9)) * w, y: (0.5 + 0.42 * Math.cos(t * (0.09 + i * 0.025) + i * 2.6)) * h }));
+        ctx.fillStyle = rgba(s.colors[3] || s.colors[0], s.dark ? 0.25 : 0.2); ctx.fillRect(0, 0, w, h);
+        for (const p of pts) { const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, Math.max(w, h) * 0.75); g.addColorStop(0, rgba(p.c, s.dark ? 0.75 : 0.6)); g.addColorStop(1, rgba(p.c, 0)); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h); }
+      },
+    },
+    bokeh: {
+      init(s) { s.b = Array.from({ length: 34 }, () => ({ x: rand(0, s.w), y: rand(0, s.h), r: rand(20, 90) * s.px, vx: rand(-6, 6), vy: rand(-10, -2), ph: rand(0, 6.3), c: s.colors[Math.floor(rand(0, 4))] })); },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        ctx.globalCompositeOperation = s.dark ? "lighter" : "source-over";
+        for (const q of s.b) {
+          q.x += q.vx * dt * s.px; q.y += q.vy * dt * s.px;
+          if (q.y < -q.r) { q.y = h + q.r; q.x = rand(0, w); }
+          const a = (0.5 + 0.5 * Math.sin(t * 0.6 + q.ph)) * (s.dark ? 0.16 : 0.14);
+          const g = ctx.createRadialGradient(q.x, q.y, q.r * 0.6, q.x, q.y, q.r);
+          g.addColorStop(0, rgba(q.c, a)); g.addColorStop(0.92, rgba(q.c, a * 1.4)); g.addColorStop(1, rgba(q.c, 0));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.3); ctx.fill();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      },
+    },
+    equalizer: {
+      draw(ctx, s, t) {
+        const { w, h } = s, n = 64, bw = w / n;
+        ctx.clearRect(0, 0, w, h);
+        for (let i = 0; i < n; i++) {
+          const v = Math.abs(Math.sin(t * 1.3 + i * 0.35) * 0.5 + Math.sin(t * 2.1 + i * 0.13) * 0.3 + Math.sin(t * 0.7 - i * 0.21) * 0.2);
+          const bh = v * h * 0.6 + 6 * s.px, x = i * bw;
+          const g = ctx.createLinearGradient(0, h, 0, h - bh);
+          g.addColorStop(0, rgba(s.colors[0], s.dark ? 0.75 : 0.5)); g.addColorStop(1, rgba(s.colors[1], s.dark ? 0.3 : 0.2));
+          ctx.fillStyle = g; ctx.fillRect(x + bw * 0.18, h - bh, bw * 0.64, bh);
+          ctx.fillStyle = rgba(s.colors[1], 0.6); ctx.fillRect(x + bw * 0.18, h - bh - 6 * s.px, bw * 0.64, 2 * s.px);
+        }
       },
     },
   };
