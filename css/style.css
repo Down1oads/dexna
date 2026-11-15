@@ -816,3 +816,27 @@ body.resizing #editor2 { pointer-events: none; }
 .sn-acts .grow { flex: 1; }
 .btn.danger-text { color: var(--err); }
 @media (max-width: 700px) { .sn-main { flex-direction: column; height: 75vh; } .sn-side { width: auto; height: 38%; border-right: 0; border-bottom: 1px solid var(--border); } .sn-row { flex-direction: column; } }
+
+/* ================= Back / forward ================= */
+.nav-btns { display: flex; gap: 1px; margin-left: 4px; }
+.nav-btns .btn { color: var(--fg-dim); }
+.nav-btns .btn:disabled { opacity: .35; }
+@media (max-width: 900px) { .nav-btns { display: none; } }
+
+/* ================= Keyboard shortcut capture ================= */
+.ks-keys { display: flex; align-items: center; justify-content: center; min-height: 64px; border: 1px dashed var(--border); border-radius: 4px; margin: 4px 0 10px; font-size: 13px; }
+.ks-keys kbd { font: 15px var(--mono); padding: 4px 10px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; background: var(--bg-1); }
+.ks-note { min-height: 18px; }
+.ks-note.warn { color: var(--warn); }
+
+/* ================= Theme editor ================= */
+.modal.te-modal { width: min(640px, calc(100vw - 32px)); margin-top: -6vh; }
+.te-top { display: flex; gap: 12px; margin-bottom: 8px; }
+.te-top > :first-child { flex: 2; } .te-top > :last-child { flex: 1; }
+.te-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; margin-top: 12px; max-height: 52vh; overflow: auto; }
+.te-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.te-row input[type=color] { width: 30px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: none; cursor: pointer; flex: none; }
+.te-row .te-hex { width: 76px; flex: none; font-family: var(--mono); font-size: 12px; height: 24px; padding: 0 6px; }
+.te-row span { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) { .te-grid { grid-template-columns: 1fr; } }
+.tt-prev.new { align-items: center; justify-content: center; border: 1px dashed var(--border); color: var(--fg-dim); }

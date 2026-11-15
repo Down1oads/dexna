@@ -8,7 +8,8 @@ import { registerLanguageModes, loadEmmet, MODES } from "./langmodes.js";
 import { createAssistant } from "./assistant.js";
 import { createExtras } from "./extras.js";
 import { createPower } from "./power.js";
-import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
+import { createMore } from "./more.js";
+import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
 import { createZip, readZip } from "./zip.js";
@@ -52,13 +53,14 @@ const DEFAULT_SETTINGS = {
   theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
-  runOnSave: false, localHistory: true, clipboardHistory: true,
+  runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
 // older versions stored "dark" / "light"
 if (settings.theme === "dark") settings.theme = DEFAULT_DARK;
 else if (settings.theme === "light") settings.theme = DEFAULT_LIGHT;
+for (const t of LS.get("customThemes", [])) registerCustomTheme(t); // themes made in the theme editor
 if (settings.theme !== "auto" && !THEME_BY_ID[settings.theme]) settings.theme = DEFAULT_DARK;
 if (!THEME_BY_ID[settings.darkTheme]) settings.darkTheme = DEFAULT_DARK;
 if (!THEME_BY_ID[settings.lightTheme]) settings.lightTheme = DEFAULT_LIGHT;
@@ -67,6 +69,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
 let power = null; // split editor, snippets, clipboard and local history, run on save (power.js)
 
 const EMPTY_PROJECT = { name: "My project", files: {} };
@@ -329,7 +332,7 @@ function editorOptions() {
     wordWrap: settings.wordWrap ? "on" : "off", minimap: { enabled: settings.minimap && innerWidth > 760, renderCharacters: false, scale: 1 },
     stickyScroll: { enabled: settings.stickyScroll }, renderWhitespace: settings.renderWhitespace,
     bracketPairColorization: { enabled: settings.bracketColors }, guides: { bracketPairs: "active", indentation: true },
-    cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers,
+    cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers, colorDecorators: settings.colorSwatches,
     cursorSmoothCaretAnimation: settings.smoothCaret ? "on" : "off", smoothScrolling: settings.smoothCaret,
   };
 }
@@ -426,6 +429,7 @@ function ensureModel(path) {
   updateCellDecos(path);
   extras?.onModelCreated(path);
   power?.onModelCreated(path);
+  more?.onModelCreated(path);
   return m;
 }
 
@@ -448,6 +452,7 @@ function onModelChange(path, model, ev) {
   if (bpDecos.get(path)?.length) syncBreakpointsFromDecos(path);
   extras?.onModelContent(path);
   power?.onModelContent(path);
+  more?.onModelContent(path);
   clearRuntimeError(path);
   if (!lspWriters.has(path)) lspWriters.set(path, debounce(() => lspSyncFile(path), 350));
   lspWriters.get(path)();
@@ -490,6 +495,7 @@ async function loadProject(id) {
   if (kernel?.info) syncKernelProject();
   extras?.onProjectLoaded();
   power?.onProjectLoaded();
+  more?.onProjectLoaded();
   return true;
 }
 
@@ -635,6 +641,7 @@ function movePath(from, to) {
     if (project.breakpoints[a]) { project.breakpoints[b] = project.breakpoints[a]; delete project.breakpoints[a]; }
     if (project.bookmarks?.[a]) { project.bookmarks[b] = project.bookmarks[a]; delete project.bookmarks[a]; }
     power?.onRename(a, b);
+    more?.onRename(a, b);
     if (project.entry === a) project.entry = b;
     project.open = project.open.map((o) => (o === a ? b : o));
     if (project.active === a) project.active = b;
@@ -3026,6 +3033,7 @@ const SETTINGS_SCHEMA = [
   { key: "smoothCaret", cat: "Appearance", label: "Smooth cursor and scrolling", desc: "Animate the cursor as it moves, and scroll smoothly.", type: "bool" },
   { key: "lineNumbers", cat: "Appearance", label: "Line numbers", desc: "Relative numbers count from the cursor line, which makes Vim motions like 5j easy.", type: "select", options: [["on", "On"], ["relative", "Relative"], ["interval", "Every 10 lines"], ["off", "Off"]] },
   { key: "changeMarkers", cat: "Appearance", label: "Change markers", desc: "Color bars next to the line numbers show lines added, changed or deleted since the last commit. Click one to see the changes.", type: "bool" },
+  { key: "colorSwatches", cat: "Appearance", label: "Color swatches", desc: "Show a small swatch next to colors written in code (#ff8800, rgb(...), hsl(...)) in every language. Click one to pick a new color.", type: "bool" },
   { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
@@ -3082,8 +3090,10 @@ function settingItem(sd) {
       h("div", { class: "theme-group" }, "Automatic"),
       h("div", { class: "theme-grid" }, h("button", { class: "theme-tile" + (settings.theme === "auto" ? " on" : ""), onclick: () => setSetting("theme", "auto"), title: "Follow your system's light or dark setting" },
         h("span", { class: "tt-prev auto" }, h("b", {}, "Aa"), h("b", { class: "l" }, "Aa")), h("span", { class: "tt-name" }, "Follow system"))),
-      h("div", { class: "theme-group" }, "Dark"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "dark").map(tile)),
-      h("div", { class: "theme-group" }, "Light"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "light").map(tile)));
+      h("div", { class: "theme-group" }, "Dark"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "dark" && !t.custom).map(tile)),
+      h("div", { class: "theme-group" }, "Light"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "light" && !t.custom).map(tile)),
+      h("div", { class: "theme-group" }, "Yours"), h("div", { class: "theme-grid" }, ...THEMES.filter((t) => t.custom).map((t) => { const el = tile(t); el.title = t.name + ". Double-click to edit"; el.ondblclick = () => more.editTheme(t); return el; }),
+        h("button", { class: "theme-tile new", title: "Make your own theme, starting from the current one", onclick: () => cmdById("theme-new").run() }, h("span", { class: "tt-prev new" }, icon("plus")), h("span", { class: "tt-name" }, "New theme"))));
   } else if (sd.type === "bool") {
     control = h("label", { class: "si-check" }, h("input", { type: "checkbox", checked: settings[sd.key], onchange: (e) => setSetting(sd.key, e.target.checked) }), h("span", {}, "Enabled"));
   } else if (sd.type === "select") {
@@ -3327,16 +3337,35 @@ const API = {
   setView, showPanel, setSetting, setStatusFlash, downloadBlob, resolveRef, save: () => saveCommand(), closeActive: () => project.active && closeTab(project.active),
   previewFile, previewPath: () => web.path, postToPreview,
   showPreview, editorOptions, isRunnable, run: () => cmdById("run").run(),
+  symbolsOf: (model) => (model.getLanguageId() === "python" ? (lspReady ? lspCall("symbols", [model.getValue()]) : Promise.resolve(null)) : langTools.symbols(model)),
+  symIconHtml, fuzzy, highlight, kbLabel, comboOf: (e) => comboOf(e), normKb: (kb) => normKb(kb), commands: () => COMMANDS,
+  setKeybinding: (id, kb) => setKeybinding(id, kb), currentThemeId: () => currentTheme().id,
 };
 extras = createExtras(API);
 COMMANDS.push(...extras.commands);
 API.showDiff = extras.showDiff;
 power = createPower(API);
 COMMANDS.push(...power.commands);
+more = createMore(API);
+COMMANDS.push(...more.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
-for (const c of COMMANDS) if (c.kb && !c.kb.includes(" ")) keymap.set(normKb(c.kb), c);
+const kbOverrides = LS.get("keybindings", {}); // your own shortcuts: command id -> shortcut, or null for none
+for (const c of COMMANDS) { c.defaultKb = c.kb; if (Object.hasOwn(kbOverrides, c.id) && (kbOverrides[c.id] === null || /^[a-z0-9+`=,\-\\[\];'./]+$/.test(kbOverrides[c.id]))) c.kb = kbOverrides[c.id] || undefined; }
+function rebuildKeymap() {
+  keymap.clear();
+  for (const c of COMMANDS) if (c.kb && !c.kb.includes(" ")) keymap.set(normKb(c.kb), c);
+}
+rebuildKeymap();
+function setKeybinding(id, kb) {
+  const c = cmdById(id);
+  if (!c) return;
+  c.kb = kb || undefined;
+  if ((c.kb || null) === (c.defaultKb || null)) delete kbOverrides[id]; else kbOverrides[id] = kb || null;
+  LS.set("keybindings", kbOverrides);
+  rebuildKeymap();
+}
 const cmdById = (id) => COMMANDS.find((c) => c.id === id);
 
 function comboOf(e) {
@@ -3347,7 +3376,7 @@ function comboOf(e) {
   else if (e.code === "Equal") k = "=";
   else if (e.code === "Minus") k = "-";
   else if (e.code === "Comma") k = ",";
-  else k = e.key.toLowerCase();
+  else k = e.key.toLowerCase().replace(/^arrow/, ""); // ArrowLeft -> left, like the shortcut names
   if (k === "control" || k === "shift" || k === "alt" || k === "meta") return null;
   return [(e.ctrlKey || e.metaKey) && "ctrl", e.altKey && "alt", e.shiftKey && "shift", k].filter(Boolean).join("+");
 }
@@ -3373,7 +3402,7 @@ async function saveCommand() {
 
 function quickOpen(prefix = "") {
   quickPick({
-    placeholder: "Search files by name (> commands, : line, @ symbols, = calculator, ? help)",
+    placeholder: "Search files by name (> commands, : line, @ symbols, # symbols in every file, = calculator, ? help)",
     value: prefix,
     source: (q) => {
       if (q.startsWith(">")) {
@@ -3385,6 +3414,7 @@ function quickOpen(prefix = "") {
           .sort((a, b) => b.m.score - a.m.score).map((c) => ({ label: c.label, labelHtml: highlight(c.label, c.m.idx), desc: kbLabel(c.kb), run: c.run }));
       }
       if (q.startsWith("=")) return extras.calcItems(q.slice(1));
+      if (q.startsWith("#")) return more.symbolItems(q.slice(1).trim());
       if (q.startsWith("?")) return extras.helpItems((p) => quickOpen(p));
       if (q.startsWith(":")) {
         const n = parseInt(q.slice(1), 10);
@@ -3410,11 +3440,11 @@ function quickOpen(prefix = "") {
 
 const MENUS = {
   File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
-  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
+  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
-  Help: ["home", "language-guide", "shortcuts", "examples", "calc", "-", "about"],
+  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "theme-new", "theme-import", "-", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -3470,7 +3500,7 @@ function showShortcuts(initialQuery = "") {
   render();
   openModal(h("div", { class: "modal wide" }, h("div", { class: "modal-head" }, "Keyboard shortcuts"),
     h("div", { class: "modal-body" }, q, body),
-    h("div", { class: "modal-foot" }, h("span", { class: "muted small", style: { marginRight: "auto" } }, "Ctrl is Cmd on a Mac. Ctrl+Shift+P opens every command."), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
+    h("div", { class: "modal-foot" }, h("span", { class: "muted small", style: { marginRight: "auto" } }, "Ctrl is Cmd on a Mac. Ctrl+Shift+P opens every command."), h("button", { class: "btn", onclick: () => { closeOverlay(); cmdById("keys-change").run(); } }, "Change a shortcut..."), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
   q.focus();
 }
 
@@ -3605,6 +3635,7 @@ async function boot() {
   setupAssistant();
   extras.onEditorReady();
   power.onEditorReady();
+  more.onEditorReady();
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => schedulePreview());
   setupPreview();

@@ -79,8 +79,13 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - Monaco (the engine behind VS Code): multi-file projects with folders and tabs, breadcrumbs, minimap, sticky scroll, bracket pair colouring, multi-cursor, find and replace, code folding.
 - **Snippets for every language**: type the trigger and press Tab (`main`, `for`, `class`, `cw`, `sout`, `forp`, `ct` and more). **Help > Languages and Snippets** lists them all.
 - **28 colour themes** (17 dark, 11 light): Settings > Appearance, or Ctrl+Shift+P > "Color Theme". The sun/moon button flips between your last dark and last light theme.
+- **Your own themes** (Help > Create Color Theme, or **New theme** in Settings): pick 15 colours, see the whole app change as you go, and save. Dexna nudges colours that would be hard to read. **Copy** a theme as text and **Import** it on another device.
+- **Back and forward** (Alt+Left / Alt+Right, the arrows next to the menus, or the mouse's side buttons): retrace your jumps between files and places. On a Mac, where Option+Left moves by word, these have no keys until you set your own. **Go to Last Edit Location** takes you back to where you last typed.
+- **Symbols in every file** (Ctrl+Alt+O, or `#` in Ctrl+P): jump to any function, class or variable in the project.
+- **Your own keyboard shortcuts** (Help > Change Keyboard Shortcut): give any command a shortcut or change one. Dexna warns about clashes and about keys the browser keeps for itself.
+- **Color swatches**: colours written in any language (`"#ff8800"`, `rgb(...)`, `hsl(...)`) get a swatch; click it for a colour picker.
 - Settings is a full page with search, categories and per-setting reset.
-- Command palette (Ctrl+Shift+P), quick open (Ctrl+P), search and replace across files. Quick open also takes `>` for commands, `:` for a line, `@` for a symbol, `=` for a **calculator** (`=2^10`, `=sqrt(2)`, `=15% * 80`, `=0xff + 1`) and `?` for help.
+- Command palette (Ctrl+Shift+P), quick open (Ctrl+P), search and replace across files. Quick open also takes `>` for commands, `:` for a line, `@` for a symbol, `#` for a symbol in any file, `=` for a **calculator** (`=2^10`, `=sqrt(2)`, `=15% * 80`, `=0xff + 1`) and `?` for help.
 - **Vim keys** (Settings > Editor): modes, motions, operators, registers, macros, `:w` to save. The mode shows in the status bar.
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
 - **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
@@ -167,6 +172,8 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | Settings | Ctrl+, |
 | Source Control | Ctrl+Shift+G |
 | Split editor | Ctrl+\\ |
+| Go back / forward | Alt+Left / Alt+Right |
+| Go to symbol in any file | Ctrl+Alt+O |
 | Paste from clipboard history | Ctrl+Shift+Alt+V |
 | Markdown preview | Ctrl+Shift+V |
 | Toggle bookmark / next / previous | Ctrl+Alt+K / Ctrl+Alt+L / Ctrl+Alt+J |
@@ -184,6 +191,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
 | `js/starters.js` | The preset each new project starts with |
 | `js/extras.js` | The diff viewer, change markers, bookmarks, TODOs, text commands, code images, Zen mode, Vim keys, the calculator, statistics and the Markdown preview |
+| `js/more.js` | Back and forward, symbols across the project, your own shortcuts and themes, colour swatches |
 | `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |
 | `js/scm.js`, `js/diff.js` | Source Control (commits in IndexedDB) and the line diff (Myers' algorithm) behind it |
 | `js/toolbox.js` | The Toolbox |

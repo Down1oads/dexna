@@ -594,7 +594,7 @@ export function createExtras(A) {
       return [{ label: e.message, desc: "calculator", run: () => {} }];
     }
   }
-  const HELP = [["", "Go to a file by name"], [">", "Run a command"], [":", "Go to a line"], ["@", "Go to a symbol in the file"], ["=", "Calculator"], ["?", "This help"]];
+  const HELP = [["", "Go to a file by name"], [">", "Run a command"], [":", "Go to a line"], ["@", "Go to a symbol in the file"], ["#", "Go to a symbol in any file"], ["=", "Calculator"], ["?", "This help"]];
   const helpItems = (openWith) => HELP.map(([p, d]) => ({ label: p ? `${p}  ${d}` : `…  ${d}`, run: () => openWith(p) }));
 
   /* =====================================================================

@@ -54,6 +54,8 @@ const P = {
   circle: '<circle cx="8" cy="8" r="4.5"/>',
   dot: '<circle cx="8" cy="8" r="4" fill="currentColor" stroke="none"/>',
   arrow: '<path d="M2.5 8h9M8 4.5L11.5 8 8 11.5"/>',
+  arrowLeft: '<path d="M13 8H3.5M7 4.5 3.5 8 7 11.5"/>',
+  arrowRight: '<path d="M3 8h9.5M9 4.5l3.5 3.5L9 11.5"/>',
   search: '<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/>',
   sun: '<circle cx="8" cy="8" r="2.8"/><path d="M8 1.6v1.7M8 12.7v1.7M1.6 8h1.7M12.7 8h1.7M3.5 3.5l1.2 1.2M11.3 11.3l1.2 1.2M3.5 12.5l1.2-1.2M11.3 4.7l1.2-1.2"/>',
   moon: '<path d="M13.4 9.6A5.6 5.6 0 0 1 6.4 2.6a5.6 5.6 0 1 0 7 7z"/>',

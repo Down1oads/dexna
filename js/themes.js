@@ -158,3 +158,23 @@ export function monacoTheme(theme) {
   };
   return { base: dark ? "vs-dark" : "vs", inherit: true, rules, colors };
 }
+
+/* ------------------------------ your own themes ------------------------------ */
+export const PALETTE_KEYS = ["bg", "fg", "accent", "comment", "keyword", "string", "number", "type", "func", "operator", "constant", "err", "warn", "ok", "info"];
+const isHex = (v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+/** Add or replace a theme made in the theme editor. Returns the stored theme, or null if it is malformed. */
+export function registerCustomTheme(t) {
+  if (!t || typeof t.id !== "string" || !t.id.startsWith("custom-") || !t.c || !PALETTE_KEYS.every((k) => isHex(t.c[k]))) return null;
+  const theme = { id: t.id, name: String(t.name || "My theme").slice(0, 40), type: t.type === "light" ? "light" : "dark", c: Object.fromEntries(PALETTE_KEYS.map((k) => [k, t.c[k].toLowerCase()])), custom: true };
+  const i = THEMES.findIndex((x) => x.id === theme.id);
+  if (i >= 0) THEMES[i] = theme; else THEMES.push(theme);
+  THEME_BY_ID[theme.id] = theme;
+  fixed.delete(theme.id);
+  return theme;
+}
+export function removeCustomTheme(id) {
+  const i = THEMES.findIndex((x) => x.id === id && x.custom);
+  if (i >= 0) THEMES.splice(i, 1);
+  delete THEME_BY_ID[id];
+  fixed.delete(id);
+}
