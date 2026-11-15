@@ -71,7 +71,7 @@ const DEFAULT_SETTINGS = {
   greetingName: "", langTabSize: {}, centered: false, centeredWidth: 1000, cursorColor: "", selectionColor: "", eventSounds: false, reduceMotion: false,
   chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, powerMode: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
   timeTheme: false, dayStarts: 7, nightStarts: 19,
-  focusMode: "off", typewriter: false, indentRainbow: false, pet: "off", petColor: "", celebrate: false, achievements: true,
+  focusMode: "off", typewriter: false, indentRainbow: false, pet: "off", petColor: "", celebrate: false,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -87,7 +87,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
-let joy = null; // focus mode, typewriter, rainbow indents, pet, achievements, confetti (joy.js)
+let joy = null; // focus mode, typewriter, rainbow indents, pet, confetti (joy.js)
 let fx = null; // theme from a picture, chroma, glow, cursor trail, power mode, screen filters, ambient sounds (fx.js)
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
@@ -3146,8 +3146,6 @@ const SETTINGS_SCHEMA = [
   { key: "pet", cat: "Fun", label: "Pet", desc: "A little friend that walks along the bottom of the window. It runs when you type, naps when you stop, cheers when your program works and looks worried when it fails. Click it.", type: "select", options: [["off", "No pet"], ...PETS] },
   { key: "petColor", cat: "Fun", label: "Pet color", desc: "The color of your pet.", type: "select", options: () => (PET_COLORS[settings.pet] || PET_COLORS.cat).map(([v, l]) => [v, l]) },
   { key: "celebrate", cat: "Fun", label: "Confetti on success", desc: "Confetti bursts from the Run button when a program finishes without errors.", type: "bool" },
-  { key: "achievements", cat: "Fun", label: "Achievements", desc: "Unlock badges as you code: your first run, fixing a bug, streaks, night owl and more. View > Achievements shows them all.", type: "bool" },
-  { key: "showAchievements", cat: "Fun", label: "Your achievements", desc: "See the ones you have and the ones still to get.", type: "action", btn: "Show achievements", run: () => joy.showAchievements() },
   { key: "focusMode", cat: "Fun", label: "Focus mode", desc: "Dim all the code except the part you are working on.", type: "select", options: [["off", "Off"], ["paragraph", "Dim all but the current block"], ["line", "Dim all but the current line"]] },
   { key: "typewriter", cat: "Fun", label: "Typewriter scrolling", desc: "Keep the line you are typing on in the middle of the screen.", type: "bool" },
   { key: "indentRainbow", cat: "Fun", label: "Rainbow indentation", desc: "Color each level of indentation, so nested code is easy to follow.", type: "bool" },
@@ -3708,7 +3706,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick", "pet-pick", "achievements", "focus-mode", "typewriter"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick", "pet-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
 };
 function buildMenus() {

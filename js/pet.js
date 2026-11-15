@@ -139,7 +139,7 @@ export function createPet(A) {
     const r = Math.min(2, devicePixelRatio || 1);
     el.width = W * r; el.height = H * r;
     ctx = el.getContext("2d"); ctx.setTransform(r, 0, 0, r, 0, 0);
-    el.addEventListener("click", () => { say("heart", 1600); setPose("happy", 1500); const n = (A.LS.get("petPets", 0) || 0) + 1; A.LS.set("petPets", n); A.onPetClicked?.(n); });
+    el.addEventListener("click", () => { say("heart", 1600); setPose("happy", 1500); });
     document.body.append(el);
     place();
     raf = requestAnimationFrame(tick);
