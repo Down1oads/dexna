@@ -85,7 +85,12 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
 - **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
 - **Text menu**: sort lines (numbers in order), remove duplicates, reverse, shuffle, change case (camelCase, snake_case, PascalCase, kebab-case, CONSTANT_CASE and more), Base64 and URL encode/decode, evaluate math in the selection, insert a UUID or a date.
-- **Markdown preview** (Ctrl+Shift+V): beside the editor, updated as you type and scrolled along with it. Tables, task lists, GitHub-style notes and highlighted code blocks.
+- **Split editor** (Ctrl+\\): a second editor beside the first, for another file or another part of the same one. Edits show in both. Swap sides with one click; Dexna remembers the split for each project.
+- **Markdown preview** (Ctrl+Shift+V): beside the editor, updated as you type and scrolled along with it. Tables, task lists, GitHub-style notes, highlighted code blocks, **math** (`$e^{i\pi}$` and `$$...$$` blocks, rendered with KaTeX) and **diagrams** (` ```mermaid ` blocks: flowcharts, sequence diagrams, class diagrams, Gantt charts and more).
+- **Your own snippets** (Edit > Configure User Snippets): a prefix, a language (or all of them) and a body with tab stops (`$1`, `${1:name}`, `$0`). They show in the suggestions like built-in ones. **Save Selection as Snippet** turns selected code into one. Import and export in VS Code's snippet format.
+- **Clipboard history** (Ctrl+Shift+Alt+V): the last 40 things you copied or cut, to paste again.
+- **Local history** (File > Local History, or a tab's right-click menu): Dexna keeps earlier versions of every file automatically, separate from commits: when you start editing, every few minutes while you type, when you press Ctrl+S, and before a file is deleted. Compare any version with the file now and restore it, or bring back a deleted file.
+- **Run on save** (Settings > Editor, or Run > Toggle Run on Save): Ctrl+S also runs the file.
 - **Save code as an image** (File menu or right-click): a PNG of the selection or file in your theme's colours, to download or copy.
 - **Zen mode** (Ctrl+K Z): just the code, centred. Esc twice leaves.
 - **Project statistics** (View menu): files, lines of code, comments and blank lines per language, and the largest files.
@@ -161,6 +166,8 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | Select next occurrence | Ctrl+D |
 | Settings | Ctrl+, |
 | Source Control | Ctrl+Shift+G |
+| Split editor | Ctrl+\\ |
+| Paste from clipboard history | Ctrl+Shift+Alt+V |
 | Markdown preview | Ctrl+Shift+V |
 | Toggle bookmark / next / previous | Ctrl+Alt+K / Ctrl+Alt+L / Ctrl+Alt+J |
 | Zen mode | Ctrl+K Z |
@@ -177,9 +184,10 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
 | `js/starters.js` | The preset each new project starts with |
 | `js/extras.js` | The diff viewer, change markers, bookmarks, TODOs, text commands, code images, Zen mode, Vim keys, the calculator, statistics and the Markdown preview |
+| `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |
 | `js/scm.js`, `js/diff.js` | Source Control (commits in IndexedDB) and the line diff (Myers' algorithm) behind it |
 | `js/toolbox.js` | The Toolbox |
-| `js/markdown.js` | The Markdown renderer for the preview |
+| `js/markdown.js` | The Markdown renderer for the preview (math and diagrams are drawn by KaTeX and Mermaid, loaded only when a file uses them) |
 | `js/assistant.js`, `js/ai-worker.js` | The Assistant: the chat panel, and the worker that runs the model with WebLLM on WebGPU |
 | `js/online.js`, `js/wrap.js` | The online runners, and the logic that adds a missing `Main` and maps compiler errors back to your lines |
 | `coi-serviceworker.js` | Adds the COOP/COEP headers GitHub Pages cannot send, enabling `SharedArrayBuffer` (needed for `input()`, interrupts and the debugger) |

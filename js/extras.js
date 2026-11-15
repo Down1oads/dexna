@@ -95,7 +95,7 @@ export function createExtras(A) {
   /* =====================================================================
    * Diff viewer
    * ===================================================================== */
-  function showDiff({ original, modified, language, path, live = false, title, originalLabel = "Before", modifiedLabel = "After" }) {
+  function showDiff({ original, modified, language, path, live = false, title, originalLabel = "Before", modifiedLabel = "After", actions = [] }) {
     const monaco = A.monaco;
     const lang = language || (path ? A.langOf(path) : "plaintext");
     const host = h("div", { class: "diff-host" });
@@ -117,6 +117,7 @@ export function createExtras(A) {
           h("button", { class: "btn icon sm", title: "Next change", onclick: () => diff?.goToDiff?.("next") }, icon("stepInto")),
           toggle,
           path && live ? h("button", { class: "btn sm", onclick: () => { A.closeModal(); A.openFile(path); } }, "Open file") : null,
+          ...actions.map((a) => h("button", { class: "btn sm" + (a.primary ? " primary" : ""), onclick: a.run }, a.label)),
           h("button", { class: "btn icon sm", title: "Close (Esc)", onclick: () => A.closeModal() }, icon("close")))),
       h("div", { class: "diff-labels" }, h("span", {}, originalLabel), h("span", { class: "r" }, modifiedLabel)),
       host);
@@ -649,11 +650,50 @@ export function createExtras(A) {
   /* =====================================================================
    * Markdown preview
    * ===================================================================== */
-  const MD_SCRIPT = `(() => {
+  // Runs inside the preview. Math (KaTeX) and diagrams (Mermaid) load only when the file has some.
+  const MD_SCRIPT = (libs, theme) => `(() => {
+    const LIBS = ${JSON.stringify(libs)}, THEME = ${JSON.stringify(theme)};
     const post = (m) => parent.postMessage(Object.assign({ __dexna: 1 }, m), "*");
+    const loaded = {};
+    const load = (src, css) => loaded[src] || (loaded[src] = new Promise((res, rej) => {
+      if (css) { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = css; document.head.append(l); }
+      const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = () => { delete loaded[src]; rej(new Error("Could not load " + src.split("/npm/").pop() + ". Check your connection.")); };
+      document.head.append(s);
+    }));
+    const fail = (el, msg) => { const d = document.createElement("div"); d.className = "dx-error"; d.textContent = msg; el.replaceChildren(d); el.dataset.done = 1; };
+    const svgs = new Map(); let n = 0;
+    async function enhance() {
+      const maths = [...document.querySelectorAll(".dx-math:not([data-done]):not([data-busy])")];
+      if (maths.length) {
+        maths.forEach((el) => (el.dataset.busy = 1));
+        try {
+          await load(LIBS.katex + "katex.min.js", LIBS.katex + "katex.min.css");
+          for (const el of maths) { try { katex.render(el.textContent, el, { displayMode: el.classList.contains("display"), throwOnError: false }); el.dataset.done = 1; } catch (e) { fail(el, e.message); } }
+        } catch (e) { maths.forEach((el) => { el.title = e.message; delete el.dataset.busy; }); }
+      }
+      const dias = [...document.querySelectorAll(".mermaid:not([data-done]):not([data-busy])")];
+      if (dias.length) {
+        dias.forEach((el) => (el.dataset.busy = 1));
+        try {
+          await load(LIBS.mermaid);
+          if (!window.__dxMermaid) { mermaid.initialize({ startOnLoad: false, theme: THEME === "light" ? "default" : "dark", securityLevel: "strict" }); window.__dxMermaid = 1; }
+          for (const el of dias) {
+            const src = el.textContent;
+            let out = svgs.get(src);
+            if (!out) {
+              const id = "dxm" + ++n;
+              try { out = { svg: (await mermaid.render(id, src)).svg }; } catch (e) { out = { error: "Diagram error: " + String(e.message || e).split("\\n").slice(0, 3).join("\\n") }; document.getElementById("d" + id)?.remove(); }
+              svgs.set(src, out);
+            }
+            if (out.error) fail(el, out.error); else { el.innerHTML = out.svg; el.dataset.done = 1; }
+          }
+        } catch (e) { dias.forEach((el) => { el.title = e.message; delete el.dataset.busy; }); }
+      }
+    }
+    addEventListener("DOMContentLoaded", enhance);
     addEventListener("message", (e) => {
       const m = e.data; if (!m || !m.__dexnaMd) return;
-      if (m.html != null) { const y = scrollY; document.getElementById("md").innerHTML = m.html; scrollTo(0, y); }
+      if (m.html != null) { const y = scrollY; document.getElementById("md").innerHTML = m.html; scrollTo(0, y); enhance(); }
       if (m.line != null) {
         const els = [...document.querySelectorAll("[data-line]")];
         let best = null, next = null;
@@ -699,7 +739,7 @@ export function createExtras(A) {
   }
   async function markdownPage(text, path) {
     const tokenCss = [...document.querySelectorAll("style.monaco-colors")].map((s) => s.textContent).join("\n").replace(/<\/style/gi, "");
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_self"><style>${markdownCss(mdColors())}\n${tokenCss}</style><script>${MD_SCRIPT}<\/script></head><body><main id="md">${await markdownBody(text, path)}</main></body></html>`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_self"><style>${markdownCss(mdColors())}\n${tokenCss}</style><script>${MD_SCRIPT({ katex: A.cfg.libs.katex, mermaid: A.cfg.libs.mermaid }, mdColors().type)}<\/script></head><body><main id="md">${await markdownBody(text, path)}</main></body></html>`;
   }
   const isMarkdown = (p) => /\.(md|markdown|mdx)$/i.test(p || "");
 

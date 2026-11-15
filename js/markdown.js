@@ -13,6 +13,8 @@ export function inline(src) {
   const codes = [];
   // code spans first, so nothing inside them is touched
   let s = src.replace(/(`+)([\s\S]*?[^`])\1(?!`)/g, (_, _t, c) => { codes.push(`<code>${esc(c.trim() || c)}</code>`); return `\u0000${codes.length - 1}\u0000`; });
+  // math: $$...$$ and $...$ (not "$5 and $6": the opening $ must touch the formula and the closing one must not be followed by a digit)
+  s = s.replace(/\$\$([^$]+?)\$\$|(?<![\\$\w])\$(?=[^\s$])([^$\n]*?[^\s$\\])\$(?![\d$\w])/g, (_, d, t) => { codes.push(`<span class="dx-math${d ? " display" : ""}">${esc(d ?? t)}</span>`); return `\u0000${codes.length - 1}\u0000`; });
   s = esc(s).replace(/\\([\\`*_{}\[\]()#+\-.!|~>])/g, (_, c) => `&#${c.charCodeAt(0)};`);
   s = s.replace(/!\[([^\]]*)\]\(\s*([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\s*\)/g, (_, alt, url, title) => `<img src="${safeUrl(url)}" alt="${alt}"${title ? ` title="${title}"` : ""}>`);
   s = s.replace(/\[([^\]]+)\]\(\s*([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\s*\)/g, (_, text, url, title) => `<a href="${safeUrl(url)}"${title ? ` title="${title}"` : ""}>${text}</a>`);
@@ -40,7 +42,7 @@ export function renderMarkdown(text, { highlight } = {}) {
   const listRe = /^( {0,3})([-*+]|\d{1,9}[.)])(\s+|$)(.*)$/;
   const quoteRe = /^ {0,3}> ?(.*)$/;
   const tableSep = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
-  const startsBlock = (l) => fenceRe.test(l) || hrRe.test(l) || headRe.test(l) || quoteRe.test(l) || listRe.test(l) || /^ {0,3}<(div|table|pre|details|p|h\d|ul|ol|section|img|br|hr)\b/i.test(l);
+  const startsBlock = (l) => fenceRe.test(l) || /^ {0,3}\$\$/.test(l) || hrRe.test(l) || headRe.test(l) || quoteRe.test(l) || listRe.test(l) || /^ {0,3}<(div|table|pre|details|p|h\d|ul|ol|section|img|br|hr)\b/i.test(l);
 
   const cells = (row) => {
     let r = row.trim();
@@ -62,8 +64,25 @@ export function renderMarkdown(text, { highlight } = {}) {
       while (i < lines.length && !new RegExp(`^ {0,3}${fence[0]}{${fence.length},}\\s*$`).test(lines[i])) body.push(lines[i++]);
       i++;
       const code = body.join("\n");
+      if (/^mermaid$/i.test(lang)) { out.push(`<div class="mermaid"${at(start)}>${esc(code)}</div>`); continue; }
+      if (/^(math|latex|tex|katex)$/i.test(lang)) { out.push(`<div class="dx-math display"${at(start)}>${esc(code)}</div>`); continue; }
       const hl = highlight?.(code, lang);
       out.push(`<pre${at(start)}${lang ? ` data-lang="${esc(lang)}"` : ""}><code${lang ? ` class="language-${esc(lang)}"` : ""}>${hl ?? esc(code)}</code></pre>`);
+      continue;
+    }
+    // display math: a $$ line, the formula, and a closing $$ line (or all on one line)
+    m = /^ {0,3}\$\$(.*)$/.exec(line);
+    const one = m && /^(.*?\S.*?)\$\$\s*$/.exec(m[1]); // $$ formula $$ on one line
+    if (m && (one ? !one[1].includes("$$") : !m[1].includes("$$"))) {
+      const start = i, body = [];
+      i++;
+      if (one) body.push(one[1]);
+      else {
+        if (m[1].trim()) body.push(m[1]);
+        while (i < lines.length && !/\$\$\s*$/.test(lines[i])) body.push(lines[i++]);
+        if (i < lines.length) { const last = lines[i].replace(/\$\$\s*$/, ""); if (last.trim()) body.push(last); i++; }
+      }
+      out.push(`<div class="dx-math display"${at(start)}>${esc(body.join("\n"))}</div>`);
       continue;
     }
     // indented code
@@ -206,5 +225,12 @@ img { max-width: 100%; }
 kbd { font: 12px "JetBrains Mono", monospace; padding: 2px 5px; border: 1px solid ${c.border}; border-bottom-width: 2px; border-radius: 4px; }
 del { opacity: .7; }
 .empty { color: ${c.muted}; font-style: italic; }
+.mermaid { margin: 0 0 1em; text-align: center; overflow-x: auto; }
+.mermaid:not([data-done]) { white-space: pre; font: 12.5px "JetBrains Mono", monospace; color: ${c.muted}; text-align: left; }
+.mermaid svg { max-width: 100%; height: auto; }
+.dx-math.display { display: block; margin: 0 0 1em; overflow-x: auto; overflow-y: hidden; text-align: center; }
+span.dx-math.display { margin: .5em 0; }
+.dx-math:not([data-done]) { font-family: "JetBrains Mono", monospace; font-size: .9em; }
+.dx-error { color: #d0524a; font: 12.5px "JetBrains Mono", monospace; white-space: pre-wrap; text-align: left; border-left: 3px solid #d0524a; padding: 4px 10px; }
 `;
 }

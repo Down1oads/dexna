@@ -7,6 +7,7 @@ import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline, isObjC } from "./onl
 import { registerLanguageModes, loadEmmet, MODES } from "./langmodes.js";
 import { createAssistant } from "./assistant.js";
 import { createExtras } from "./extras.js";
+import { createPower } from "./power.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -51,6 +52,7 @@ const DEFAULT_SETTINGS = {
   theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
+  runOnSave: false, localHistory: true, clipboardHistory: true,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -65,6 +67,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let power = null; // split editor, snippets, clipboard and local history, run on save (power.js)
 
 const EMPTY_PROJECT = { name: "My project", files: {} };
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -90,6 +93,7 @@ const persistProject = debounce(() => {
   LS.set("projects", projectsIndex);
   LS.set("current", project.id);
   extras?.onFilesChanged();
+  power?.onFilesChanged();
 }, 400);
 
 /* =====================================================================
@@ -421,6 +425,7 @@ function ensureModel(path) {
   renderBreakpointDecos(path);
   updateCellDecos(path);
   extras?.onModelCreated(path);
+  power?.onModelCreated(path);
   return m;
 }
 
@@ -442,6 +447,7 @@ function onModelChange(path, model, ev) {
   persistProject();
   if (bpDecos.get(path)?.length) syncBreakpointsFromDecos(path);
   extras?.onModelContent(path);
+  power?.onModelContent(path);
   clearRuntimeError(path);
   if (!lspWriters.has(path)) lspWriters.set(path, debounce(() => lspSyncFile(path), 350));
   lspWriters.get(path)();
@@ -483,6 +489,7 @@ async function loadProject(id) {
   if (lspReady) lspSyncAll();
   if (kernel?.info) syncKernelProject();
   extras?.onProjectLoaded();
+  power?.onProjectLoaded();
   return true;
 }
 
@@ -511,6 +518,7 @@ async function deleteProject() {
   const id = project.id;
   LS.del("project:" + id);
   extras?.scm.deleteProject(id).catch(() => {});
+  power?.deleteProject(id);
   projectsIndex = projectsIndex.filter((p) => p.id !== id);
   LS.set("projects", projectsIndex);
   project = null;
@@ -626,6 +634,7 @@ function movePath(from, to) {
     project.files[b] = content;
     if (project.breakpoints[a]) { project.breakpoints[b] = project.breakpoints[a]; delete project.breakpoints[a]; }
     if (project.bookmarks?.[a]) { project.bookmarks[b] = project.bookmarks[a]; delete project.bookmarks[a]; }
+    power?.onRename(a, b);
     if (project.entry === a) project.entry = b;
     project.open = project.open.map((o) => (o === a ? b : o));
     if (project.active === a) project.active = b;
@@ -666,6 +675,7 @@ async function deletePath(path) {
 }
 /** Delete files without asking. */
 function removeFiles(files) {
+  power?.beforeRemove(files);
   for (const f of files) {
     if (project.files[f] == null) continue;
     delete project.files[f];
@@ -1162,6 +1172,9 @@ function renderTabs() {
         { label: "File History", disabled: ext || !extras?.scm.head, run: () => extras.scm.fileHistory(p) },
         { label: "Compare With…", disabled: ext, run: () => { openFile(key); cmdById("compare-file").run(); } },
         { label: "Toggle Bookmark Here", disabled: ext, run: () => extras.toggleBookmark(p, editor.getPosition()?.lineNumber || 1) },
+        "-",
+        { label: "Open to the Side", kb: "ctrl+\\", disabled: ext, run: () => power.openSplit(p) },
+        { label: "Local History", disabled: ext, run: () => power.timeline(p) },
       ]);
     });
     tab.addEventListener("dragstart", (e) => { tab.classList.add("dragging"); e.dataTransfer.setData("dexna/tab", key); });
@@ -1966,6 +1979,7 @@ function setPreviewWidth(px) {
   wrap.style.setProperty("--preview-w", layout.previewWidth ? layout.previewWidth + "px" : "45%");
 }
 function showPreview(on) {
+  if (on) power?.closeSplit({ remember: false });
   $("#preview").classList.toggle("hidden", !on);
   $("#editor-wrap").classList.toggle("with-preview", on);
   if (!on) { web.path = null; web.mdLoaded = null; $("#preview-frame").srcdoc = ""; updateBreadcrumbs(); }
@@ -3017,6 +3031,9 @@ const SETTINGS_SCHEMA = [
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
   { key: "vimMode", cat: "Editor", label: "Vim keys", desc: "Edit with Vim key bindings: modes, motions, operators, registers, macros, and :w to save. The mode shows in the status bar.", type: "bool" },
   { key: "zenFullscreen", cat: "Editor", label: "Zen mode uses full screen", desc: "Also make the browser full screen in Zen mode (Ctrl+K Z).", type: "bool" },
+  { key: "runOnSave", cat: "Editor", label: "Run on save", desc: "Run the file each time you press Ctrl+S.", type: "bool" },
+  { key: "localHistory", cat: "Editor", label: "Local history", desc: "Keep earlier versions of every file automatically: when you start editing it, every few minutes while you type, when you save and before you delete it. File > Local History shows them. Stored in this browser.", type: "bool" },
+  { key: "clipboardHistory", cat: "Editor", label: "Clipboard history", desc: "Remember the last 40 things you copied or cut in Dexna, for Paste from Clipboard History (Ctrl+Shift+Alt+V). Stored in this browser.", type: "bool" },
   { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
   { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (godbolt.org, ce.judge0.com or wandbox.org, depending on the language). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
   { key: "autoLint", cat: "Python", label: "Live linting", desc: "Check Python code with pyflakes as you type and underline problems.", type: "bool" },
@@ -3036,6 +3053,7 @@ function setSetting(key, value) {
   if (key === "tabSize") for (const m of models.values()) m.updateOptions({ tabSize: value });
   if (key === "autoLint") lintAll();
   extras?.onSetting(key, value);
+  power?.onSetting(key, value);
   $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
   if (settingsOpen) renderSettingsPage();
 }
@@ -3122,7 +3140,7 @@ function renderSettingsBody() {
 async function resetEverything() {
   if (!(await confirmDialog({ title: "Delete all local data", message: "This removes every project, setting and history entry stored by Dexna in this browser. Download anything you want to keep first.", okLabel: "Delete everything", danger: true }))) return;
   Object.keys(localStorage).filter((k) => k.startsWith("dexna:")).forEach((k) => localStorage.removeItem(k));
-  try { indexedDB.deleteDatabase("dexna-scm"); } catch (_) {}
+  try { indexedDB.deleteDatabase("dexna-scm"); indexedDB.deleteDatabase("dexna-history"); } catch (_) {}
   persistProject.flush = () => {};
   location.reload();
 }
@@ -3300,7 +3318,7 @@ const COMMANDS = [
   { id: "language-guide", label: "Languages and Snippets", cat: "Help", run: () => showLanguageGuide() },
   { id: "about", label: "About Dexna", cat: "Help", run: () => showAbout() },
 ];
-extras = createExtras({
+const API = {
   h, $, icon, iconSvg, fileIconSvg, esc, debounce, toast, ago, LS, cfg, settings, layout,
   get monaco() { return monaco; }, get editor() { return editor; }, get project() { return project; }, models,
   openModal, closeModal: () => closeOverlay?.(), quickPick, confirmDialog, promptDialog, showMenu, quickOpen: (p) => quickOpen(p),
@@ -3308,8 +3326,13 @@ extras = createExtras({
   writeFiles: (changes) => applyFileChanges(changes, { silent: true }), removeFiles, persist: () => persistProject(),
   setView, showPanel, setSetting, setStatusFlash, downloadBlob, resolveRef, save: () => saveCommand(), closeActive: () => project.active && closeTab(project.active),
   previewFile, previewPath: () => web.path, postToPreview,
-});
+  showPreview, editorOptions, isRunnable, run: () => cmdById("run").run(),
+};
+extras = createExtras(API);
 COMMANDS.push(...extras.commands);
+API.showDiff = extras.showDiff;
+power = createPower(API);
+COMMANDS.push(...power.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
@@ -3344,7 +3367,8 @@ window.addEventListener("keydown", (e) => {
 async function saveCommand() {
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   persistProject.flush();
-  setStatusFlash("Saved locally");
+  setStatusFlash(settings.runOnSave ? "Saved, running" : "Saved locally");
+  power?.onSave();
 }
 
 function quickOpen(prefix = "") {
@@ -3385,11 +3409,11 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "rename-project", "delete-project"],
-  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "compare-file", "compare-clip", "-", "palette"],
+  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
+  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
-  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
+  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
   Help: ["home", "language-guide", "shortcuts", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
@@ -3494,12 +3518,12 @@ function showAbout() {
     h("div", { class: "modal-body about" },
       h("p", {}, "Dexna is a code editor and runner that lives in your browser. Open the page, pick a language and run code. There is nothing to install and no account."),
       h("h3", {}, "Privacy"),
-      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser. Source Control commits, bookmarks and Toolbox inputs never leave this browser either."),
+      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser. Source Control commits, local history, snippets, clipboard history, bookmarks and Toolbox inputs never leave this browser either. The Markdown preview loads KaTeX and Mermaid from jsDelivr only when a file has math or diagrams; the text itself is rendered on your device."),
       h("h3", {}, "Runtimes"),
       row("Python", `${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}, WebAssembly)`), row("JavaScript", "your browser, in a worker"), row("TypeScript", "the editor's compiler, then your browser"),
       row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("HTML/CSS", "your browser, in a preview beside the editor"), row("Online", `${ONLINE_LANGS.length} languages`), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
       h("h3", {}, "Built with"),
-      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), monaco-vim (Vim keys), WebLLM with Qwen2.5-Coder (the Assistant), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
+      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), monaco-vim (Vim keys), KaTeX (math), Mermaid (diagrams), WebLLM with Qwen2.5-Coder (the Assistant), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
       h("p", {}, h("a", { href: "https://github.com/Down1oads/dexna", target: "_blank", rel: "noopener" }, "Source code on GitHub"))),
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { closeOverlay(); showLanguageGuide(); } }, "Languages"), h("button", { class: "btn", onclick: () => { closeOverlay(); showShortcuts(); } }, "Shortcuts"), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
@@ -3580,6 +3604,7 @@ async function boot() {
   registerLanguageModes(monaco);
   setupAssistant();
   extras.onEditorReady();
+  power.onEditorReady();
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => schedulePreview());
   setupPreview();
