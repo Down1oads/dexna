@@ -6,7 +6,8 @@
  * ===================================================================== */
 export const EFFECTS = [
   ["none", "None"], ["aurora", "Aurora"], ["gradient", "Flowing gradient"], ["particles", "Constellation"],
-  ["stars", "Starfield"], ["waves", "Waves"], ["grid", "Retro grid"], ["rain", "Code rain"], ["bubbles", "Bubbles"], ["image", "Your image"],
+  ["stars", "Starfield"], ["waves", "Waves"], ["grid", "Retro grid"], ["rain", "Code rain"], ["bubbles", "Bubbles"],
+  ["silk", "Silk ribbons"], ["dotsea", "Sea of dots"], ["ripples", "Ripples"], ["flow", "Flow field"], ["hills", "Rolling hills"], ["lava", "Lava lamp"], ["plasma", "Plasma"], ["image", "Your image"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
 export const UI_FONTS = [
@@ -31,6 +32,14 @@ export const LOOKS = [
   { id: "ocean", name: "Ocean", desc: "Layers of waves", theme: "midnight", set: { bgEffect: "waves", bgIntensity: 75, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "rain", name: "Code rain", desc: "Falling symbols", theme: "oled", set: { bgEffect: "rain", bgIntensity: 75, bgSpeed: 45, glass: 70, glassBlur: false, corners: "default", cursorEffect: "glow", accentColor: "#3ddc84" } },
   { id: "lagoon", name: "Lagoon", desc: "Bubbles rising in a light theme", theme: "catppuccin-latte", set: { bgEffect: "bubbles", bgIntensity: 70, bgSpeed: 35, glass: 64, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "silk", name: "Silk", desc: "Ribbons of light swaying across the screen", theme: "rose-pine", set: { bgEffect: "silk", bgIntensity: 80, bgSpeed: 35, glass: 62, glassBlur: false, corners: "round", cursorEffect: "glow", accentColor: "" } },
+  { id: "dotsea", name: "Sea of dots", desc: "A rolling sea made of points", theme: "tokyo-night", set: { bgEffect: "dotsea", bgIntensity: 85, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "ripples", name: "Ripples", desc: "Rings spreading on still water. Click anywhere to make one", theme: "nord", set: { bgEffect: "ripples", bgIntensity: 80, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "flow", name: "Flow", desc: "Thousands of threads drifting on a current", theme: "everforest-dark", set: { bgEffect: "flow", bgIntensity: 70, bgSpeed: 40, glass: 68, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "hills", name: "Rolling hills", desc: "Layered hills passing at dusk", theme: "ayu-mirage", set: { bgEffect: "hills", bgIntensity: 85, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "lava", name: "Lava lamp", desc: "Warm blobs rising and sinking", theme: "gruvbox-dark", set: { bgEffect: "lava", bgIntensity: 70, bgSpeed: 35, glass: 66, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "plasma", name: "Plasma", desc: "Slowly swirling color", theme: "one-dark", set: { bgEffect: "plasma", bgIntensity: 80, bgSpeed: 30, glass: 70, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "seaside", name: "Seaside", desc: "Waves in a bright light theme", theme: "github-light", set: { bgEffect: "waves", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -159,7 +168,7 @@ function makeEffects() {
         s.colors.slice(0, 4).forEach((c, i) => {
           const base = h * (0.55 + i * 0.1), amp = h * (0.05 + i * 0.012), k = (2 + i * 0.7) * Math.PI / w, sp = 0.35 + i * 0.12;
           const g = ctx.createLinearGradient(0, base - amp, 0, h);
-          g.addColorStop(0, rgba(c, s.dark ? 0.32 : 0.24)); g.addColorStop(1, rgba(c, 0.04));
+          g.addColorStop(0, rgba(c, s.dark ? 0.32 : 0.42)); g.addColorStop(1, rgba(c, s.dark ? 0.04 : 0.08));
           ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(0, h);
           for (let x = 0; x <= w; x += 8 * s.px) ctx.lineTo(x, base + Math.sin(x * k + t * sp + i) * amp + Math.sin(x * k * 2.3 - t * sp * 0.7) * amp * 0.35);
           ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
@@ -227,6 +236,156 @@ function makeEffects() {
         });
       },
     },
+    silk: {
+      draw(ctx, s, t) {
+        const { w, h } = s, n = 26;
+        ctx.clearRect(0, 0, w, h);
+        ctx.lineWidth = 1.3 * s.px;
+        const g = ctx.createLinearGradient(0, 0, w, 0);
+        s.colors.slice(0, 3).forEach((c, i) => g.addColorStop(i / 2, c));
+        for (let i = 0; i < n; i++) {
+          const f = i / (n - 1), mid = 1 - Math.abs(f - 0.5) * 2;
+          ctx.globalAlpha = (s.dark ? 0.25 : 0.2) + mid * (s.dark ? 0.65 : 0.55);
+          ctx.strokeStyle = g;
+          ctx.beginPath();
+          for (let x = 0; x <= w + 10; x += 10 * s.px) {
+            const u = x / w;
+            const y = h * 0.45 + (f - 0.5) * h * 0.22
+              + Math.sin(u * Math.PI * 2.4 + t * 0.55 + f * 1.9) * h * 0.11 * (0.55 + f)
+              + Math.sin(u * Math.PI * 1.1 - t * 0.32 + f * 3.1) * h * 0.08;
+            x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+          }
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      },
+    },
+    dotsea: {
+      draw(ctx, s, t) {
+        const { w, h } = s, rows = 34, cols = 64;
+        ctx.clearRect(0, 0, w, h);
+        const glow = ctx.createLinearGradient(0, h * 0.35, 0, h);
+        glow.addColorStop(0, rgba(s.colors[0], 0)); glow.addColorStop(1, rgba(s.colors[0], s.dark ? 0.14 : 0.1));
+        ctx.fillStyle = glow; ctx.fillRect(0, h * 0.35, w, h * 0.65);
+        for (let r = 0; r < rows; r++) {
+          const z = r / (rows - 1), y0 = h * 0.3 + Math.pow(z, 1.5) * h * 0.72, spread = 0.55 + 1.7 * z;
+          ctx.fillStyle = rgba(r % 2 ? s.colors[0] : s.colors[2] || s.colors[0], 0.3 + 0.7 * z);
+          for (let c = 0; c < cols; c++) {
+            const u = c / (cols - 1) - 0.5;
+            const lift = Math.sin(u * 9 + t * 1.1 + z * 5) * Math.cos(z * 6 - t * 0.7) + Math.sin(u * 3.3 - t * 0.5) * 0.5;
+            const x = w / 2 + u * w * spread, y = y0 - lift * h * 0.05 * (0.4 + z);
+            if (x < -10 || x > w + 10) continue;
+            ctx.beginPath(); ctx.arc(x, y, (0.9 + 2.6 * z) * s.px, 0, 6.3); ctx.fill();
+          }
+        }
+      },
+    },
+    ripples: {
+      init(s) { s.rings = []; s.next = 0; },
+      tap(s, x, y) { s.rings.push({ x, y, age: 0.45, c: s.colors[Math.floor(rand(0, 3))], big: 1.5 }); },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.7);
+        g.addColorStop(0, rgba(s.colors[0], s.dark ? 0.1 : 0.07)); g.addColorStop(1, rgba(s.colors[1], 0));
+        ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+        s.next -= dt;
+        if (s.next <= 0 && dt > 0) { s.rings.push({ x: rand(0.1, 0.9) * w, y: rand(0.1, 0.9) * h, age: 0, c: s.colors[Math.floor(rand(0, 4))], big: rand(0.8, 1.3) }); s.next = rand(0.7, 1.6); }
+        if (!s.rings.length) s.rings.push({ x: w * 0.6, y: h * 0.45, age: 2.2, c: s.colors[0], big: 1.2 }, { x: w * 0.25, y: h * 0.7, age: 3.5, c: s.colors[1], big: 1 });
+        ctx.lineWidth = 2.2 * s.px;
+        s.rings = s.rings.filter((r) => (r.age += dt) < 7);
+        for (const r of s.rings) {
+          for (let k = 0; k < 4; k++) {
+            const a = r.age - k * 0.35; if (a <= 0) continue;
+            const rad = a * 70 * s.px * r.big, life = 1 - r.age / 7;
+            ctx.strokeStyle = rgba(r.c, Math.max(0, life * (0.95 - k * 0.18)));
+            ctx.beginPath(); ctx.ellipse(r.x, r.y, rad, rad * 0.62, 0, 0, 6.3); ctx.stroke();
+          }
+        }
+      },
+    },
+    flow: {
+      trails: true,
+      init(s) {
+        const n = Math.min(900, Math.round((s.w * s.h) / (1500 * s.px * s.px)));
+        s.p = Array.from({ length: n }, () => ({ x: rand(0, s.w), y: rand(0, s.h), life: rand(1, 6), c: s.colors[Math.floor(rand(0, 4))] }));
+      },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s, k = 0.0035 / s.px;
+        ctx.globalCompositeOperation = "destination-out"; ctx.fillStyle = `rgba(0,0,0,${Math.min(1, dt * 0.9)})`; ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineWidth = 1.1 * s.px;
+        for (const p of s.p) {
+          const a = Math.sin(p.x * k + t * 0.15) * 1.7 + Math.cos(p.y * k * 1.3 - t * 0.12) * 1.7 + Math.sin((p.x + p.y) * k * 0.6 + t * 0.08);
+          const nx = p.x + Math.cos(a) * 46 * dt * s.px, ny = p.y + Math.sin(a) * 46 * dt * s.px;
+          ctx.strokeStyle = rgba(p.c, s.dark ? 0.75 : 0.55);
+          ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(nx, ny); ctx.stroke();
+          p.x = nx; p.y = ny; p.life -= dt;
+          if (p.life < 0 || p.x < 0 || p.x > w || p.y < 0 || p.y > h) { p.x = rand(0, w); p.y = rand(0, h); p.life = rand(2, 7); }
+        }
+      },
+    },
+    hills: {
+      draw(ctx, s, t) {
+        const { w, h } = s, layers = 5;
+        ctx.clearRect(0, 0, w, h);
+        const sky = ctx.createLinearGradient(0, 0, 0, h);
+        sky.addColorStop(0, rgba(s.colors[2] || s.colors[0], 0)); sky.addColorStop(0.6, rgba(s.colors[0], s.dark ? 0.14 : 0.1)); sky.addColorStop(1, rgba(s.colors[0], 0));
+        ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+        const sunY = h * 0.38;
+        const sun = ctx.createRadialGradient(w * 0.72, sunY, 0, w * 0.72, sunY, h * 0.22);
+        sun.addColorStop(0, rgba(s.colors[1], s.dark ? 0.5 : 0.4)); sun.addColorStop(1, rgba(s.colors[1], 0));
+        ctx.fillStyle = sun; ctx.fillRect(0, 0, w, h);
+        for (let i = 0; i < layers; i++) {
+          const d = (i + 1) / layers, base = h * (0.48 + d * 0.1), amp = h * (0.07 + 0.03 * (1 - d)), off = t * 12 * d * s.px;
+          ctx.fillStyle = rgba(s.colors[i % 4], (s.dark ? 0.16 : 0.12) + d * (s.dark ? 0.3 : 0.22));
+          ctx.beginPath(); ctx.moveTo(0, h);
+          for (let x = 0; x <= w + 8; x += 8 * s.px) {
+            const X = (x + off) / w;
+            ctx.lineTo(x, base - (Math.sin(X * (3 + i) + i * 1.7) * 0.6 + Math.sin(X * (7.3 + i * 1.3) + i) * 0.3 + Math.sin(X * 17 + i * 3) * 0.1) * amp);
+          }
+          ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
+        }
+      },
+    },
+    lava: {
+      lowRes: 0.25,
+      init(s) { s.blobs = Array.from({ length: 9 }, (_, i) => ({ x: rand(0.1, 0.9), ph: rand(0, 6.3), sp: rand(0.05, 0.12), r: rand(0.07, 0.16), c: s.colors[i % 4] })); },
+      draw(ctx, s, t) {
+        const { w, h } = s, m = Math.min(w, h);
+        ctx.clearRect(0, 0, w, h);
+        for (const b of s.blobs) {
+          const y = (0.5 + 0.45 * Math.sin(t * b.sp * 2 + b.ph)) * h, x = (b.x + 0.05 * Math.sin(t * 0.3 + b.ph)) * w;
+          const r = b.r * m * 2.2 * (1 + 0.15 * Math.sin(t * 0.7 + b.ph));
+          const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+          g.addColorStop(0, rgba(b.c, s.dark ? 0.8 : 0.6)); g.addColorStop(0.55, rgba(b.c, s.dark ? 0.55 : 0.4)); g.addColorStop(0.72, rgba(b.c, 0.12)); g.addColorStop(1, rgba(b.c, 0));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, 6.3); ctx.fill();
+        }
+      },
+    },
+    plasma: {
+      lowRes: 0.08,
+      init(s) {
+        const hex = (c) => { const n = parseInt(c.replace("#", "").slice(0, 6), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+        s.pal = s.colors.slice(0, 4).map(hex);
+        s.img = null;
+      },
+      draw(ctx, s, t) {
+        const { w, h, pal } = s;
+        if (!s.img || s.img.width !== w || s.img.height !== h) s.img = ctx.createImageData(w, h);
+        const d = s.img.data, sc = 12 / w, n = pal.length, alpha = s.dark ? 200 : 150;
+        for (let y = 0, i = 0; y < h; y++) {
+          for (let x = 0; x < w; x++, i += 4) {
+            const X = x * sc, Y = y * sc;
+            let v = Math.sin(X * 0.9 + t * 0.6) + Math.sin(Y * 1.1 + t * 0.45) + Math.sin((X + Y) * 0.7 + t * 0.35) + Math.sin(Math.sqrt(X * X + Y * Y) * 0.8 - t * 0.5);
+            v = ((v + 4) / 8) * (n - 1);
+            const a = Math.floor(v), f = v - a, c0 = pal[Math.max(0, Math.min(n - 1, a))], c1 = pal[Math.max(0, Math.min(n - 1, a + 1))];
+            d[i] = c0[0] + (c1[0] - c0[0]) * f; d[i + 1] = c0[1] + (c1[1] - c0[1]) * f; d[i + 2] = c0[2] + (c1[2] - c0[2]) * f; d[i + 3] = alpha;
+          }
+        }
+        ctx.putImageData(s.img, 0, 0);
+      },
+    },
   };
 }
 
@@ -268,6 +427,7 @@ function createBackdrop() {
   reduce.addEventListener?.("change", kick);
   addEventListener("pointermove", (e) => { if (s && fx === effects.particles) s.mouse = { x: e.clientX * s.px, y: e.clientY * s.px }; }, { passive: true });
   document.addEventListener("pointerleave", () => { if (s) s.mouse = null; });
+  addEventListener("pointerdown", (e) => { if (s && fx?.tap) { fx.tap(s, e.clientX * s.px, e.clientY * s.px); kick(); } }, { passive: true });
   let imgUrl = null;
   return {
     async set(o) {
@@ -433,6 +593,13 @@ export function createLook(A) {
       grid: `linear-gradient(transparent 55%, ${c.accent}22 55%), repeating-linear-gradient(90deg, transparent 0 14px, ${c.accent}55 14px 15px), radial-gradient(circle at 50% 50%, ${c.keyword}aa, transparent 18%)`,
       waves: `radial-gradient(120% 40% at 50% 100%, ${c.accent}66, transparent 70%), radial-gradient(120% 30% at 30% 100%, ${c.func}55, transparent 70%)`,
       rain: `repeating-linear-gradient(90deg, transparent 0 9px, ${c.accent}44 9px 10px)`,
+      silk: `repeating-linear-gradient(170deg, transparent 0 7px, ${c.accent}44 7px 8px), linear-gradient(90deg, ${c.accent}22, ${c.keyword}33)`,
+      dotsea: `radial-gradient(circle, ${c.accent}aa 1px, transparent 1.6px) 0 40px / 9px 6px, linear-gradient(transparent 50%, ${c.accent}22)`,
+      ripples: `radial-gradient(circle at 65% 55%, transparent 0 14px, ${c.accent}88 15px, transparent 16px 24px, ${c.accent}55 25px, transparent 26px 34px, ${c.accent}33 35px, transparent 36px)`,
+      flow: `repeating-radial-gradient(circle at 30% 120%, transparent 0 6px, ${c.func}33 6px 7px), linear-gradient(120deg, ${c.accent}22, transparent)`,
+      hills: `radial-gradient(120% 40% at 30% 100%, ${c.accent}77, transparent 70%), radial-gradient(90% 35% at 80% 100%, ${c.keyword}66, transparent 70%), radial-gradient(circle at 72% 35%, ${c.func}66, transparent 18%)`,
+      lava: `radial-gradient(circle at 30% 40%, ${c.accent}cc 0 12px, transparent 22px), radial-gradient(circle at 65% 70%, ${c.keyword}bb 0 16px, transparent 26px), radial-gradient(circle at 80% 25%, ${c.func}aa 0 8px, transparent 16px)`,
+      plasma: `conic-gradient(from 40deg at 60% 50%, ${c.accent}77, ${c.keyword}77, ${c.func}77, ${c.string}77, ${c.accent}77)`,
       bubbles: `radial-gradient(circle at 25% 70%, ${c.accent}66 0 9px, transparent 10px), radial-gradient(circle at 70% 40%, ${c.func}55 0 14px, transparent 15px), radial-gradient(circle at 50% 85%, ${c.keyword}55 0 6px, transparent 7px)`,
       gradient: `linear-gradient(120deg, ${c.accent}66, ${c.keyword}55, ${c.string}55)`,
     }[l.set.bgEffect] || "none";
