@@ -2,6 +2,7 @@
 // cursor effects and one-click "looks" that set several of these at once.
 import { makeScenes, SCENES } from "./scenes.js";
 import { makeScenes2, SCENES2 } from "./scenes2.js";
+import { makeCozy, COZY } from "./cozy.js";
 
 /* =====================================================================
  * Choices
@@ -14,7 +15,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES, ...SCENES2,
+  ...SCENES, ...SCENES2, ...COZY,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
@@ -85,6 +86,14 @@ export const LOOKS = [
   { id: "cloudsea", name: "Above the clouds", desc: "Sunrise over a sea of clouds", theme: "rose-pine", set: { bgEffect: "cloudsea", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "balloons", name: "Balloons", desc: "Hot air balloons drifting over the hills", theme: "github-light-default", set: { bgEffect: "balloons", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "windfarm", name: "Wind farm", desc: "Turbines turning on green hills", theme: "github-light", set: { bgEffect: "windfarm", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "rainwindow", name: "Rainy night", desc: "City lights through a rainy window", theme: "tokyo-night", set: { bgEffect: "rainwindow", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "snowwindow", name: "Snowy window", desc: "Snow falling outside, a candle on the sill", theme: "nord", set: { bgEffect: "snowwindow", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fireplace", name: "Fireplace", desc: "A crackling fire in a warm room", theme: "gruvbox-dark", set: { bgEffect: "fireplace", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "neon", name: "Neon rain", desc: "Flickering neon signs on a wet night", theme: "dracula", set: { bgEffect: "neon", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "animesky", name: "Anime sky", desc: "Big clouds, power lines and a bright sky", theme: "github-light", set: { bgEffect: "animesky", bgIntensity: 95, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "outrun", name: "Outrun", desc: "Neon grid, striped sun and palm trees", theme: "neon", set: { bgEffect: "outrun", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelcity", name: "Pixel city", desc: "A pixel-art city at night, with a passing train", theme: "tokyo-night", set: { bgEffect: "pixelcity", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelsunset", name: "Pixel sunset", desc: "A pixel-art sun setting over the sea", theme: "rose-pine", set: { bgEffect: "pixelsunset", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -131,6 +140,7 @@ function makeEffects() {
   return {
     ...makeScenes(),
     ...makeScenes2(),
+    ...makeCozy(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -951,6 +961,7 @@ function createBackdrop() {
       img.style.display = "none";
       const next = effects[name] || null;
       canvas.style.display = next ? "block" : "none";
+      canvas.style.imageRendering = next?.pixel ? "pixelated" : ""; // pixel-art scenes are drawn small and scaled up sharp
       if (next !== fx) { fx = next; s = {}; clock = 0; }
       if (!fx) { cancelAnimationFrame(raf); raf = 0; return true; }
       setup();
@@ -1151,6 +1162,14 @@ export function createLook(A) {
       cloudsea: `radial-gradient(circle at 55% 56%, #ffd2a0 0 6px, transparent 7px), radial-gradient(120% 30% at 50% 100%, #5a6690 60%, transparent 61%), linear-gradient(#070b1d, #24305a 40%, #c0708a 62%)`,
       balloons: `radial-gradient(7px 9px at 30% 40%, #e8505b, transparent), radial-gradient(5px 7px at 65% 30%, #4a90e2, transparent), radial-gradient(6px 8px at 78% 55%, #f39c12, transparent), linear-gradient(transparent 80%, #5f8a5a 80%), linear-gradient(#6aaee6, #fde6c8)`,
       windfarm: `linear-gradient(90deg, transparent 30%, #ffffff 30% 31%, transparent 31%, transparent 70%, #ffffff 70% 71%, transparent 71%) 0 40% / 100% 40% no-repeat, linear-gradient(transparent 78%, #6a9c55 78%), linear-gradient(#5ea7e6, #f2f6ea)`,
+      rainwindow: `linear-gradient(90deg, transparent 32%, #0b0a10 32% 34%, transparent 34% 66%, #0b0a10 66% 68%, transparent 68%), radial-gradient(circle at 30% 70%, #ffb34788 0 6px, transparent 9px), radial-gradient(circle at 60% 60%, #6ab0ff77 0 7px, transparent 10px), radial-gradient(circle at 80% 75%, #ff6b6b77 0 5px, transparent 8px), linear-gradient(#070912, #2a1d33)`,
+      snowwindow: `linear-gradient(90deg, transparent 49%, #3b2619 49% 51%, transparent 51%), radial-gradient(circle at 34% 72%, #ffd27a 0 2px, #ffb35a55 5px, transparent 12px), radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1.5px 1.5px at 70% 45%, #fff, transparent), linear-gradient(transparent 76%, #8fa0c2 76%), linear-gradient(#0a1226, #3a4a6a)`,
+      fireplace: `radial-gradient(circle at 50% 75%, #ffe08a 0 4px, #ff8a3d 8px, #ff5a1f55 14px, transparent 26px), linear-gradient(90deg, transparent 30%, #5e3426 30% 70%, transparent 70%) 0 100% / 100% 60% no-repeat, linear-gradient(#1a100d, #2a1a14)`,
+      neon: `radial-gradient(18px 6px at 30% 30%, #ff3d8baa, transparent), radial-gradient(18px 6px at 60% 55%, #ffd23daa, transparent), radial-gradient(10px 8px at 75% 25%, #3de8ffaa, transparent), linear-gradient(transparent 74%, #0d0a10 74%), #120d14`,
+      animesky: `radial-gradient(30px 18px at 35% 35%, #ffffff, transparent), radial-gradient(18px 12px at 70% 60%, #ffffff, transparent), linear-gradient(90deg, transparent 75%, #26304a 75% 76.5%, transparent 76.5%), linear-gradient(transparent 88%, #26304a 88%), linear-gradient(#1554d1, #a9d4ff)`,
+      outrun: `radial-gradient(circle at 50% 58%, #ffb35a 0 16px, transparent 17px), repeating-linear-gradient(90deg, transparent 0 10px, #ff3df288 10px 11px) 0 100% / 100% 40% no-repeat, linear-gradient(transparent 60%, #1a0433 60%), linear-gradient(#0a0221, #3b0a5e 55%, #ff4f7b)`,
+      pixelcity: `linear-gradient(90deg, #120c22 0 10%, transparent 10% 13%, #120c22 13% 22%, transparent 22% 24%, #120c22 24% 40%, transparent 40% 44%, #120c22 44% 60%, transparent 60% 63%, #120c22 63% 80%, transparent 80% 83%, #120c22 83%) 0 100% / 100% 45% no-repeat, radial-gradient(circle at 78% 22%, #fffbe8 0 5px, transparent 6px), linear-gradient(#0b0a24, #7a3a7a)`,
+      pixelsunset: `radial-gradient(circle at 50% 62%, #ffb35a 0 12px, transparent 13px), repeating-linear-gradient(transparent 0 3px, #ffb35a55 3px 4px) 45% 100% / 12% 38% no-repeat, linear-gradient(transparent 62%, #1a1238 62%), linear-gradient(#1a1040, #c8406a 60%, #ffb35a)`,
       planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;
