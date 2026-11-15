@@ -1792,6 +1792,7 @@ function onKernelEvent(msg) {
       break;
     }
     case "plot": addPlot(msg.data); break;
+    case "clear": sink.clear(); break;
     case "paused": onPaused(JSON.parse(msg.data)); break;
     case "eval-result": onEvalResult(JSON.parse(msg.data)); break;
     case "ack": dbg.waiting = true; dbgPump(); break;
@@ -2002,6 +2003,7 @@ async function runOther(path, lang) {
     return;
   }
   const worker = new Worker(new URL(`runner.js?v=${RUNNER_LOAD_ID}`, import.meta.url), { type: "module" });
+  const sab = self.crossOriginIsolated && typeof SharedArrayBuffer !== "undefined" ? { ctrl: new SharedArrayBuffer(8), data: new SharedArrayBuffer(65536) } : null;
   let finished = false;
   const finish = (res) => {
     if (finished) return;
@@ -2020,13 +2022,22 @@ async function runOther(path, lang) {
     const m = e.data;
     if (m.type === "stdout") terminal.write(m.text, "stdout");
     else if (m.type === "stderr") terminal.write(m.text, "stderr");
-    else if (m.type === "input-request") {
+    else if (m.type === "input-request" && m.sync && sab) {
+      // prompt(): the worker waits on shared memory; write the answer there and wake it
+      terminal.requestInput((value) => {
+        const ctrl = new Int32Array(sab.ctrl), bytes = new TextEncoder().encode(value ?? "").slice(0, sab.data.byteLength);
+        new Uint8Array(sab.data).set(bytes);
+        ctrl[1] = bytes.length;
+        Atomics.store(ctrl, 0, value == null ? 2 : 1);
+        Atomics.notify(ctrl, 0);
+      });
+    } else if (m.type === "input-request") {
       terminal.requestInput((value) => worker.postMessage({ cmd: "input-reply", value: value == null ? null : value }));
     } else if (m.type === "done") finish(m);
   };
   worker.onerror = (e) => { terminal.write(`${e.message || "The runner crashed"}\n`, "stderr"); finish({ ok: false, time: 0 }); };
   setKernelStatus("busy", `Running ${RUN_LANG_NAME[lang]}`);
-  worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs, npm: project.npm || {} });
+  worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs, npm: project.npm || {}, sab });
 }
 
 /* ---------- web pages: HTML with its CSS and scripts, previewed beside the editor ---------- */

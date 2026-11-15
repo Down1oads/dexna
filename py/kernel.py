@@ -36,6 +36,13 @@ _orig_sleep = time.sleep
 
 
 def _dexna_sleep(secs):
+    if isinstance(secs, (str, bytes, bytearray)) or secs is None or isinstance(secs, complex):
+        raise TypeError(f"'{type(secs).__name__}' object cannot be interpreted as an integer")
+    secs = float(secs)
+    if secs != secs:
+        raise ValueError("Invalid value NaN (not a number)")
+    if secs < 0:
+        raise ValueError("sleep length must be non-negative")
     try:
         sys.stdout.flush()
         sys.stderr.flush()
@@ -43,7 +50,7 @@ def _dexna_sleep(secs):
     except Exception:
         pass
     # Sleep in short steps: Python checks for the Stop button between steps, never inside one.
-    end = time.monotonic() + max(0.0, float(secs))
+    end = time.monotonic() + secs
     while True:
         left = end - time.monotonic()
         if left <= 0:
@@ -53,6 +60,160 @@ def _dexna_sleep(secs):
 
 _dexna_sleep.__doc__ = _orig_sleep.__doc__
 time.sleep = _dexna_sleep
+
+
+# asyncio.run: the browser's own event loop cannot be waited on from a normal (synchronous) program,
+# so programs get a small event loop of their own. It runs timers, tasks, gather, queues and so on;
+# it has no sockets (networking in the browser goes through pyodide.http instead).
+import asyncio
+import selectors
+from asyncio import selector_events as _selector_events
+
+
+class _NoSocketSelector(selectors.BaseSelector):
+    def register(self, fileobj, events, data=None):
+        raise OSError("Sockets are not available to programs running in the browser")
+
+    def unregister(self, fileobj):
+        raise KeyError(fileobj)
+
+    loop = None
+
+    def select(self, timeout=None):
+        # Nothing can arrive from outside: wait for the next timer, in short steps (time.sleep notices
+        # Stop), and wake up early when something was scheduled meanwhile, such as asyncio's own
+        # handling of Stop, which cancels the program's tasks.
+        end = time.monotonic() + (0.05 if timeout is None else max(0.0, timeout))
+        while True:
+            left = end - time.monotonic()
+            if left <= 0 or (self.loop is not None and self.loop._ready):
+                return []
+            time.sleep(min(0.05, left))
+
+    def close(self):
+        pass
+
+    def get_map(self):
+        return {}
+
+
+class _DexnaEventLoop(_selector_events.BaseSelectorEventLoop):
+    def __init__(self):
+        selector = _NoSocketSelector()
+        super().__init__(selector)
+        selector.loop = self
+
+    def _make_self_pipe(self):
+        pass
+
+    def _close_self_pipe(self):
+        pass
+
+    def _write_to_self(self):
+        pass
+
+
+_orig_asyncio_run = asyncio.run
+
+
+def _dexna_asyncio_run(main, *, debug=None, loop_factory=None):
+    from asyncio import events
+    # the browser's loop counts as "running" for the whole page; step it aside while the program's loop runs
+    outer = events._get_running_loop()
+    events._set_running_loop(None)
+    try:
+        with asyncio.Runner(debug=debug, loop_factory=loop_factory or _DexnaEventLoop) as runner:
+            return runner.run(main)
+    finally:
+        events._set_running_loop(outer)
+
+
+_dexna_asyncio_run.__doc__ = _orig_asyncio_run.__doc__
+asyncio.run = _dexna_asyncio_run
+
+# threads: say why they are missing instead of "can't start new thread"
+import threading
+
+_orig_thread_start = threading.Thread.start
+
+
+def _dexna_thread_start(self):
+    try:
+        return _orig_thread_start(self)
+    except RuntimeError as e:
+        raise RuntimeError("can't start new thread: Python in the browser (Pyodide) has no threads. "
+                           "Call the function directly, or use asyncio for things that run side by side.") from None
+
+
+threading.Thread.start = _dexna_thread_start
+
+# getpass: read the password like input() (the terminal cannot hide what you type)
+import getpass
+
+
+def _dexna_getpass(prompt="Password: ", stream=None):
+    return input(prompt)
+
+
+getpass.getpass = _dexna_getpass
+
+# exit() and quit() close sys.stdin before stopping, which would break input() for every later run
+class _DexnaQuitter:
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return f"Use {self.name}() or Ctrl-D (i.e. EOF) to exit"
+
+    def __call__(self, code=None):
+        raise SystemExit(code)
+
+
+builtins.exit = _DexnaQuitter("exit")
+builtins.quit = _DexnaQuitter("quit")
+
+# warnings: show file names the way the editor does (main.py:3, not the full path)
+import warnings
+
+_orig_formatwarning = warnings.formatwarning
+warnings.formatwarning = lambda *a, **kw: _orig_formatwarning(*a, **kw).replace(PROJECT + "/", "")
+
+# help(): print the documentation instead of trying to open a pager
+import pydoc
+
+
+def _dexna_pager(text, title=""):
+    sys.stdout.write(pydoc.plain(text) + "\n")
+
+
+pydoc.pager = _dexna_pager
+pydoc.getpager = lambda: _dexna_pager
+
+# os.system: "cls" / "clear" clear the terminal; other commands cannot run in the browser
+_orig_system = os.system
+
+
+def _dexna_system(command):
+    cmd = str(command).strip().lower()
+    if cmd in ("cls", "clear", "clear -x", "tput clear"):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        post("clear", "")
+        return 0
+    sys.stderr.write(f"[Dexna] os.system({command!r}) cannot run here: programs in the browser cannot start other programs.\n")
+    return -1
+
+
+os.system = _dexna_system
+
+_HINTS = {
+    "turtle": "turtle draws in a desktop window, which Python in the browser does not have. matplotlib can draw instead (plots show in the Plots tab).",
+    "tkinter": "tkinter opens desktop windows, which Python in the browser does not have. For a user interface, try a web page project (HTML/CSS/JavaScript).",
+    "_tkinter": "tkinter opens desktop windows, which Python in the browser does not have.",
+    "pygame": "pygame needs a desktop window and sound device, which Python in the browser does not have.",
+    "curses": "curses needs a real text terminal, which the browser does not provide.",
+    "readline": "readline is not available in the browser; input() works without it.",
+}
 
 if PROJECT not in sys.path:
     sys.path.insert(0, PROJECT)
@@ -159,7 +320,10 @@ def _format_exc(e):
         text = ("Traceback (most recent call last):\n" + "".join(traceback.format_list(mine)) if mine else "") + "".join(traceback.format_exception_only(type(e), e))
     else:
         text = "".join(traceback.format_exception(type(e), e, tb))
-    return text.replace(PROJECT + "/", "")
+    text = text.replace(PROJECT + "/", "")
+    if isinstance(e, ModuleNotFoundError) and (e.name or "").split(".")[0] in _HINTS:
+        text += f"[Dexna] {_HINTS[e.name.split('.')[0]]}\n"
+    return text
 
 
 # ---------------------------------------------------------------- summaries
@@ -320,6 +484,8 @@ class Debugger:
 
 # ---------------------------------------------------------------- entry points
 def _dexna_run(path, debug, breakpoints_json, stop_on_entry):
+    import linecache
+    linecache.clearcache()  # tracebacks and warnings must quote the files as they are now
     _purge_project_modules()
     os.chdir(PROJECT)
     full = os.path.join(PROJECT, path)
@@ -342,9 +508,11 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry):
         else:
             exec(code, ns)
     except SystemExit as e:
+        # like real Python: sys.exit("message") prints the message; sys.exit(3) just ends with that code
         if e.code not in (None, 0):
             ok = False
-            sys.stderr.write(f"SystemExit: {e.code}\n")
+            if not isinstance(e.code, int):
+                sys.stderr.write(f"{e.code}\n")
     except BaseException as e:
         ok = False
         sys.stderr.write(_format_exc(e))

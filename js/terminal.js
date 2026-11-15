@@ -48,15 +48,17 @@ export class Terminal {
     const stick = this._atBottom();
     const st = this.styles[stream] || (this.styles[stream] = {});
     // tokens: escape sequences, \r, \n, plain text
-    const re = /\x1b\[([0-9;?]*)([A-Za-z])|\r\n|\r|\n|[^\x1b\r\n]+|\x1b/g;
+    const re = /\x1b\[([0-9;?]*)([A-Za-z])|\x1bc|\r\n|\r|\n|[^\x1b\r\n]+|\x1b/g;
     let m;
     while ((m = re.exec(text))) {
       const tok = m[0];
       if (m[2] !== undefined) {
         if (m[2] === "m") this._sgr(st, m[1]);
         else if (m[2] === "K") this.line.textContent = this.line.textContent; // erase line: keep simple
+        else if (m[2] === "J" && (m[1] === "2" || m[1] === "3")) { this.clear(); } // clear screen ("\x1b[2J")
         continue;
       }
+      if (tok === "\x1bc") { this.clear(); continue; } // full reset, also used to clear the screen
       if (tok === "\n" || tok === "\r\n") { this.newLine(); continue; }
       if (tok === "\r") { this.line.textContent = ""; continue; }
       if (tok === "\x1b") continue;

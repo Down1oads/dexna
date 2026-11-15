@@ -52,6 +52,12 @@ function makeWriter(type) {
 }
 const outW = makeWriter("stdout");
 const errW = makeWriter("stderr");
+// keep the order of output and errors: before one stream writes, the other sends what it has waiting
+{
+  const ow = outW.write, ew = errW.write;
+  outW.write = (b) => { errW.flush(); return ow(b); };
+  errW.write = (b) => { outW.flush(); return ew(b); };
+}
 const flushAll = () => { outW.flush(); errW.flush(); };
 
 /* ---------- File system sync ---------- */

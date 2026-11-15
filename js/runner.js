@@ -13,6 +13,18 @@ self.onmessage = (e) => {
 function readInput(prompt) {
   return new Promise((resolve) => { inputResolve = resolve; post("input-request", { prompt: prompt || "" }); });
 }
+// prompt() has to pause the program until you answer, like on a web page. A worker can only do that
+// with shared memory, which needs Full mode (cross-origin isolation): the page writes the answer there.
+let SAB = null;
+function readInputSync(prompt) {
+  if (!SAB) throw new Error('prompt() needs Full mode (see the status bar). In Limited mode use: const answer = await input("Question? ")');
+  const ctrl = new Int32Array(SAB.ctrl), data = new Uint8Array(SAB.data);
+  Atomics.store(ctrl, 0, 0);
+  post("input-request", { prompt: prompt || "", sync: true });
+  Atomics.wait(ctrl, 0, 0);
+  if (ctrl[0] === 2) return null; // the input was cancelled
+  return new TextDecoder().decode(data.slice(0, ctrl[1]));
+}
 
 /* ------------------------------------------------------------------ */
 /* console / inspect                                                   */
@@ -180,6 +192,14 @@ async function runJs(m) {
   self.clearInterval = (id) => { timers.delete(id); clearI(id); };
   self.console = Object.assign(Object.create(null), cons);
   self.input = async (prompt = "") => { out(String(prompt)); const v = await readInput(prompt); return v; };
+  // the browser's dialogs, in the terminal
+  self.prompt = (message = "", defaultValue = "") => {
+    out(String(message) + (message && !/\s$/.test(String(message)) ? " " : ""));
+    const v = readInputSync(String(message));
+    return v === null ? null : v === "" && defaultValue !== "" ? String(defaultValue) : v;
+  };
+  self.alert = (message = "") => { out(String(message) + "\n"); };
+  self.confirm = (message = "") => /^\s*(y|yes|ok|true)\s*$/i.test(self.prompt(String(message) + " (y/n)") || "");
 
   let ok = true;
   const clean = (s) => { for (const [u, f] of urlToFile) s = s.split(u).join(f); return s; };
@@ -201,6 +221,8 @@ async function runJs(m) {
   // keep the program alive while timers are pending, like an event loop
   await new Promise((r) => realST(r, 0));
   while (timers.size) await new Promise((r) => realST(r, 25));
+  // let the browser report promises that failed with nobody handling them (it does so a moment later)
+  await new Promise((r) => realST(r, 30));
   post("done", { ok, time: (performance.now() - t0) / 1000 });
 }
 
@@ -321,6 +343,7 @@ async function runSql(m) {
 }
 
 async function run(m) {
+  SAB = m.sab || null;
   if (m.lang === "javascript" || m.lang === "typescript") return runJs(m);
   if (m.lang === "lua") return runLua(m);
   if (m.lang === "sql") return runSql(m);
