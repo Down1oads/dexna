@@ -956,3 +956,10 @@ html.fx .notes-area { background: transparent; }
 .act-lang .st-bar { height: 8px; }
 .tpl-row .ld { color: var(--fg-dim); }
 .act-lang .st-bar { width: auto; } .act-lang .st-bar i { height: 8px; }
+
+/* ================= Packages: language tabs as wrapping pills ================= */
+.seg.pkg-tabs { border: 0; overflow: visible; flex-wrap: wrap; gap: 5px; border-radius: 0; }
+.seg.pkg-tabs button { flex: none; padding: 3px 11px; border: 1px solid var(--border); border-radius: 13px; font-size: 12px; }
+.seg.pkg-tabs button + button { border-left: 1px solid var(--border); }
+.seg.pkg-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.pk-acts { display: inline-flex; gap: 4px; align-items: center; }

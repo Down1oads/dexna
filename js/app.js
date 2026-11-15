@@ -11,6 +11,7 @@ import { createPower } from "./power.js";
 import { createMore } from "./more.js";
 import { createLook, EFFECTS, UI_FONTS, CODE_FONTS } from "./look.js";
 import { createPlus } from "./plus.js";
+import { createPkgs } from "./pkgs.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -73,6 +74,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
@@ -517,6 +519,7 @@ async function loadProject(id) {
   if (kernel?.info) syncKernelProject();
   extras?.onProjectLoaded();
   power?.onProjectLoaded();
+  pkgUI.picked = false;
   plus?.onProjectLoaded();
   more?.onProjectLoaded();
   return true;
@@ -2953,9 +2956,20 @@ function renderPackagesView() {
   const root = document.getElementById("pkg-root");
   if (!root || !project) return;
   const scroll = root.scrollTop;
-  const seg = h("div", { class: "seg" }, [["python", "Python"], ["javascript", "JavaScript"]].map(([id, label]) =>
-    h("button", { class: pkgUI.lang === id ? "active" : "", onclick: () => { pkgUI.lang = id; renderPackagesView(); } }, label)));
+  if (!pkgUI.picked) { // start on the tab for the language you are working in
+    const lang = langOf(currentPath() || "");
+    pkgUI.lang = { python: "python", javascript: "javascript", typescript: "javascript", lua: "lua", html: "web", css: "web", sql: "sql" }[lang] || pkgUI.lang;
+  }
+  const seg = h("div", { class: "seg pkg-tabs" }, [["python", "Python"], ["javascript", "JavaScript"], ...(pkgs?.tabs || [])].map(([id, label]) =>
+    h("button", { class: pkgUI.lang === id ? "active" : "", onclick: () => { pkgUI.lang = id; pkgUI.picked = true; renderPackagesView(); } }, label)));
   const parts = [seg];
+  if (pkgs?.tabs.some(([id]) => id === pkgUI.lang)) {
+    parts.push(...pkgs.render(pkgUI.lang, { pkgCard, pkgSection, pkgInput }));
+    parts.push(h("p", { class: "pkg-foot" }, "Online languages (C#, Java, C++ and the others) get only the file you run, with their standard library."));
+    root.replaceChildren(...parts);
+    root.scrollTop = scroll;
+    return;
+  }
 
   if (pkgUI.lang === "python") {
     const input = pkgInput("python", "Install a package, e.g. numpy", (v) => { if (v.trim()) { installFromInput(v); input.value = ""; } });
@@ -2995,7 +3009,7 @@ function renderPackagesView() {
     }
     parts.push(h("p", { class: "pkg-hint" }, "The editor does not show types for npm packages yet, so imports are treated as untyped."));
   }
-  parts.push(h("p", { class: "pkg-foot" }, "Lua and SQL have no package manager in the browser. For Lua, put .lua files in your project and use require(\"name\")."));
+  parts.push(h("p", { class: "pkg-foot" }, "Lua libraries, libraries for web pages and SQL sample databases are on their own tabs above."));
   root.replaceChildren(...parts);
   root.scrollTop = scroll;
 }
@@ -3276,7 +3290,7 @@ function setView(view, { toggle = false } = {}) {
   $$("#activitybar [data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === "settings" ? settingsOpen : layout.sidebar && b.dataset.view === layout.view));
   $$("#sidebar .view").forEach((v) => v.classList.toggle("active", v.dataset.view === layout.view));
   if (layout.view === "search" && layout.sidebar) setTimeout(() => $("#search-input").focus(), 0);
-  if (layout.view === "packages" && layout.sidebar && !installedPkgs.length) refreshPackages();
+  if (layout.view === "packages" && layout.sidebar) { renderPackagesView(); if (!installedPkgs.length) refreshPackages(); }
   if (layout.view === "outline") renderOutline();
   if (layout.view === "assistant" && layout.sidebar) assistant?.show();
   if (layout.sidebar) extras?.onView(layout.view);
@@ -3434,6 +3448,7 @@ look = createLook(API);
 COMMANDS.push(...look.commands);
 plus = createPlus(API);
 COMMANDS.push(...plus.commands);
+pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
