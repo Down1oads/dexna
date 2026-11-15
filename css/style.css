@@ -1064,6 +1064,23 @@ html.reduce-motion #screen-filter { animation: none !important; }
 .monaco-editor .dx-ir2 { background: rgba(255, 120, 220, .07); } .monaco-editor .dx-ir3 { background: rgba(90, 200, 255, .07); }
 .monaco-editor .dx-ir4 { background: rgba(255, 150, 90, .07); } .monaco-editor .dx-ir5 { background: rgba(180, 140, 255, .07); }
 html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
-#pet { position: fixed; left: 0; bottom: 24px; width: 76px; height: 56px; z-index: 1300; cursor: pointer; }
 .si-or { color: var(--fg-faint); font-size: 12px; }
 .si-image { flex-wrap: wrap; }
+
+/* ================= Settings JSON, project settings, files ================= */
+.modal.pj-modal { width: min(820px, calc(100vw - 32px)); margin-top: -6vh; display: flex; flex-direction: column; }
+.pj-hint { padding: 0 16px 10px; line-height: 1.45; }
+.pj-host { height: min(56vh, 520px); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.pj-modal .modal-foot { padding-top: 12px; align-items: center; }
+.pj-status { margin-right: auto; } .pj-status.err { color: var(--err); }
+.sp-head .btn.sm { flex: none; }
+.si-override { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 8px; padding: 6px 10px; border-radius: 4px; font-size: 12px; color: var(--fg-dim); background: color-mix(in srgb, var(--info) 12%, transparent); border-left: 2px solid var(--info); max-width: 780px; }
+.si-override svg { width: 14px; height: 14px; flex: none; color: var(--info); }
+.si-override code { font: 11.5px var(--mono); }
+.si-assoc { display: flex; flex-direction: column; gap: 6px; }
+.si-assoc-row { display: flex; align-items: center; gap: 8px; }
+.si-assoc-row input { width: 160px; height: 28px; font-family: var(--mono); font-size: 12.5px; }
+.si-assoc-row select { min-width: 180px !important; }
+.tab.dirty .close { visibility: visible; }
+.tab.dirty:not(:hover) .close svg { display: none; }
+.tab.dirty:not(:hover) .close::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); }

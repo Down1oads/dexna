@@ -15,7 +15,7 @@ import { createPkgs } from "./pkgs.js";
 import { createTweaks } from "./tweaks.js";
 import { createFx } from "./fx.js";
 import { createJoy } from "./joy.js";
-import { PETS, PET_COLORS } from "./pet.js";
+import { createPrefs, PROJECT_KEYS, makeMatcher, globToRegExp } from "./prefs.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -71,10 +71,16 @@ const DEFAULT_SETTINGS = {
   greetingName: "", langTabSize: {}, centered: false, centeredWidth: 1000, cursorColor: "", selectionColor: "", eventSounds: false, reduceMotion: false,
   chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, powerMode: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
   timeTheme: false, dayStarts: 7, nightStarts: 19,
-  focusMode: "off", typewriter: false, indentRainbow: false, pet: "off", petColor: "", celebrate: false,
+  focusMode: "off", typewriter: false, indentRainbow: false, celebrate: false,
+  autoSave: "delay", autoSaveDelay: 400, filesExclude: "**/__pycache__\n**/.DS_Store\n*.pyc", explorerSort: "name", confirmDelete: true, fileAssociations: {},
+  inlayHints: "off", inlayParams: "literals", inlayTypes: true,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
+// While a project overrides a setting, `settings` holds the project's value and this holds yours.
+let overriddenUser = {};
+const userSettings = () => ({ ...settings, ...overriddenUser });
+function saveSettings() { LS.set("settings", userSettings()); }
 // older versions stored "dark" / "light"
 if (settings.theme === "dark") settings.theme = DEFAULT_DARK;
 else if (settings.theme === "light") settings.theme = DEFAULT_LIGHT;
@@ -87,7 +93,8 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
-let joy = null; // focus mode, typewriter, rainbow indents, pet, confetti (joy.js)
+let prefs = null; // settings JSON, project settings, profiles (prefs.js)
+let joy = null; // focus mode, typewriter, rainbow indents, confetti (joy.js)
 let fx = null; // theme from a picture, chroma, glow, cursor trail, power mode, screen filters, ambient sounds (fx.js)
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
@@ -114,7 +121,10 @@ function makeProject(tpl, name) {
 const persistProject = debounce(() => {
   if (!project) return;
   project.updated = Date.now();
-  LS.set("project:" + project.id, project);
+  // files with unsaved edits are stored as they were when last saved
+  const stored = dirty.size ? { ...project, files: { ...project.files } } : project;
+  for (const [p, text] of dirty) if (stored.files[p] != null && text != null) stored.files[p] = text;
+  LS.set("project:" + project.id, stored);
   const meta = projectsIndex.find((p) => p.id === project.id);
   if (meta) { meta.name = project.name; meta.updated = project.updated; }
   LS.set("projects", projectsIndex);
@@ -295,7 +305,11 @@ const textOf = (p) => models.get(p)?.getValue() ?? project?.files[p] ?? "";
 // .m is Objective-C or Octave: decided by the contents, like GitHub's Linguist does
 const runLangOf = (p) => (extOf(p) === "m" ? (isObjC(textOf(p)) ? "objc" : "octave") : RUN_LANG[extOf(p)] || null);
 const isRunnable = (p) => !!runLangOf(p);
-const langOf = (p) => (extOf(p) === "m" ? (isObjC(textOf(p)) ? "objective-c" : "octave") : LANGS[extOf(p)] || "plaintext");
+const langOf = (p) => {
+  const assoc = settings.fileAssociations;
+  if (assoc && typeof assoc === "object") for (const [glob, lang] of Object.entries(assoc)) { const re = globToRegExp(glob); if (re && re.test(p) && lang) return lang; }
+  return extOf(p) === "m" ? (isObjC(textOf(p)) ? "objective-c" : "octave") : LANGS[extOf(p)] || "plaintext";
+};
 const fileIcon = (p) => { const el = h("span", { class: "fi" }); el.append(fileBadge(p)); return el; };
 const fi = (name, cls = "") => { const el = h("span", { class: "fi " + cls }); el.append(icon(name)); return el; };
 
@@ -383,6 +397,7 @@ function editorOptions() {
     quickSuggestions: settings.suggestWhileTyping ? { other: true, comments: false, strings: false } : false, acceptSuggestionOnEnter: settings.acceptOnEnter ? "on" : "off",
     cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers, colorDecorators: settings.colorSwatches,
     lineHeight: settings.lineHeight || 0,
+    inlayHints: { enabled: { off: "off", on: "on", hold: "offUnlessPressed" }[settings.inlayHints] || "off" },
     cursorSmoothCaretAnimation: settings.smoothCaret && !settings.reduceMotion ? "on" : "off", smoothScrolling: settings.smoothCaret && !settings.reduceMotion,
   };
 }
@@ -497,10 +512,28 @@ function disposeModel(path) {
 }
 
 const lspWriters = new Map();
+// Edited files that are not saved yet (when auto save waits), with the text they had when last saved.
+// Until you save, storage keeps that saved text, even when something else saves the project meanwhile.
+const dirty = new Map();
+let autoSaveTimer = 0;
+/** Save every edited file now (Ctrl+S, leaving the editor, the auto save timer). */
+function commitDirty() {
+  clearTimeout(autoSaveTimer);
+  if (!dirty.size) return;
+  dirty.clear();
+  renderTabs();
+  persistProject();
+  persistProject.flush();
+}
 function onModelChange(path, model, ev) {
   if (suppressModelEvents) return;
+  const before = project.files[path];
   project.files[path] = model.getValue();
-  persistProject();
+  if (settings.autoSave === "delay" && (+settings.autoSaveDelay || 400) <= 400) persistProject();
+  else {
+    if (!dirty.has(path)) { dirty.set(path, before); renderTabs(); }
+    if (settings.autoSave === "delay") { clearTimeout(autoSaveTimer); autoSaveTimer = setTimeout(commitDirty, +settings.autoSaveDelay); }
+  }
   if (bpDecos.get(path)?.length) syncBreakpointsFromDecos(path);
   extras?.onModelContent(path);
   power?.onModelContent(path);
@@ -525,6 +558,7 @@ function closeAllModels() {
 async function loadProject(id) {
   const data = LS.get("project:" + id, null);
   if (!data) return false;
+  commitDirty();
   persistProject.flush?.();
   if (project) saveViewState();
   if (web.path) showPreview(false); // the preview belongs to the project being left
@@ -546,6 +580,7 @@ async function loadProject(id) {
   plotsClear();
   if (lspReady) lspSyncAll();
   if (kernel?.info) syncKernelProject();
+  applyProjectSettings();
   extras?.onProjectLoaded();
   power?.onProjectLoaded();
   pkgUI.picked = false;
@@ -731,7 +766,7 @@ async function renameDialog(path) {
 
 async function deletePath(path) {
   const isFile = project.files[path] != null;
-  if (!(await confirmDialog({ title: "Delete", message: `Delete ${isFile ? "file" : "folder"} "${path}"${isFile ? "" : " and everything inside it"}?`, okLabel: "Delete", danger: true }))) return;
+  if (settings.confirmDelete !== false && !(await confirmDialog({ title: "Delete", message: `Delete ${isFile ? "file" : "folder"} "${path}"${isFile ? "" : " and everything inside it"}? File > Local History can bring files back.`, okLabel: "Delete", danger: true }))) return;
   const files = isFile ? [path] : Object.keys(project.files).filter((f) => f.startsWith(path + "/"));
   if (!isFile) project.dirs = project.dirs.filter((d) => d !== path && !d.startsWith(path + "/"));
   removeFiles(files);
@@ -804,6 +839,16 @@ async function importZip(file) {
  * Explorer tree
  * ===================================================================== */
 let treeSelection = null;
+let excludeCache = { text: null, fn: () => false };
+/** A test for files hidden by Files > Hide files (from the Explorer, search and Go to File). */
+function isExcluded() {
+  if (excludeCache.text !== settings.filesExclude) excludeCache = { text: settings.filesExclude, fn: makeMatcher(settings.filesExclude) };
+  return excludeCache.fn;
+}
+const treeCompare = (a, b) => {
+  if (settings.explorerSort === "type") { const ea = extOf(a), eb = extOf(b); if (ea !== eb) return ea.localeCompare(eb); }
+  return basename(a).localeCompare(basename(b), undefined, { numeric: true, sensitivity: "base" });
+};
 const treeEl = $("#file-tree");
 
 function buildTree() {
@@ -818,8 +863,9 @@ function buildTree() {
     }
     return node;
   };
-  for (const d of project.dirs) dirNode(d);
-  for (const f of Object.keys(project.files)) dirNode(dirname(f)).files.push(f);
+  const hidden = isExcluded();
+  for (const d of project.dirs) if (!hidden(d)) dirNode(d);
+  for (const f of Object.keys(project.files)) if (!hidden(f)) dirNode(dirname(f)).files.push(f);
   return root;
 }
 
@@ -857,7 +903,7 @@ function renderTree() {
       treeEl.append(row);
       if (open) walk(d, depth + 1);
     }
-    for (const f of node.files.sort((a, b) => basename(a).localeCompare(basename(b)))) {
+    for (const f of node.files.sort(treeCompare)) {
       const c = counts[f];
       const row = h("div", { class: "row" + (treeSelection === f ? " selected" : "") + (f === runTarget ? " entry" : ""), style: { paddingLeft: 8 + depth * 14 + "px" }, "data-path": f, draggable: "true", title: f },
         h("span", { class: "twisty" }), fileIcon(f), h("span", { class: "name" + (c?.e ? " err" : c?.w ? " warn" : "") }, basename(f)),
@@ -1215,7 +1261,7 @@ function renderTabs() {
     const name = basename(p);
     const dup = names.filter((n) => n === name).length > 1;
     const c = counts[key];
-    const tab = h("div", { class: "tab" + (key === project.active && !pageOpen() ? " active" : "") + (ext ? " readonly" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
+    const tab = h("div", { class: "tab" + (key === project.active && !pageOpen() ? " active" : "") + (ext ? " readonly" : "") + (dirty.has(key) ? " dirty" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
       ext ? fi("book") : fileIcon(p),
       h("span", { class: "tname" }, name),
       dup || ext ? h("span", { class: "tdir" }, ext ? "read-only" : dirname(p) || "./") : null,
@@ -3064,7 +3110,9 @@ const runSearch = debounce(() => {
   if (re === undefined) { $("#search-summary").textContent = "Invalid regular expression"; return; }
   if (!re) { $("#search-summary").textContent = ""; return; }
   let total = 0, files = 0;
+  const hidden = isExcluded();
   for (const path of Object.keys(project.files).sort()) {
+    if (hidden(path)) continue;
     const lines = (models.get(path)?.getValue() ?? project.files[path]).split("\n");
     const hits = [];
     lines.forEach((l, i) => { re.lastIndex = 0; let m; while ((m = re.exec(l)) && hits.length < 500) { hits.push({ line: i + 1, col: m.index + 1, len: m[0].length, text: l }); if (!m[0].length) re.lastIndex++; } });
@@ -3133,25 +3181,29 @@ const SETTINGS_SCHEMA = [
   { key: "cursorEffect", cat: "Background and effects", label: "Cursor effect", desc: "A glow around the text cursor, or sparks as you type.", type: "select", options: [["none", "None"], ["glow", "Glow"], ["sparks", "Sparks while typing"]] },
   { key: "colorSwatches", cat: "Appearance", label: "Color swatches", desc: "Show a small swatch next to colors written in code (#ff8800, rgb(...), hsl(...)) in every language. Click one to pick a new color.", type: "bool" },
   { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
-  { key: "pictureTheme", cat: "Fun", label: "Theme from a picture", desc: "Pick any picture (a wallpaper, a photo, album art) and Dexna makes a full color theme from its colors, checked to stay readable. It can use the picture as the background too.", type: "action", btn: "Choose a picture...", run: () => fx.themeFromPicture() },
-  { key: "chroma", cat: "Fun", label: "Chroma accent", desc: "The accent color slowly travels around the color wheel, like a gaming keyboard.", type: "bool" },
-  { key: "chromaSeconds", cat: "Fun", label: "Chroma speed", desc: "Seconds for one trip around the color wheel.", type: "select", options: [[8, "Fast (8 s)"], [20, "Normal (20 s)"], [60, "Slow (1 min)"], [300, "Very slow (5 min)"]] },
-  { key: "codeGlow", cat: "Fun", label: "Neon code", desc: "Make the code glow in its own colors. Looks best with dark themes.", type: "select", options: [["off", "Off"], ["soft", "Soft glow"], ["neon", "Neon"]] },
-  { key: "cursorTrail", cat: "Fun", label: "Smooth cursor trail", desc: "The cursor glides to where it goes and leaves a short smear, so you can follow jumps.", type: "bool" },
-  { key: "powerMode", cat: "Fun", label: "Power mode", desc: "Sparks fly as you type, a combo counter climbs while you keep going, and the screen shakes at 25, 50, 100 and more.", type: "bool" },
-  { key: "screenFilter", cat: "Fun", label: "Screen filter", desc: "A filter over the whole app.", type: "select", options: [["none", "None"], ["crt", "Retro CRT monitor"], ["grain", "Film grain"], ["vignette", "Vignette"], ["night", "Night light (warmer colors)"]] },
-  { key: "filterStrength", cat: "Fun", label: "Filter strength", desc: "How strong the screen filter is.", type: "range", min: 10, max: 100, unit: "%" },
-  { key: "ambient", cat: "Fun", label: "Ambient sound", desc: "A calm background sound while you work, made in the browser. It starts after your first click on the page.", type: "select", options: [["off", "Off"], ["rain", "Rain"], ["waves", "Ocean waves"], ["fire", "Fireplace"], ["brown", "Brown noise"], ["hum", "Space hum"]] },
-  { key: "ambientVolume", cat: "Fun", label: "Ambient volume", desc: "How loud the ambient sound is.", type: "range", min: 2, max: 100, unit: "%" },
-  { key: "pet", cat: "Fun", label: "Pet", desc: "A little friend that walks along the bottom of the window. It runs when you type, naps when you stop, cheers when your program works and looks worried when it fails. Click it.", type: "select", options: [["off", "No pet"], ...PETS] },
-  { key: "petColor", cat: "Fun", label: "Pet color", desc: "The color of your pet.", type: "select", options: () => (PET_COLORS[settings.pet] || PET_COLORS.cat).map(([v, l]) => [v, l]) },
-  { key: "celebrate", cat: "Fun", label: "Confetti on success", desc: "Confetti bursts from the Run button when a program finishes without errors.", type: "bool" },
-  { key: "focusMode", cat: "Fun", label: "Focus mode", desc: "Dim all the code except the part you are working on.", type: "select", options: [["off", "Off"], ["paragraph", "Dim all but the current block"], ["line", "Dim all but the current line"]] },
-  { key: "typewriter", cat: "Fun", label: "Typewriter scrolling", desc: "Keep the line you are typing on in the middle of the screen.", type: "bool" },
-  { key: "indentRainbow", cat: "Fun", label: "Rainbow indentation", desc: "Color each level of indentation, so nested code is easy to follow.", type: "bool" },
-  { key: "timeTheme", cat: "Fun", label: "Day and night themes", desc: "Switch to your light theme in the day and your dark theme at night (the last ones you picked of each).", type: "bool" },
-  { key: "dayStarts", cat: "Fun", label: "Day starts at", desc: "When the light theme comes on.", type: "select", options: [5, 6, 7, 8, 9, 10].map((n) => [n, `${n}:00`]) },
-  { key: "nightStarts", cat: "Fun", label: "Night starts at", desc: "When the dark theme comes on.", type: "select", options: [16, 17, 18, 19, 20, 21, 22].map((n) => [n, `${n}:00`]) },
+  { key: "pictureTheme", cat: "Extras", label: "Theme from a picture", desc: "Pick any picture (a wallpaper, a photo, album art) and Dexna makes a full color theme from its colors, checked to stay readable. It can use the picture as the background too.", type: "action", btn: "Choose a picture...", run: () => fx.themeFromPicture() },
+  { key: "chroma", cat: "Extras", label: "Chroma accent", desc: "The accent color slowly travels around the color wheel, like a gaming keyboard.", type: "bool" },
+  { key: "chromaSeconds", cat: "Extras", label: "Chroma speed", desc: "Seconds for one trip around the color wheel.", type: "select", options: [[8, "Fast (8 s)"], [20, "Normal (20 s)"], [60, "Slow (1 min)"], [300, "Very slow (5 min)"]] },
+  { key: "codeGlow", cat: "Extras", label: "Neon code", desc: "Make the code glow in its own colors. Looks best with dark themes.", type: "select", options: [["off", "Off"], ["soft", "Soft glow"], ["neon", "Neon"]] },
+  { key: "cursorTrail", cat: "Extras", label: "Smooth cursor trail", desc: "The cursor glides to where it goes and leaves a short smear, so you can follow jumps.", type: "bool" },
+  { key: "powerMode", cat: "Extras", label: "Power mode", desc: "Sparks fly as you type, a combo counter climbs while you keep going, and the screen shakes at 25, 50, 100 and more.", type: "bool" },
+  { key: "screenFilter", cat: "Extras", label: "Screen filter", desc: "A filter over the whole app.", type: "select", options: [["none", "None"], ["crt", "Retro CRT monitor"], ["grain", "Film grain"], ["vignette", "Vignette"], ["night", "Night light (warmer colors)"]] },
+  { key: "filterStrength", cat: "Extras", label: "Filter strength", desc: "How strong the screen filter is.", type: "range", min: 10, max: 100, unit: "%" },
+  { key: "ambient", cat: "Extras", label: "Ambient sound", desc: "A calm background sound while you work, made in the browser. It starts after your first click on the page.", type: "select", options: [["off", "Off"], ["rain", "Rain"], ["waves", "Ocean waves"], ["fire", "Fireplace"], ["brown", "Brown noise"], ["hum", "Space hum"]] },
+  { key: "ambientVolume", cat: "Extras", label: "Ambient volume", desc: "How loud the ambient sound is.", type: "range", min: 2, max: 100, unit: "%" },
+  { key: "celebrate", cat: "Extras", label: "Confetti on success", desc: "Confetti bursts from the Run button when a program finishes without errors.", type: "bool" },
+  { key: "focusMode", cat: "Extras", label: "Focus mode", desc: "Dim all the code except the part you are working on.", type: "select", options: [["off", "Off"], ["paragraph", "Dim all but the current block"], ["line", "Dim all but the current line"]] },
+  { key: "typewriter", cat: "Extras", label: "Typewriter scrolling", desc: "Keep the line you are typing on in the middle of the screen.", type: "bool" },
+  { key: "indentRainbow", cat: "Extras", label: "Rainbow indentation", desc: "Color each level of indentation, so nested code is easy to follow.", type: "bool" },
+  { key: "timeTheme", cat: "Extras", label: "Day and night themes", desc: "Switch to your light theme in the day and your dark theme at night (the last ones you picked of each).", type: "bool" },
+  { key: "dayStarts", cat: "Extras", label: "Day starts at", desc: "When the light theme comes on.", type: "select", options: [5, 6, 7, 8, 9, 10].map((n) => [n, `${n}:00`]) },
+  { key: "nightStarts", cat: "Extras", label: "Night starts at", desc: "When the dark theme comes on.", type: "select", options: [16, 17, 18, 19, 20, 21, 22].map((n) => [n, `${n}:00`]) },
+  { key: "autoSave", cat: "Files", label: "Auto save", desc: "When edits are saved to this browser. With \"Only with Ctrl+S\", tabs with unsaved edits show a dot and Dexna asks before you leave the page.", type: "select", options: [["delay", "As you type"], ["focus", "When you click away or switch windows"], ["off", "Only with Ctrl+S"]] },
+  { key: "autoSaveDelay", cat: "Files", label: "Auto save delay", desc: "How long after you stop typing \"As you type\" saves.", type: "select", options: [[400, "Right away"], [1000, "1 second"], [3000, "3 seconds"], [10000, "10 seconds"]] },
+  { key: "filesExclude", cat: "Files", label: "Hide files", desc: "Files and folders to hide from the Explorer, search and Go to File, one pattern per line. * matches within a name, ** across folders; a pattern without / matches anywhere (*.log, __pycache__, build/**).", type: "css" },
+  { key: "explorerSort", cat: "Files", label: "Explorer sort order", desc: "How files are sorted in the Explorer (folders always come first).", type: "select", options: [["name", "By name"], ["type", "By type, then name"]] },
+  { key: "confirmDelete", cat: "Files", label: "Confirm before deleting", desc: "Ask before deleting a file or folder from the Explorer. Deleted files can be brought back from File > Local History either way.", type: "bool" },
+  { key: "fileAssociations", cat: "Files", label: "File associations", desc: "Open files that match a pattern as a given language, for example *.mdx as Markdown or *.jsonc as JSON.", type: "assoc" },
   { key: "sidebarSide", cat: "Layout", label: "Side bar position", desc: "Put the side bar (Explorer, Search and the rest) on the left or the right. The activity bar moves with it.", type: "select", options: [["left", "Left"], ["right", "Right"]] },
   { key: "panelSide", cat: "Layout", label: "Panel position", desc: "Show the panel (Terminal, Shell, Problems and the rest) below the editor or beside it.", type: "select", options: [["bottom", "Bottom"], ["right", "Right"]] },
   { key: "density", cat: "Layout", label: "Spacing", desc: "How tightly menus, tabs, the file tree and the bars are packed.", type: "select", options: [["compact", "Compact"], ["normal", "Normal"], ["comfortable", "Roomy"]] },
@@ -3179,6 +3231,9 @@ const SETTINGS_SCHEMA = [
   { key: "centeredWidth", cat: "Editor", label: "Centered width", desc: "How wide the centered column is.", type: "select", options: [[800, "Narrow"], [1000, "Medium"], [1200, "Wide"]] },
   { key: "cursorColor", cat: "Editor", label: "Cursor color", desc: "Your own color for the text cursor.", type: "color", fallback: () => effectiveTheme().c.accent },
   { key: "selectionColor", cat: "Editor", label: "Selection color", desc: "Your own color for selected text (drawn see-through).", type: "color", fallback: () => effectiveTheme().c.accent },
+  { key: "inlayHints", cat: "Editor", label: "Inlay hints", desc: "Show parameter names and types inline in JavaScript and TypeScript code, in a faint font. \"While holding\" shows them only while you hold Ctrl+Alt.", type: "select", options: [["off", "Off"], ["on", "On"], ["hold", "While holding Ctrl+Alt"]] },
+  { key: "inlayParams", cat: "Editor", label: "Inlay hints: parameter names", desc: "Which arguments get their parameter name shown.", type: "select", options: [["none", "None"], ["literals", "Only for literal values"], ["all", "All arguments"]] },
+  { key: "inlayTypes", cat: "Editor", label: "Inlay hints: types", desc: "Show the types the compiler works out for variables, parameters and return values.", type: "bool" },
   { key: "useTabs", cat: "Editor", label: "Indent with tabs", desc: "Use tab characters instead of spaces when you indent.", type: "bool" },
   { key: "rulers", cat: "Editor", label: "Rulers", desc: "Thin vertical lines at a column, to keep lines short.", type: "select", options: [["none", "None"], ["80", "At 80"], ["100", "At 100"], ["120", "At 120"], ["80,120", "At 80 and 120"]] },
   { key: "cursorBlinking", cat: "Editor", label: "Cursor blinking", desc: "How the text cursor blinks.", type: "select", options: [["smooth", "Smooth"], ["blink", "Blink"], ["phase", "Fade"], ["expand", "Expand"], ["solid", "Do not blink"]] },
@@ -3210,14 +3265,15 @@ const SETTINGS_SCHEMA = [
   { key: "clearOnRun", cat: "Terminal", label: "Clear on run", desc: "Clear the terminal each time you run a program.", type: "bool" },
   { key: "inlineplots", cat: "Terminal", label: "Inline plots", desc: "Also show matplotlib figures inside the terminal, not just in the Plots tab.", type: "bool" },
 ];
-const SETTING_CATS = ["Appearance", "Background and effects", "Fun", "Layout", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
+const SETTING_CATS = ["Appearance", "Background and effects", "Extras", "Layout", "Editor", "Files", "Languages", "Python", "Terminal", "Data and privacy"];
 const settingsUI = { query: "" };
 
 const LOOK_KEYS = new Set(["bgEffect", "bgIntensity", "bgSpeed", "glass", "glassBlur", "bgImageBlur", "cursorEffect", "corners", "uiFont", "editorFont"]);
 /** Change a setting while a slider is being dragged: apply it, but do not redraw the settings page. */
 function setSettingLive(key, value) {
+  if (key in overriddenUser) { overriddenUser[key] = value; saveSettings(); return; }
   settings[key] = value;
-  LS.set("settings", settings);
+  saveSettings();
   if (LOOK_KEYS.has(key)) look?.apply();
   tweaks?.onSetting(key);
   fx?.onSetting(key);
@@ -3225,11 +3281,25 @@ function setSettingLive(key, value) {
   if (editor) editor.updateOptions(editorOptions());
 }
 function setSetting(key, value) {
+  if (key in overriddenUser) { // this project decides; keep your value for other projects
+    overriddenUser[key] = value; saveSettings();
+    toast(`Saved. This project overrides "${key}" (Preferences: Open Project Settings).`, "info", 4000);
+    if (settingsOpen) renderSettingsPage();
+    return;
+  }
   settings[key] = value;
+  applySettingChange(key, value);
+}
+/** Apply one setting everywhere (it is already in `settings`), and save. */
+function applySettingChange(key, value, { save = true } = {}) {
   if (LOOK_KEYS.has(key) || key === "theme") look?.apply();
   if (key === "theme" || key === "accentColor" || key === "bgEffect" || key === "cursorColor" || key === "selectionColor") applyTheme(); // also records the last dark / light theme
-  LS.set("settings", settings);
+  if (save) saveSettings();
   if (editor) editor.updateOptions(editorOptions());
+  if (key === "fileAssociations") for (const [path, m] of models) monaco.editor.setModelLanguage(m, langOf(path));
+  if (key === "filesExclude" || key === "explorerSort") { renderTree(); if ($("#search-input")?.value) runSearch(); }
+  if (key === "inlayHints" || key === "inlayParams" || key === "inlayTypes") applyInlayHints();
+  if (key === "autoSave" && settings.autoSave !== "off") commitDirty();
   if (key === "tabSize" || key === "useTabs" || key === "langTabSize") for (const [path, m] of models) m.updateOptions({ tabSize: tabSizeFor(path), insertSpaces: !settings.useTabs });
   tweaks?.onSetting(key);
   fx?.onSetting(key);
@@ -3241,12 +3311,42 @@ function setSetting(key, value) {
   if (settingsOpen) renderSettingsPage();
 }
 
+/** Put this project's setting overrides in place (and take the previous project's away). */
+function applyProjectSettings() {
+  const changed = new Set(Object.keys(overriddenUser));
+  for (const [k, v] of Object.entries(overriddenUser)) settings[k] = v;
+  overriddenUser = {};
+  for (const [k, v] of Object.entries(project?.settings || {})) {
+    if (!PROJECT_KEYS.includes(k) || !(k in DEFAULT_SETTINGS)) continue;
+    overriddenUser[k] = settings[k];
+    settings[k] = v;
+    changed.add(k);
+  }
+  for (const k of changed) applySettingChange(k, settings[k], { save: false });
+  $("#sb-project-settings")?.classList.toggle("hidden", !Object.keys(overriddenUser).length);
+}
+function applyInlayHints() {
+  if (!monaco) return;
+  const opts = { includeInlayParameterNameHints: settings.inlayParams, includeInlayParameterNameHintsWhenArgumentMatchesName: false, includeInlayFunctionParameterTypeHints: !!settings.inlayTypes,
+    includeInlayVariableTypeHints: !!settings.inlayTypes, includeInlayPropertyDeclarationTypeHints: !!settings.inlayTypes, includeInlayFunctionLikeReturnTypeHints: !!settings.inlayTypes, includeInlayEnumMemberValueHints: true };
+  for (const d of [monaco.languages.typescript.typescriptDefaults, monaco.languages.typescript.javascriptDefaults]) d.setInlayHintsOptions?.(opts);
+  // the TypeScript service does not re-check open files when these change: switch the hints off and on once it has the new options
+  if (editor && settings.inlayHints !== "off") {
+    editor.updateOptions({ inlayHints: { enabled: "off" } });
+    clearTimeout(applyInlayHints.t);
+    applyInlayHints.t = setTimeout(() => editor.updateOptions(editorOptions()), 700);
+  }
+}
+
 function renderSettingsPage() {
   const root = $("#settings-page");
   if (!root.querySelector(".sp-head")) {
     const input = h("input", { class: "sp-search", placeholder: "Search settings", spellcheck: "false", value: settingsUI.query });
     input.addEventListener("input", () => { settingsUI.query = input.value; renderSettingsBody(); });
-    root.append(h("div", { class: "sp-head" }, input, h("span", { class: "sp-count" })), h("div", { class: "sp-body" }));
+    root.append(h("div", { class: "sp-head" }, input, h("span", { class: "sp-count" }),
+      h("button", { class: "btn sm", title: "Edit your settings as JSON", onclick: () => prefs.openUserJson() }, icon("code"), "settings.json"),
+      h("button", { class: "btn sm", title: "Settings that apply to this project only", onclick: () => prefs.openProjectJson() }, icon("folder"), "Project settings"),
+      h("button", { class: "btn sm", title: "Switch between sets of settings", onclick: () => prefs.pickProfile() }, icon("user"), "Profiles")), h("div", { class: "sp-body" }));
   }
   const input = root.querySelector(".sp-search");
   if (input.value !== settingsUI.query) input.value = settingsUI.query;
@@ -3286,6 +3386,19 @@ function settingItem(sd) {
     control = h("div", { class: "si-checks" }, items.map(([id, label]) => h("label", { class: "si-check" },
       h("input", { type: "checkbox", checked: !(settings[sd.key] || []).includes(id), onchange: (e) => setSetting(sd.key, e.target.checked ? settings[sd.key].filter((x) => x !== id) : [...(settings[sd.key] || []), id]) }),
       h("span", {}, label.replace(/ \(.*\)$/, "")))));
+  } else if (sd.type === "assoc") {
+    const cur = Object.entries(settings[sd.key] || {});
+    const langs = monaco ? monaco.languages.getLanguages().filter((l) => l.aliases?.length).map((l) => [l.id, l.aliases[0]]).sort((a, b) => a[1].localeCompare(b[1])) : [];
+    const write = (rows) => setSetting(sd.key, Object.fromEntries(rows.filter(([g, l]) => g.trim() && l)));
+    const rows = cur.map(([g, l], i) => h("div", { class: "si-assoc-row" },
+      h("input", { value: g, spellcheck: "false", placeholder: "*.ext", onchange: (e) => { const r = [...cur]; r[i] = [e.target.value.trim(), l]; write(r); } }),
+      h("span", { class: "muted" }, "opens as"),
+      h("select", { onchange: (e) => { const r = [...cur]; r[i] = [g, e.target.value]; write(r); } }, langs.map(([id, name]) => h("option", { value: id, selected: id === l }, name))),
+      h("button", { class: "btn icon sm", title: "Remove", onclick: () => write(cur.filter((_, j) => j !== i)) }, icon("close"))));
+    const pat = h("input", { placeholder: "*.mdx", spellcheck: "false" });
+    const lang = h("select", {}, langs.map(([id, name]) => h("option", { value: id, selected: id === "markdown" }, name)));
+    control = h("div", { class: "si-assoc" }, rows, h("div", { class: "si-assoc-row" }, pat, h("span", { class: "muted" }, "opens as"), lang,
+      h("button", { class: "btn sm", onclick: () => { if (pat.value.trim()) write([...cur, [pat.value.trim(), lang.value]]); } }, "Add")));
   } else if (sd.type === "action") {
     control = h("button", { class: "btn primary", onclick: sd.run }, sd.btn);
   } else if (sd.type === "text") {
@@ -3320,7 +3433,9 @@ function settingItem(sd) {
   return h("div", { class: "si" + (modified ? " modified" : ""), id: "si-" + sd.key },
     h("div", { class: "si-title" }, h("span", { class: "si-cat" }, sd.cat + ": "), h("span", {}, sd.label),
       modified ? h("button", { class: "si-reset", title: "Reset to default", onclick: () => setSetting(sd.key, DEFAULT_SETTINGS[sd.key]) }, "Reset") : null),
-    h("div", { class: "si-desc" }, sd.desc), control);
+    h("div", { class: "si-desc" }, sd.desc),
+    sd.key in overriddenUser ? h("div", { class: "si-override" }, icon("info"), "This project sets this to ", h("code", {}, JSON.stringify(settings[sd.key])), ". Your own value applies in other projects.", h("button", { class: "btn sm", onclick: () => prefs.openProjectJson() }, "Project settings")) : null,
+    control);
 }
 
 function renderSettingsBody() {
@@ -3608,6 +3723,9 @@ COMMANDS.push(...fx.commands);
 API.icon = icon;
 joy = createJoy(API);
 COMMANDS.push(...joy.commands);
+Object.assign(API, { SETTINGS_SCHEMA, DEFAULT_SETTINGS, userSettings, applyProjectSettings, themes: () => THEMES });
+prefs = createPrefs(API);
+COMMANDS.push(...prefs.commands);
 pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
@@ -3657,6 +3775,7 @@ window.addEventListener("keydown", (e) => {
 async function saveCommand() {
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   if (settings.trimOnSave || settings.finalNewline) tidyOnSave();
+  commitDirty();
   persistProject.flush();
   setStatusFlash(settings.runOnSave ? "Saved, running" : "Saved locally");
   tweaks?.onSaved();
@@ -3690,7 +3809,7 @@ function quickOpen(prefix = "") {
         walk(symbolsCache.get(project.active) || []);
         return flat.map((s) => ({ s, m: fuzzy(t, s.name) })).filter((x) => x.m).map(({ s, m }) => ({ iconHtml: symIconHtml(s.kind), label: s.name, labelHtml: highlight(s.name, m.idx), desc: s.kind + ", line " + s.line, run: () => openFile(project.active, { line: s.line, col: s.col }) }));
       }
-      const files = Object.keys(project.files);
+      const files = Object.keys(project.files).filter((f) => !isExcluded()(f));
       if (!q) {
         const recent = [...project.open].reverse();
         return [...recent, ...files.filter((f) => !recent.includes(f))].map((f) => ({ iconHtml: fileIconSvg(f), label: basename(f), detail: dirname(f), desc: project.open.includes(f) ? "open" : "", run: () => openFile(f) }));
@@ -3706,8 +3825,8 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick", "pet-pick", "focus-mode", "typewriter"],
-  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick", "focus-mode", "typewriter"],
+  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -3858,7 +3977,16 @@ function wireStatic() {
   iso.innerHTML = isolated ? `${iconSvg("bolt")}<span>Full mode</span>` : `${iconSvg("circle")}<span>Limited mode</span>`;
   iso.title = isolated ? "Cross-origin isolated: input(), Stop and the debugger are enabled" : "Not cross-origin isolated: input() and the debugger are unavailable. Reload the page to enable them.";
   $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
-  window.addEventListener("beforeunload", () => { persistProject.flush(); LS.set("layout", layout); });
+  window.addEventListener("beforeunload", (e) => {
+    LS.set("layout", layout);
+    if (settings.autoSave === "off" && dirty.size) { e.preventDefault(); e.returnValue = ""; persistProject.flush(); return; } // ask before losing unsaved edits
+    commitDirty();
+    persistProject.flush();
+  });
+  // "when focus leaves": save as soon as you click away from the editor or switch windows
+  const saveOnBlur = () => { if (settings.autoSave === "focus") commitDirty(); };
+  window.addEventListener("blur", saveOnBlur);
+  document.addEventListener("visibilitychange", () => { if (document.hidden && settings.autoSave !== "off") commitDirty(); });
   document.addEventListener("contextmenu", (e) => { if (e.target.closest("#titlebar, #activitybar, #statusbar")) e.preventDefault(); });
 }
 
@@ -3890,6 +4018,7 @@ async function boot() {
   defineThemes();
   applyTheme();
   createEditor();
+  editor.onDidBlurEditorText(() => { if (settings.autoSave === "focus") commitDirty(); }); // auto save when focus leaves the editor
   organizeImportsCommand = editor.addCommand(0, () => organizeImports());
   registerProviders();
   configureTypeScript();
@@ -3904,6 +4033,8 @@ async function boot() {
   tweaks.onEditorReady();
   fx.onEditorReady();
   joy.onEditorReady();
+  applyInlayHints();
+  prefs.updateStatus();
   power.onEditorReady();
   more.onEditorReady();
   plus.onReady();

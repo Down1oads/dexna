@@ -92,7 +92,7 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Typing sounds**: soft clicks, a typewriter (with a bell on Enter), bubbles or a mechanical keyboard, with a volume slider.
 - **Your own CSS** (Settings > Layout): restyle anything, applied as you type.
 - **Export and import settings** (Settings > Data and privacy): your settings, themes, shortcuts, snippets, looks and templates in one file, for a backup or another device.
-- **Fun** (Settings > Fun):
+- **Extras** (Settings > Extras):
   - **Theme from a picture**: pick a wallpaper, photo or album cover and Dexna builds a whole color theme from it (every color checked to stay readable), and can use the picture as the background.
   - **Chroma accent**: the accent color slowly travels around the color wheel.
   - **Neon code**: the code glows in its own colors.
@@ -101,7 +101,6 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
   - **Screen filters**: retro CRT monitor, film grain, vignette, or a warm night light.
   - **Ambient sounds**: rain, ocean waves, a fireplace, brown noise or a space hum, all made in the browser.
   - **Day and night themes** that switch by the clock.
-  - **A pet**: a cat, a dog or a slime walks along the bottom of the window. It runs while you type, naps when you stop, jumps for joy when your program works and looks worried when it fails. Click it.
   - **Confetti** from the Run button when a program works.
   - **Focus mode** dims all but the block (or line) you are on; **typewriter scrolling** keeps your line in the middle of the screen; **rainbow indentation** colors each level.
   - The browser tab's icon takes on your accent color.
@@ -112,6 +111,12 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Your own keyboard shortcuts** (Help > Change Keyboard Shortcut): give any command a shortcut or change one. Dexna warns about clashes and about keys the browser keeps for itself.
 - **Color swatches**: colours written in any language (`"#ff8800"`, `rgb(...)`, `hsl(...)`) get a swatch; click it for a colour picker.
 - Settings is a full page with search, categories and per-setting reset.
+- **Settings (JSON)** (the settings.json button, or Help > Open Settings (JSON)): edit every setting as JSON, like VS Code's settings.json, with completion of setting names and values, a description on hover, and validation before saving. Remove a line to put that setting back to its default.
+- **Project settings** (Help > Open Project Settings): settings that apply to one project only and travel with it in ZIP downloads and share links: indent size and tabs, rulers, word wrap, format/trim/newline on save, run on save, hidden files, file associations and more. The settings page marks a setting the project overrides.
+- **Profiles** (the status bar or Help > Profiles: Switch Profile): keep whole sets of settings and switch between them. **Presentation** (View > Toggle Presentation Profile) gives large text and no effects, for screen sharing.
+- **Auto save** (Settings > Files): as you type (right away or after 1, 3 or 10 seconds), when you click away or switch windows, or only with Ctrl+S, with a dot on tabs that have unsaved edits and a warning before leaving the page.
+- **Files** (Settings > Files): hide files and folders by pattern from the Explorer, search and Go to File (`*.log`, `__pycache__`, `build/**`), sort the Explorer by name or by type, file associations (open `*.mdx` as Markdown), and whether deleting asks first.
+- **Inlay hints** for JavaScript and TypeScript: parameter names and inferred types shown inline, always or while holding Ctrl+Alt.
 - Command palette (Ctrl+Shift+P), quick open (Ctrl+P), search and replace across files. Quick open also takes `>` for commands, `:` for a line, `@` for a symbol, `#` for a symbol in any file, `=` for a **calculator** (`=2^10`, `=sqrt(2)`, `=15% * 80`, `=0xff + 1`) and `?` for help.
 - **Vim keys** (Settings > Editor): modes, motions, operators, registers, macros, `:w` to save. The mode shows in the status bar.
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
@@ -228,6 +233,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/starters.js` | The preset each new project starts with |
 | `js/extras.js` | The diff viewer, change markers, bookmarks, TODOs, text commands, code images, Zen mode, Vim keys, the calculator, statistics and the Markdown preview |
 | `js/plus.js` | The shell, CSV / JSON / SVG previews, the focus timer, coding activity, templates and notes |
+| `js/prefs.js` | Settings as JSON, project settings, profiles, and the patterns for hidden files and file associations |
 | `js/look.js` | Looks, animated backgrounds, your background image, fonts, corners and cursor effects |
 | `js/more.js` | Back and forward, symbols across the project, your own shortcuts and themes, colour swatches |
 | `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |

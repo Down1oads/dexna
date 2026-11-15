@@ -1,12 +1,10 @@
 // Focus mode (dims all but the code you are on), typewriter scrolling, rainbow indentation, a browser-tab icon
-// in your accent colour, confetti when a program works, and the pet (pet.js).
-import { createPet } from "./pet.js";
+// in your accent colour, and confetti when a program works.
 
 export function createJoy(A) {
   const { h, toast } = A;
   const root = document.documentElement;
-  const pet = createPet(A);
-  for (const k of ["achievements", "joyStats", "petPets"]) A.LS.del(k); // left over from the removed achievements
+  for (const k of ["achievements", "joyStats", "petPets"]) A.LS.del(k); // left over from removed features
 
   /* ---------------- focus mode ---------------- */
   let dimDecos = null;
@@ -65,7 +63,6 @@ export function createJoy(A) {
   }
 
   function onRunEnded(failed) {
-    pet.runEnded(failed);
     if (!failed && A.settings.celebrate) celebrate();
   }
   function celebrate() {
@@ -80,17 +77,16 @@ export function createJoy(A) {
     const ed = A.editor;
     if (ed) ed.updateOptions({ cursorSurroundingLines: A.settings.typewriter ? 9999 : 0, cursorSurroundingLinesStyle: A.settings.typewriter ? "all" : "default" });
     root.classList.toggle("focus-dim", !!A.settings.focusMode && A.settings.focusMode !== "off");
-    focusDim(); indentRainbow(); pet.apply(); favicon();
+    focusDim(); indentRainbow(); favicon();
   }
   function onSetting(key) {
-    if (["typewriter", "focusMode", "indentRainbow", "pet", "petColor"].includes(key)) apply();
+    if (["typewriter", "focusMode", "indentRainbow"].includes(key)) apply();
     if (["theme", "accentColor", "chroma"].includes(key)) setTimeout(favicon, 50);
   }
   function onEditorReady() {
     const ed = A.editor;
     ed.onDidChangeCursorPosition(() => { if (A.settings.focusMode && A.settings.focusMode !== "off") focusDim(); });
     ed.onDidChangeModelContent(() => {
-      pet.typed();
       if (A.settings.indentRainbow) scheduleIR();
     });
     ed.onDidScrollChange(() => { if (A.settings.indentRainbow) scheduleIR(); });
@@ -102,7 +98,6 @@ export function createJoy(A) {
   const commands = [
     { id: "focus-mode", label: "Toggle Focus Mode (Dim Other Code)", cat: "View", run: () => A.setSetting("focusMode", A.settings.focusMode && A.settings.focusMode !== "off" ? "off" : "paragraph") },
     { id: "typewriter", label: "Toggle Typewriter Scrolling", cat: "View", run: () => A.setSetting("typewriter", !A.settings.typewriter) },
-    { id: "pet-pick", label: "Choose a Pet...", cat: "Preferences", run: () => A.quickPick({ placeholder: "Pick a pet to keep you company", source: () => [["off", "No pet"], ["cat", "Cat"], ["dog", "Dog"], ["slime", "Slime"]].map(([v, l]) => ({ label: l, desc: A.settings.pet === v ? "current" : "", run: () => A.setSetting("pet", v) })) }) },
   ];
-  return { commands, apply, onSetting, onEditorReady, onRunEnded, pet };
+  return { commands, apply, onSetting, onEditorReady, onRunEnded };
 }
