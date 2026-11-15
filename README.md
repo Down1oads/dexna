@@ -92,6 +92,15 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Typing sounds**: soft clicks, a typewriter (with a bell on Enter), bubbles or a mechanical keyboard, with a volume slider.
 - **Your own CSS** (Settings > Layout): restyle anything, applied as you type.
 - **Export and import settings** (Settings > Data and privacy): your settings, themes, shortcuts, snippets, looks and templates in one file, for a backup or another device.
+- **Fun** (Settings > Fun):
+  - **Theme from a picture**: pick a wallpaper, photo or album cover and Dexna builds a whole color theme from it (every color checked to stay readable), and can use the picture as the background.
+  - **Chroma accent**: the accent color slowly travels around the color wheel.
+  - **Neon code**: the code glows in its own colors.
+  - **Smooth cursor trail**: the cursor glides and leaves a short smear when it jumps.
+  - **Power mode**: sparks as you type, a combo counter, and a screen shake at 25, 50, 100 and beyond. Your best combo is remembered.
+  - **Screen filters**: retro CRT monitor, film grain, vignette, or a warm night light.
+  - **Ambient sounds**: rain, ocean waves, a fireplace, brown noise or a space hum, all made in the browser.
+  - **Day and night themes** that switch by the clock.
 - **Your own themes** (Help > Create Color Theme, or **New theme** in Settings): pick 15 colours, see the whole app change as you go, and save. Dexna nudges colours that would be hard to read. **Copy** a theme as text and **Import** it on another device.
 - **Back and forward** (Alt+Left / Alt+Right, the arrows next to the menus, or the mouse's side buttons): retrace your jumps between files and places. On a Mac, where Option+Left moves by word, these have no keys until you set your own. **Go to Last Edit Location** takes you back to where you last typed.
 - **Symbols in every file** (Ctrl+Alt+O, or `#` in Ctrl+P): jump to any function, class or variable in the project.

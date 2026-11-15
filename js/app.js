@@ -13,6 +13,7 @@ import { createLook, EFFECTS, UI_FONTS, CODE_FONTS } from "./look.js";
 import { createPlus } from "./plus.js";
 import { createPkgs } from "./pkgs.js";
 import { createTweaks } from "./tweaks.js";
+import { createFx } from "./fx.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -66,6 +67,8 @@ const DEFAULT_SETTINGS = {
   hoverDelay: 300, suggestWhileTyping: true, acceptOnEnter: true, terminalFontSize: 13, typingSound: "off", typingVolume: 50, customCss: "",
   tabStyle: "classic", tabClose: "hover", tabIcons: true, tabWrap: false, showTabs: true, showBreadcrumbs: true, runButtons: "text", statusHidden: [], clock: "off",
   greetingName: "", langTabSize: {}, centered: false, centeredWidth: 1000, cursorColor: "", selectionColor: "", eventSounds: false, reduceMotion: false,
+  chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, powerMode: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
+  timeTheme: false, dayStarts: 7, nightStarts: 19,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -81,6 +84,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let fx = null; // theme from a picture, chroma, glow, cursor trail, power mode, screen filters, ambient sounds (fx.js)
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
@@ -3125,6 +3129,19 @@ const SETTINGS_SCHEMA = [
   { key: "cursorEffect", cat: "Background and effects", label: "Cursor effect", desc: "A glow around the text cursor, or sparks as you type.", type: "select", options: [["none", "None"], ["glow", "Glow"], ["sparks", "Sparks while typing"]] },
   { key: "colorSwatches", cat: "Appearance", label: "Color swatches", desc: "Show a small swatch next to colors written in code (#ff8800, rgb(...), hsl(...)) in every language. Click one to pick a new color.", type: "bool" },
   { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
+  { key: "pictureTheme", cat: "Fun", label: "Theme from a picture", desc: "Pick any picture (a wallpaper, a photo, album art) and Dexna makes a full color theme from its colors, checked to stay readable. It can use the picture as the background too.", type: "action", btn: "Choose a picture...", run: () => fx.themeFromPicture() },
+  { key: "chroma", cat: "Fun", label: "Chroma accent", desc: "The accent color slowly travels around the color wheel, like a gaming keyboard.", type: "bool" },
+  { key: "chromaSeconds", cat: "Fun", label: "Chroma speed", desc: "Seconds for one trip around the color wheel.", type: "select", options: [[8, "Fast (8 s)"], [20, "Normal (20 s)"], [60, "Slow (1 min)"], [300, "Very slow (5 min)"]] },
+  { key: "codeGlow", cat: "Fun", label: "Neon code", desc: "Make the code glow in its own colors. Looks best with dark themes.", type: "select", options: [["off", "Off"], ["soft", "Soft glow"], ["neon", "Neon"]] },
+  { key: "cursorTrail", cat: "Fun", label: "Smooth cursor trail", desc: "The cursor glides to where it goes and leaves a short smear, so you can follow jumps.", type: "bool" },
+  { key: "powerMode", cat: "Fun", label: "Power mode", desc: "Sparks fly as you type, a combo counter climbs while you keep going, and the screen shakes at 25, 50, 100 and more.", type: "bool" },
+  { key: "screenFilter", cat: "Fun", label: "Screen filter", desc: "A filter over the whole app.", type: "select", options: [["none", "None"], ["crt", "Retro CRT monitor"], ["grain", "Film grain"], ["vignette", "Vignette"], ["night", "Night light (warmer colors)"]] },
+  { key: "filterStrength", cat: "Fun", label: "Filter strength", desc: "How strong the screen filter is.", type: "range", min: 10, max: 100, unit: "%" },
+  { key: "ambient", cat: "Fun", label: "Ambient sound", desc: "A calm background sound while you work, made in the browser. It starts after your first click on the page.", type: "select", options: [["off", "Off"], ["rain", "Rain"], ["waves", "Ocean waves"], ["fire", "Fireplace"], ["brown", "Brown noise"], ["hum", "Space hum"]] },
+  { key: "ambientVolume", cat: "Fun", label: "Ambient volume", desc: "How loud the ambient sound is.", type: "range", min: 2, max: 100, unit: "%" },
+  { key: "timeTheme", cat: "Fun", label: "Day and night themes", desc: "Switch to your light theme in the day and your dark theme at night (the last ones you picked of each).", type: "bool" },
+  { key: "dayStarts", cat: "Fun", label: "Day starts at", desc: "When the light theme comes on.", type: "select", options: [5, 6, 7, 8, 9, 10].map((n) => [n, `${n}:00`]) },
+  { key: "nightStarts", cat: "Fun", label: "Night starts at", desc: "When the dark theme comes on.", type: "select", options: [16, 17, 18, 19, 20, 21, 22].map((n) => [n, `${n}:00`]) },
   { key: "sidebarSide", cat: "Layout", label: "Side bar position", desc: "Put the side bar (Explorer, Search and the rest) on the left or the right. The activity bar moves with it.", type: "select", options: [["left", "Left"], ["right", "Right"]] },
   { key: "panelSide", cat: "Layout", label: "Panel position", desc: "Show the panel (Terminal, Shell, Problems and the rest) below the editor or beside it.", type: "select", options: [["bottom", "Bottom"], ["right", "Right"]] },
   { key: "density", cat: "Layout", label: "Spacing", desc: "How tightly menus, tabs, the file tree and the bars are packed.", type: "select", options: [["compact", "Compact"], ["normal", "Normal"], ["comfortable", "Roomy"]] },
@@ -3183,7 +3200,7 @@ const SETTINGS_SCHEMA = [
   { key: "clearOnRun", cat: "Terminal", label: "Clear on run", desc: "Clear the terminal each time you run a program.", type: "bool" },
   { key: "inlineplots", cat: "Terminal", label: "Inline plots", desc: "Also show matplotlib figures inside the terminal, not just in the Plots tab.", type: "bool" },
 ];
-const SETTING_CATS = ["Appearance", "Background and effects", "Layout", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
+const SETTING_CATS = ["Appearance", "Background and effects", "Fun", "Layout", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
 const settingsUI = { query: "" };
 
 const LOOK_KEYS = new Set(["bgEffect", "bgIntensity", "bgSpeed", "glass", "glassBlur", "bgImageBlur", "cursorEffect", "corners", "uiFont", "editorFont"]);
@@ -3193,6 +3210,7 @@ function setSettingLive(key, value) {
   LS.set("settings", settings);
   if (LOOK_KEYS.has(key)) look?.apply();
   tweaks?.onSetting(key);
+  fx?.onSetting(key);
   if (editor) editor.updateOptions(editorOptions());
 }
 function setSetting(key, value) {
@@ -3203,6 +3221,7 @@ function setSetting(key, value) {
   if (editor) editor.updateOptions(editorOptions());
   if (key === "tabSize" || key === "useTabs" || key === "langTabSize") for (const [path, m] of models) m.updateOptions({ tabSize: tabSizeFor(path), insertSpaces: !settings.useTabs });
   tweaks?.onSetting(key);
+  fx?.onSetting(key);
   if (key === "autoLint") lintAll();
   extras?.onSetting(key, value);
   power?.onSetting(key, value);
@@ -3255,6 +3274,8 @@ function settingItem(sd) {
     control = h("div", { class: "si-checks" }, items.map(([id, label]) => h("label", { class: "si-check" },
       h("input", { type: "checkbox", checked: !(settings[sd.key] || []).includes(id), onchange: (e) => setSetting(sd.key, e.target.checked ? settings[sd.key].filter((x) => x !== id) : [...(settings[sd.key] || []), id]) }),
       h("span", {}, label.replace(/ \(.*\)$/, "")))));
+  } else if (sd.type === "action") {
+    control = h("button", { class: "btn primary", onclick: sd.run }, sd.btn);
   } else if (sd.type === "text") {
     control = h("input", { class: "si-text", value: settings[sd.key] || "", maxlength: 40, spellcheck: "false", onchange: (e) => setSetting(sd.key, e.target.value.trim()) });
   } else if (sd.type === "langmap") {
@@ -3563,8 +3584,12 @@ COMMANDS.push(...plus.commands);
 API.rerenderFiles = () => { renderTree(); renderTabs(); if (homeOpen) renderHome(); };
 API.flush = () => persistProject.flush();
 API.refreshLook = () => look?.updateBackdrop();
+API.applyTheme = () => applyTheme();
+Object.defineProperty(API, "look", { get: () => look });
 tweaks = createTweaks(API);
 COMMANDS.push(...tweaks.commands);
+fx = createFx(API);
+COMMANDS.push(...fx.commands);
 pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
@@ -3663,7 +3688,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-import"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
@@ -3859,6 +3884,7 @@ async function boot() {
   extras.onEditorReady();
   look.onEditorReady();
   tweaks.onEditorReady();
+  fx.onEditorReady();
   power.onEditorReady();
   more.onEditorReady();
   plus.onReady();
@@ -3896,6 +3922,7 @@ async function boot() {
 
 // Handy for power users and automated tests: window.dexna.lsp("complete", [...])
 window.dexna = {
+  fx: () => fx,
   lsp: (method, args) => lspCall(method, args),
   kernel: () => kernel,
   project: () => project,

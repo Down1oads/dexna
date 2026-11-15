@@ -1020,3 +1020,38 @@ html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after 
 .si-langmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px 18px; max-width: 720px; }
 .si-langmap label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
 .si-langmap select { min-width: 90px !important; width: 90px; height: 26px; }
+
+/* ================= Fun ================= */
+html[data-glow="soft"] .monaco-editor .view-lines span span { text-shadow: 0 0 6px color-mix(in srgb, currentColor 55%, transparent); }
+html[data-glow="neon"] .monaco-editor .view-lines span span { text-shadow: 0 0 2px currentColor, 0 0 9px currentColor, 0 0 18px color-mix(in srgb, currentColor 45%, transparent); }
+html[data-glow="neon"] .monaco-editor .cursors-layer .cursor { box-shadow: 0 0 8px 1px var(--accent); }
+#cursor-trail { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1400; pointer-events: none; }
+.power-combo { position: absolute; top: 14px; right: 26px; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; color: var(--accent); text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent); }
+.power-combo b { font: 700 38px/1 var(--mono); }
+.power-combo span { font: 600 11px var(--mono); letter-spacing: .25em; text-transform: uppercase; opacity: .8; }
+.power-combo i { display: block; height: 3px; width: 70px; margin-top: 5px; border-radius: 2px; background: var(--accent); transform-origin: right; animation: combo-left 2.6s linear forwards; }
+.power-combo.bump b { animation: combo-bump .18s ease-out; }
+.power-combo.milestone b { animation: combo-big .9s ease-out; }
+@keyframes combo-left { to { transform: scaleX(0); } }
+@keyframes combo-bump { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes combo-big { 0% { transform: scale(2); color: var(--warn); } 100% { transform: scale(1); } }
+#editor-wrap.shake { animation: shake .35s cubic-bezier(.36, .07, .19, .97); }
+@keyframes shake { 10%, 90% { transform: translate(-1px, 1px); } 20%, 80% { transform: translate(3px, -2px); } 30%, 50%, 70% { transform: translate(-5px, 2px); } 40%, 60% { transform: translate(5px, -1px); } }
+#screen-filter { position: fixed; inset: 0; z-index: 3000; pointer-events: none; }
+#screen-filter.sf-crt { background:
+  repeating-linear-gradient(to bottom, rgba(0, 0, 0, calc(var(--sf) * .28)) 0 1px, transparent 1px 3px),
+  radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, calc(var(--sf) * .55)) 100%);
+  animation: crt-flicker 4s infinite steps(1); box-shadow: inset 0 0 calc(var(--sf) * 90px) rgba(0, 0, 0, .55); }
+#screen-filter.sf-crt::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, calc(var(--sf) * .04)) 50%, transparent); background-size: 100% 6px; mix-blend-mode: overlay; }
+@keyframes crt-flicker { 0% { opacity: 1; } 47% { opacity: .94; } 48% { opacity: 1; } 83% { opacity: .97; } }
+#screen-filter.sf-grain { opacity: calc(var(--sf) * .35); background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1.2 -.1'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); animation: grain .5s steps(4) infinite; inset: -100px; mix-blend-mode: overlay; }
+@keyframes grain { 0% { transform: translate(0, 0); } 25% { transform: translate(-40px, 25px); } 50% { transform: translate(30px, -35px); } 75% { transform: translate(-20px, -15px); } }
+#screen-filter.sf-vignette { background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, calc(var(--sf) * .75)) 100%); }
+#screen-filter.sf-night { background: rgba(255, 140, 40, calc(var(--sf) * .22)); mix-blend-mode: multiply; }
+html.reduce-motion #screen-filter { animation: none !important; }
+.modal.pt-modal { width: min(560px, calc(100vw - 32px)); }
+.pt-modal .modal-body { display: flex; flex-direction: column; gap: 10px; }
+.pt-preview { border-radius: 8px; padding: 14px 16px; border: 1px solid var(--border); }
+.pt-code { font: 13px/1.6 var(--mono); white-space: pre; }
+.pt-swatches { display: flex; gap: 6px; margin-top: 12px; }
+.pt-swatches i { width: 26px; height: 14px; border-radius: 4px; }

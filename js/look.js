@@ -629,5 +629,11 @@ export function createLook(A) {
     { id: "bg-pick", label: "Background Effect...", cat: "Preferences", run: () => A.quickPick({ placeholder: "Pick a background", source: () => EFFECTS.map(([v, l]) => ({ label: l, desc: A.settings.bgEffect === v ? "current" : "", run: () => (v === "image" ? chooseImage() : A.setSetting("bgEffect", v)) })) }) },
     { id: "bg-image", label: "Set Background Image...", cat: "Preferences", run: chooseImage },
   ];
-  return { apply, updateBackdrop, onEditorReady, fxOn, commands, chooseImage, removeImage, imageThumb, lookCard, pickLook, LOOKS, get backdrop() { return backdrop; }, get sparks() { return sparks; } };
+  /** Use a picture (a Blob) as the background, as if it had been chosen in Settings. */
+  async function setImage(blob) {
+    await imageStore.set(blob.size > 600_000 ? await shrinkImage(blob) : blob);
+    A.setSetting("bgEffect", "image");
+  }
+  const burst = (x, y, colors, n) => (sparks ||= createSparks()).burst(x, y, colors || themeColors().colors.slice(0, 4), n);
+  return { apply, updateBackdrop, onEditorReady, fxOn, commands, chooseImage, removeImage, imageThumb, lookCard, pickLook, LOOKS, setImage, burst, themeColors, get backdrop() { return backdrop; }, get sparks() { return sparks; } };
 }
