@@ -42,6 +42,7 @@ const P = {
   error: '<circle cx="8" cy="8" r="5.5"/><path d="M6 6l4 4M10 6l-4 4"/>',
   warning: '<path d="M8 2.5l6 10.5H2z"/><path d="M8 6.5v3"/><circle cx="8" cy="11.3" r=".6" fill="currentColor"/>',
   check: '<path d="M3 8.5l3 3 7-7"/>',
+  chip: '<rect x="4" y="4" width="8" height="8" rx="1"/><path d="M6.5 1.5v2.5M9.5 1.5v2.5M6.5 12v2.5M9.5 12v2.5M1.5 6.5H4M1.5 9.5H4M12 6.5h2.5M12 9.5h2.5"/>',
   info: '<circle cx="8" cy="8" r="5.5"/><path d="M8 7.5v3.5"/><circle cx="8" cy="5.3" r=".6" fill="currentColor"/>',
   lock: '<rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
   pin: '<path d="M6 2.5h4M7 2.5v4l-2.5 2.5h7L9 6.5v-4M8 9v4.5"/>',

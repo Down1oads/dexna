@@ -9,9 +9,9 @@ const save = (v) => { try { localStorage.setItem(LS_KEY, JSON.stringify(v)); } c
 // Sizes are approximate; "memory" is the graphics memory WebLLM asks for (16-bit build / 32-bit build).
 // All three are Apache-2.0 licensed. The faster 16-bit builds are used when the graphics card supports them.
 export const AI_MODELS = [
-  { id: "Qwen2.5-Coder-0.5B-Instruct", name: "Small", size: "about 0.5 GB", memory: ["1 GB", "1.1 GB"], desc: "Fastest, and light on your computer. Fine for short questions." },
-  { id: "Qwen2.5-Coder-1.5B-Instruct", name: "Medium", size: "about 1 GB", memory: ["1.6 GB", "1.9 GB"], desc: "Recommended. Explains and fixes everyday code well.", recommended: true },
-  { id: "Qwen2.5-Coder-7B-Instruct", name: "Large", size: "about 4.5 GB", memory: ["5.1 GB", "5.9 GB"], desc: "Best answers, but only for a gaming-class graphics card: on most laptops it is very slow and can make the whole computer lag." },
+  { id: "Qwen2.5-Coder-0.5B-Instruct", name: "Small", size: "about 0.5 GB", memory: ["1 GB", "1.1 GB"], speed: 3, quality: 1, desc: "Fastest and lightest. Fine for short questions." },
+  { id: "Qwen2.5-Coder-1.5B-Instruct", name: "Medium", size: "about 1 GB", memory: ["1.6 GB", "1.9 GB"], speed: 2, quality: 2, desc: "Explains and fixes everyday code well.", recommended: true },
+  { id: "Qwen2.5-Coder-7B-Instruct", name: "Large", size: "about 4.5 GB", memory: ["5.1 GB", "5.9 GB"], speed: 1, quality: 3, desc: "Best answers, for gaming-class graphics cards only. On most laptops it is very slow.", heavy: true },
 ];
 
 const SYSTEM = [
@@ -493,15 +493,30 @@ export function createAssistant(ctx) {
             message: `It needs a graphics card with about ${m.memory[state.f16 ? 0 : 1]} of its own memory (a gaming-class card). On most laptops it is very slow and makes the whole computer lag, however much RAM it has. Medium is the better choice for most computers.` }))) { render(); return; }
           state.model = m.id; save({ ...load(), model: m.id }); render();
         } }),
-        h("div", {}, h("div", { class: "ai-model-name" }, m.name, m.recommended ? h("span", { class: "ai-tag" }, "Recommended") : null, state.cached[m.id] ? h("span", { class: "ai-tag ok" }, "Downloaded") : null),
-          h("div", { class: "muted small" }, `${m.desc} Download ${m.size}, needs ${m.memory[state.f16 ? 0 : 1]} of graphics memory.`)),
-        state.cached[m.id] ? h("button", { class: "btn icon sm", title: "Delete this model from the browser", onclick: (e) => { e.preventDefault(); deleteModel(m.id); } }, icon("trash")) : null));
+        h("span", { class: "ai-radio", "aria-hidden": "true" }),
+        h("div", { class: "ai-model-body" },
+          h("div", { class: "ai-model-name" }, h("span", {}, m.name),
+            m.recommended ? h("span", { class: "ai-tag rec" }, "Recommended") : null,
+            m.heavy ? h("span", { class: "ai-tag warn" }, "Heavy") : null),
+          h("div", { class: "ai-model-desc" }, m.desc),
+          h("div", { class: "ai-meters" },
+            h("span", { class: "ai-meter", title: "Speed" }, h("span", {}, "Speed"), h("i", {}, [1, 2, 3].map((n) => h("b", { class: n <= m.speed ? "on" : "" })))),
+            h("span", { class: "ai-meter", title: "Quality of answers" }, h("span", {}, "Answers"), h("i", {}, [1, 2, 3].map((n) => h("b", { class: n <= m.quality ? "on" : "" }))))),
+          h("div", { class: "ai-specs" }, h("span", { title: "Downloaded once, then kept by the browser" }, icon("download"), m.size.replace(/^about /, "")), h("span", { title: "Memory the graphics card needs" }, icon("chip"), `${m.memory[state.f16 ? 0 : 1]} graphics memory`)),
+          state.cached[m.id] ? h("div", { class: "ai-cached" }, h("span", { class: "ai-ok" }, icon("check"), "Downloaded"),
+            h("button", { class: "btn sm ai-remove", title: "Delete this model from the browser to free up space", onclick: (e) => { e.preventDefault(); e.stopPropagation(); deleteModel(m.id); } }, icon("trash"), "Remove")) : null)));
       el.append(h("div", { class: "ai-setup" },
-        h("p", {}, "A free coding helper that runs ", h("b", {}, "entirely on your device"), ". No account and no key: the model downloads once, then works offline, and your code never leaves this browser."),
+        h("div", { class: "ai-intro" },
+          h("div", { class: "ai-intro-title" }, "A free coding helper on your device"),
+          h("ul", { class: "ai-points" },
+            h("li", {}, icon("check"), "No account and no key"),
+            h("li", {}, icon("check"), "Downloads once, then works offline"),
+            h("li", {}, icon("check"), "Your code never leaves this browser"))),
+        h("div", { class: "ai-pick-label" }, "Pick a model"),
         state.phase === "error" ? h("div", { class: "ai-error" }, state.error, state.errorDetail && state.errorDetail !== state.error ? h("div", { class: "muted small ai-error-detail" }, state.errorDetail) : null) : null,
         h("div", { class: "ai-models" }, cards),
         h("button", { class: "btn primary wide", onclick: start }, state.cached[state.model] ? "Start" : `Download and start (${modelInfo().size})`),
-        h("p", { class: "muted small" }, "It's a small model, so it's best at explaining code, finding bugs and writing short pieces of code. Check what it suggests before you use it.")));
+        h("p", { class: "muted small ai-foot" }, "Small models are best at explaining code, finding bugs and writing short pieces of code. Check what they suggest before you use it.")));
       return;
     }
     if (state.phase === "loading") {
