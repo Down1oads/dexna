@@ -661,3 +661,6 @@ export const SCENES = [
   ["city", "City at night"], ["underwater", "Underwater"], ["startrails", "Star trails"], ["meadow", "Windy meadow"], ["koi", "Koi pond"],
   ["jellyfish", "Jellyfish"], ["lanterns", "Sky lanterns"], ["planet", "Ringed planet"],
 ];
+
+// shared with scenes2.js
+export { rand, TAU, mix, rgba, curve, offscreen, tile, skyFill, glow, makeStars, drawStars, palette, pine, bird, ridgeStrip, forestStrip };

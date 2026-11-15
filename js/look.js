@@ -1,6 +1,7 @@
 // Look and feel: animated backgrounds behind a see-through workbench, a background image, fonts, corners,
 // cursor effects and one-click "looks" that set several of these at once.
 import { makeScenes, SCENES } from "./scenes.js";
+import { makeScenes2, SCENES2 } from "./scenes2.js";
 
 /* =====================================================================
  * Choices
@@ -13,7 +14,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES,
+  ...SCENES, ...SCENES2,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
@@ -72,6 +73,18 @@ export const LOOKS = [
   { id: "jelly", name: "Jellyfish", desc: "Glowing jellyfish drifting up", theme: "poimandres", set: { bgEffect: "jellyfish", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "lanterns", name: "Lantern festival", desc: "Paper lanterns rising into the night", theme: "gruvbox-dark", set: { bgEffect: "lanterns", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "saturn", name: "Ringed planet", desc: "A ringed planet and its moon", theme: "tokyo-night", set: { bgEffect: "planet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "waterfall", name: "Waterfall", desc: "Water pouring between cliffs, with spray", theme: "everforest-dark", set: { bgEffect: "waterfall", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "cabin", name: "Winter cabin", desc: "Snow falling on a cabin with a warm window", theme: "nord", set: { bgEffect: "cabin", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "volcano", name: "Volcano", desc: "Glowing lava, smoke and embers", theme: "gruvbox-dark", set: { bgEffect: "volcano", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "tropical", name: "Tropical", desc: "Palm trees and waves on a sunny beach", theme: "github-light", set: { bgEffect: "tropical", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "northern", name: "Northern lights", desc: "Curtains of light over a dark forest", theme: "tokyo-night", set: { bgEffect: "northern", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "train", name: "Night train", desc: "A train crossing the hills at night", theme: "github-dark", set: { bgEffect: "train", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "lighthouse", name: "Lighthouse", desc: "A beam sweeping over the sea", theme: "midnight", set: { bgEffect: "lighthouse", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "campfire", name: "Campfire", desc: "A crackling fire under the stars", theme: "gruvbox-dark", set: { bgEffect: "campfire", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "blackhole", name: "Black hole", desc: "A glowing disk spinning around a black hole", theme: "oled", set: { bgEffect: "blackhole", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "cloudsea", name: "Above the clouds", desc: "Sunrise over a sea of clouds", theme: "rose-pine", set: { bgEffect: "cloudsea", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "balloons", name: "Balloons", desc: "Hot air balloons drifting over the hills", theme: "github-light-default", set: { bgEffect: "balloons", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "windfarm", name: "Wind farm", desc: "Turbines turning on green hills", theme: "github-light", set: { bgEffect: "windfarm", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -117,6 +130,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 function makeEffects() {
   return {
     ...makeScenes(),
+    ...makeScenes2(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1125,6 +1139,18 @@ export function createLook(A) {
       koi: `radial-gradient(8px 4px at 35% 45%, #f26b1d, transparent), radial-gradient(8px 4px at 65% 65%, #ffffff, transparent), radial-gradient(circle at 75% 30%, #1d4a2c 0 9px, transparent 10px), radial-gradient(#06222a, #020c10)`,
       jellyfish: `radial-gradient(10px 7px at 35% 40%, #ff8fd8, transparent), radial-gradient(8px 6px at 68% 62%, #8fd3ff, transparent), linear-gradient(#03122a, #010409)`,
       lanterns: `radial-gradient(circle at 30% 40%, #ffb347 0 3px, #ffb34744 6px, transparent 10px), radial-gradient(circle at 65% 60%, #ffb347 0 4px, #ffb34744 7px, transparent 12px), radial-gradient(circle at 50% 25%, #ffb347 0 2px, transparent 6px), linear-gradient(#05040f, #3a2440)`,
+      waterfall: `linear-gradient(90deg, transparent 44%, #9cc8ffaa 44% 56%, transparent 56%) 0 22% / 100% 50% no-repeat, linear-gradient(90deg, #141b26 44%, transparent 44% 56%, #1d2735 56%) 0 100% / 100% 78% no-repeat, linear-gradient(#08101f, #33465f)`,
+      cabin: `radial-gradient(circle at 62% 70%, #ffc46b 0 3px, #ffc46b55 6px, transparent 14px), linear-gradient(transparent 75%, #c9d4ea 75%), linear-gradient(#050a18, #2c3b5a)`,
+      volcano: `radial-gradient(circle at 50% 42%, #ffb35a 0 3px, #ff6a1f88 8px, transparent 30px), linear-gradient(130deg, transparent 50%, #120c0e 50.5%) 0 0 / 50% 100% no-repeat, linear-gradient(230deg, transparent 50%, #120c0e 50.5%) 100% 0 / 50% 100% no-repeat, linear-gradient(#07060c, #5a2420)`,
+      tropical: `linear-gradient(transparent 74%, #f1dcae 74%), linear-gradient(transparent 50%, #1c8fb0 50%), radial-gradient(circle at 32% 22%, #fff5cf 0 6px, transparent 7px), linear-gradient(#3fa0e0, #e6f6fb)`,
+      northern: `repeating-linear-gradient(90deg, #3dff9a22 0 2px, transparent 2px 5px) 0 15% / 100% 40% no-repeat, linear-gradient(transparent 80%, #03060c 80%), linear-gradient(#02050d, #0f2236)`,
+      train: `repeating-linear-gradient(90deg, #ffd27a 0 4px, #0b0e18 4px 8px) 20% 70% / 60% 4px no-repeat, linear-gradient(transparent 72%, #070a12 72%), linear-gradient(#05070f, #2b3352)`,
+      lighthouse: `linear-gradient(90deg, transparent 20%, #fff2c444 70%, transparent 74%) 0 34% / 100% 8% no-repeat, linear-gradient(90deg, transparent 72%, #d9dde8 72% 76%, transparent 76%) 0 40% / 100% 30% no-repeat, linear-gradient(transparent 66%, #070f1f 66%), linear-gradient(#040812, #213152)`,
+      campfire: `radial-gradient(circle at 50% 86%, #ffe08a 0 3px, #ff8a3d 6px, #ff5a1f55 12px, transparent 30px), linear-gradient(transparent 84%, #0b0a0c 84%), linear-gradient(#03040a, #1a1e2c)`,
+      blackhole: `radial-gradient(circle at 50% 50%, #000 0 10px, #fff1d6 11px, transparent 12px), radial-gradient(ellipse 46px 9px at 50% 50%, #ffb35acc, transparent 70%), radial-gradient(ellipse 18px 16px at 50% 45%, transparent 70%, #ffc27a88 80%, transparent 90%), #020206`,
+      cloudsea: `radial-gradient(circle at 55% 56%, #ffd2a0 0 6px, transparent 7px), radial-gradient(120% 30% at 50% 100%, #5a6690 60%, transparent 61%), linear-gradient(#070b1d, #24305a 40%, #c0708a 62%)`,
+      balloons: `radial-gradient(7px 9px at 30% 40%, #e8505b, transparent), radial-gradient(5px 7px at 65% 30%, #4a90e2, transparent), radial-gradient(6px 8px at 78% 55%, #f39c12, transparent), linear-gradient(transparent 80%, #5f8a5a 80%), linear-gradient(#6aaee6, #fde6c8)`,
+      windfarm: `linear-gradient(90deg, transparent 30%, #ffffff 30% 31%, transparent 31%, transparent 70%, #ffffff 70% 71%, transparent 71%) 0 40% / 100% 40% no-repeat, linear-gradient(transparent 78%, #6a9c55 78%), linear-gradient(#5ea7e6, #f2f6ea)`,
       planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;
