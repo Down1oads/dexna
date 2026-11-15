@@ -840,3 +840,51 @@ body.resizing #editor2 { pointer-events: none; }
 .te-row span { color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 560px) { .te-grid { grid-template-columns: 1fr; } }
 .tt-prev.new { align-items: center; justify-content: center; border: 1px dashed var(--border); color: var(--fg-dim); }
+
+/* ================= Backgrounds and see-through panels ================= */
+#backdrop, #backdrop-img { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; display: none; }
+#backdrop-img { background: center / cover no-repeat; transform: scale(1.04); }
+#app { position: relative; z-index: 1; }
+#sparks { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1500; pointer-events: none; }
+html.fx #titlebar, html.fx #activitybar, html.fx #sidebar, html.fx #tabs, html.fx #panel, html.fx .panel-header { background: color-mix(in srgb, var(--bg-1) calc(var(--glass) * 100%), transparent); }
+html.fx #editor-area { background: color-mix(in srgb, var(--bg) calc(var(--glass) * 88%), transparent); }
+html.fx .monaco-editor { outline: none !important; }
+html.fx .tab.active { background: color-mix(in srgb, var(--bg) 55%, transparent); }
+html.fx .term, html.fx .console-input { background: color-mix(in srgb, var(--term-bg) 45%, transparent); }
+html.fx #home, html.fx .settings-page, html.fx .split { background: transparent; }
+html.fx #editor-area.home-open #editor, html.fx #editor-area.home-open #split, html.fx #editor-area.home-open #preview { visibility: hidden; }
+html.fx #statusbar { background: color-mix(in srgb, var(--status-bg) calc(var(--glass) * 100% + 8%), transparent); }
+/* blur only on bars that do not contain the editor: a filter on its ancestors would misplace its pop-ups */
+html.fx-blur #titlebar, html.fx-blur #activitybar, html.fx-blur #sidebar, html.fx-blur #panel, html.fx-blur #statusbar { backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3); }
+html.fx .home .lang-row, html.fx .ex-card { background: color-mix(in srgb, var(--bg-1) 70%, transparent); }
+
+/* ================= Corners ================= */
+html[data-corners="round"] .btn, html[data-corners="round"] input:not([type=checkbox]):not([type=radio]):not([type=range]), html[data-corners="round"] select, html[data-corners="round"] textarea { border-radius: 7px; }
+html[data-corners="round"] .modal, html[data-corners="round"] .menu, html[data-corners="round"] #overlay .qp { border-radius: 12px; }
+html[data-corners="round"] .qp-item, html[data-corners="round"] .menu button, html[data-corners="round"] #file-tree .row, html[data-corners="round"] .theme-tile, html[data-corners="round"] .look-card, html[data-corners="round"] .ex-card { border-radius: 7px; }
+html[data-corners="round"] .tab { border-radius: 8px 8px 0 0; }
+html[data-corners="round"] #activitybar button { border-radius: 8px; }
+html[data-corners="round"] .toast { border-radius: 10px; }
+html[data-corners="sharp"] .btn, html[data-corners="sharp"] input, html[data-corners="sharp"] select, html[data-corners="sharp"] textarea, html[data-corners="sharp"] .modal, html[data-corners="sharp"] .menu, html[data-corners="sharp"] .qp-item, html[data-corners="sharp"] .theme-tile, html[data-corners="sharp"] .toast, html[data-corners="sharp"] kbd { border-radius: 0 !important; }
+
+/* ================= Cursor glow ================= */
+html[data-cursorfx="glow"] .monaco-editor .cursors-layer .cursor { box-shadow: 0 0 6px 1px var(--accent), 0 0 14px 2px color-mix(in srgb, var(--accent) 55%, transparent); background-color: var(--accent) !important; border-color: var(--accent) !important; }
+
+/* ================= Looks and the new setting controls ================= */
+.look-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; margin-top: 8px; }
+.look-card { display: flex; flex-direction: column; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-1); cursor: pointer; overflow: hidden; text-align: left; color: var(--fg); }
+.look-card:hover { border-color: var(--fg-faint); }
+.look-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.look-art { display: block; height: 74px; position: relative; }
+.look-code { position: absolute; left: 10px; top: 12px; right: 30%; display: flex; flex-direction: column; gap: 5px; }
+.look-code i { display: block; height: 5px; border-radius: 3px; width: 70%; opacity: .9; }
+.look-name { padding: 7px 10px 0; font-weight: 600; font-size: 12.5px; }
+.look-desc { padding: 0 10px 8px; color: var(--fg-dim); font-size: 11.5px; line-height: 1.35; }
+.si-range { display: flex; align-items: center; gap: 12px; max-width: 360px; }
+.si-range input { flex: 1; accent-color: var(--accent); }
+.si-range-val { min-width: 48px; font: 12px var(--mono); color: var(--fg-dim); }
+.si-color { display: flex; align-items: center; gap: 10px; }
+.si-color input[type=color] { width: 44px; height: 28px; padding: 0 2px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); cursor: pointer; }
+.si-image { display: flex; align-items: center; gap: 10px; }
+.si-thumb { width: 96px; height: 54px; border: 1px solid var(--border); border-radius: 4px; background: center / cover no-repeat var(--bg-1); }
+.si-thumb.empty { background: repeating-linear-gradient(45deg, var(--bg-1) 0 6px, var(--bg-2) 6px 12px); }

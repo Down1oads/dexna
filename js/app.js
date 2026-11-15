@@ -9,6 +9,7 @@ import { createAssistant } from "./assistant.js";
 import { createExtras } from "./extras.js";
 import { createPower } from "./power.js";
 import { createMore } from "./more.js";
+import { createLook, EFFECTS, UI_FONTS, CODE_FONTS } from "./look.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -54,6 +55,8 @@ const DEFAULT_SETTINGS = {
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
   runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
+  bgEffect: "none", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
+  accentColor: "", uiFont: "plex", editorFont: "jetbrains", lineHeight: 0,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -69,6 +72,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
 let power = null; // split editor, snippets, clipboard and local history, run on save (power.js)
 
@@ -296,6 +300,18 @@ const systemPrefersLight = () => matchMedia("(prefers-color-scheme: light)").mat
 /** The theme in effect: the chosen one, or the last dark/light theme when following the system. */
 const currentTheme = () => THEME_BY_ID[settings.theme === "auto" ? (systemPrefersLight() ? settings.lightTheme : settings.darkTheme) : settings.theme];
 
+/** The theme as drawn: the current one, with your accent colour if you picked one. */
+function effectiveTheme() {
+  const t = currentTheme();
+  const a = /^#[0-9a-f]{6}$/i.test(settings.accentColor || "") ? settings.accentColor.toLowerCase() : null;
+  return a && a !== t.c.accent ? { ...t, id: `${t.id}-accent-${a.slice(1)}`, c: { ...t.c, accent: a } } : t;
+}
+/** Monaco's theme; see-through when a background effect is on, so the effect shows behind the code. */
+function editorThemeData(t) {
+  const d = monacoTheme(t);
+  if (look?.fxOn()) d.colors = { ...d.colors, "editor.background": "#00000000", "editorGutter.background": "#00000000", "minimap.background": "#00000000", "editorOverviewRuler.background": "#00000000", "focusBorder": "#00000000" };
+  return d;
+}
 function updateThemeIcon() {
   const btn = document.getElementById("btn-theme");
   if (!btn) return;
@@ -304,17 +320,18 @@ function updateThemeIcon() {
   btn.title = `${currentTheme().name}. Click to switch to ${dark ? THEME_BY_ID[settings.lightTheme].name : THEME_BY_ID[settings.darkTheme].name}`;
 }
 function applyTheme() {
-  const t = currentTheme();
+  const base = currentTheme(), t = effectiveTheme();
   const root = document.documentElement;
   root.dataset.theme = t.type;
   const vars = uiVars(t);
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   setAnsiPalette(ansiPalette(t));
   $('meta[name="theme-color"]').content = t.c.bg;
-  if (settings.theme !== "auto") settings[t.type === "dark" ? "darkTheme" : "lightTheme"] = t.id;
+  if (settings.theme !== "auto") settings[base.type === "dark" ? "darkTheme" : "lightTheme"] = base.id;
   try { localStorage.setItem("dexna:themecache", JSON.stringify({ type: t.type, vars })); } catch (_) {}
   updateThemeIcon();
-  monaco?.editor.setTheme(t.id);
+  if (monaco) { monaco.editor.defineTheme(t.id, editorThemeData(t)); monaco.editor.setTheme(t.id); }
+  look?.updateBackdrop();
   if (web.path && extras?.isMarkdown(web.path)) setTimeout(() => refreshPreview({ full: true }), 0);
 }
 /** Flip between the last dark and the last light theme. */
@@ -333,6 +350,7 @@ function editorOptions() {
     stickyScroll: { enabled: settings.stickyScroll }, renderWhitespace: settings.renderWhitespace,
     bracketPairColorization: { enabled: settings.bracketColors }, guides: { bracketPairs: "active", indentation: true },
     cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers, colorDecorators: settings.colorSwatches,
+    lineHeight: settings.lineHeight || 0,
     cursorSmoothCaretAnimation: settings.smoothCaret ? "on" : "off", smoothScrolling: settings.smoothCaret,
   };
 }
@@ -3033,6 +3051,20 @@ const SETTINGS_SCHEMA = [
   { key: "smoothCaret", cat: "Appearance", label: "Smooth cursor and scrolling", desc: "Animate the cursor as it moves, and scroll smoothly.", type: "bool" },
   { key: "lineNumbers", cat: "Appearance", label: "Line numbers", desc: "Relative numbers count from the cursor line, which makes Vim motions like 5j easy.", type: "select", options: [["on", "On"], ["relative", "Relative"], ["interval", "Every 10 lines"], ["off", "Off"]] },
   { key: "changeMarkers", cat: "Appearance", label: "Change markers", desc: "Color bars next to the line numbers show lines added, changed or deleted since the last commit. Click one to see the changes.", type: "bool" },
+  { key: "accentColor", cat: "Appearance", label: "Accent color", desc: "Use your own color for selections, buttons and highlights, with any theme.", type: "color" },
+  { key: "uiFont", cat: "Appearance", label: "Interface font", desc: "The font for menus, panels and buttons. Fonts other than the built-in one load from Google Fonts the first time.", type: "select", options: UI_FONTS.map(([v, l]) => [v, l]) },
+  { key: "editorFont", cat: "Appearance", label: "Code font", desc: "The font for the editor and the terminal. Fonts other than the built-in one load from Google Fonts the first time.", type: "select", options: CODE_FONTS.map(([v, l]) => [v, l]) },
+  { key: "lineHeight", cat: "Appearance", label: "Line spacing", desc: "Space between lines of code.", type: "select", options: [[0, "Automatic"], [1.3, "Tight"], [1.5, "Comfortable"], [1.7, "Roomy"], [1.9, "Very roomy"]] },
+  { key: "corners", cat: "Appearance", label: "Corners", desc: "How rounded buttons, dialogs, tabs and fields are.", type: "select", options: [["sharp", "Sharp"], ["default", "Slightly rounded"], ["round", "Rounded"]] },
+  { key: "look", cat: "Background and effects", label: "Looks", desc: "One click sets a theme, a background and effects that go together. Change any part of it below.", type: "looks" },
+  { key: "bgEffect", cat: "Background and effects", label: "Background", desc: "An animated background behind the editor and panels. It pauses when the tab is hidden, and stays still if your system asks for reduced motion.", type: "select", options: EFFECTS },
+  { key: "bgImage", cat: "Background and effects", label: "Background image", desc: "Use your own picture as the background. It is stored in this browser only.", type: "image" },
+  { key: "bgIntensity", cat: "Background and effects", label: "Strength", desc: "How strongly the background shows.", type: "range", min: 10, max: 100, unit: "%" },
+  { key: "bgSpeed", cat: "Background and effects", label: "Speed", desc: "How fast it moves. 0 keeps it still.", type: "range", min: 0, max: 100, unit: "" },
+  { key: "glass", cat: "Background and effects", label: "Panel cover", desc: "How much the editor and panels cover the background. Lower shows more of it; higher keeps code easier to read.", type: "range", min: 40, max: 100, unit: "%" },
+  { key: "glassBlur", cat: "Background and effects", label: "Frosted glass", desc: "Blur the background behind the side bar, panel and title bar.", type: "bool" },
+  { key: "bgImageBlur", cat: "Background and effects", label: "Image blur", desc: "Soften your background image.", type: "range", min: 0, max: 40, unit: " px" },
+  { key: "cursorEffect", cat: "Background and effects", label: "Cursor effect", desc: "A glow around the text cursor, or sparks as you type.", type: "select", options: [["none", "None"], ["glow", "Glow"], ["sparks", "Sparks while typing"]] },
   { key: "colorSwatches", cat: "Appearance", label: "Color swatches", desc: "Show a small swatch next to colors written in code (#ff8800, rgb(...), hsl(...)) in every language. Click one to pick a new color.", type: "bool" },
   { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
@@ -3050,12 +3082,21 @@ const SETTINGS_SCHEMA = [
   { key: "clearOnRun", cat: "Terminal", label: "Clear on run", desc: "Clear the terminal each time you run a program.", type: "bool" },
   { key: "inlineplots", cat: "Terminal", label: "Inline plots", desc: "Also show matplotlib figures inside the terminal, not just in the Plots tab.", type: "bool" },
 ];
-const SETTING_CATS = ["Appearance", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
+const SETTING_CATS = ["Appearance", "Background and effects", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
 const settingsUI = { query: "" };
 
+const LOOK_KEYS = new Set(["bgEffect", "bgIntensity", "bgSpeed", "glass", "glassBlur", "bgImageBlur", "cursorEffect", "corners", "uiFont", "editorFont"]);
+/** Change a setting while a slider is being dragged: apply it, but do not redraw the settings page. */
+function setSettingLive(key, value) {
+  settings[key] = value;
+  LS.set("settings", settings);
+  if (LOOK_KEYS.has(key)) look?.apply();
+  if (editor) editor.updateOptions(editorOptions());
+}
 function setSetting(key, value) {
   settings[key] = value;
-  if (key === "theme") applyTheme(); // also records the last dark / light theme
+  if (LOOK_KEYS.has(key) || key === "theme") look?.apply();
+  if (key === "theme" || key === "accentColor" || key === "bgEffect") applyTheme(); // also records the last dark / light theme
   LS.set("settings", settings);
   if (editor) editor.updateOptions(editorOptions());
   if (key === "tabSize") for (const m of models.values()) m.updateOptions({ tabSize: value });
@@ -3079,7 +3120,7 @@ function renderSettingsPage() {
 }
 
 function settingItem(sd) {
-  const modified = settings[sd.key] !== DEFAULT_SETTINGS[sd.key];
+  const modified = sd.key in DEFAULT_SETTINGS && settings[sd.key] !== DEFAULT_SETTINGS[sd.key];
   let control;
   if (sd.type === "theme") {
     const tile = (t) => h("button", { class: "theme-tile" + (settings.theme === t.id ? " on" : ""), title: t.name, onclick: () => setSetting("theme", t.id) },
@@ -3094,6 +3135,23 @@ function settingItem(sd) {
       h("div", { class: "theme-group" }, "Light"), h("div", { class: "theme-grid" }, THEMES.filter((t) => t.type === "light" && !t.custom).map(tile)),
       h("div", { class: "theme-group" }, "Yours"), h("div", { class: "theme-grid" }, ...THEMES.filter((t) => t.custom).map((t) => { const el = tile(t); el.title = t.name + ". Double-click to edit"; el.ondblclick = () => more.editTheme(t); return el; }),
         h("button", { class: "theme-tile new", title: "Make your own theme, starting from the current one", onclick: () => cmdById("theme-new").run() }, h("span", { class: "tt-prev new" }, icon("plus")), h("span", { class: "tt-name" }, "New theme"))));
+  } else if (sd.type === "looks") {
+    control = h("div", { class: "look-grid" }, look.LOOKS.map((l) => look.lookCard(l)));
+  } else if (sd.type === "range") {
+    const out = h("span", { class: "si-range-val" }, settings[sd.key] + (sd.unit ?? ""));
+    control = h("div", { class: "si-range" }, h("input", { type: "range", min: sd.min, max: sd.max, step: sd.step || 1, value: settings[sd.key],
+      oninput: (e) => { out.textContent = e.target.value + (sd.unit ?? ""); setSettingLive(sd.key, +e.target.value); },
+      onchange: (e) => setSettingLive(sd.key, +e.target.value) }), out); // no redraw, so the slider keeps focus
+  } else if (sd.type === "color") {
+    const v = settings[sd.key] || effectiveTheme().c.accent;
+    control = h("div", { class: "si-color" }, h("input", { type: "color", value: v, onchange: (e) => setSetting(sd.key, e.target.value) }),
+      h("span", { class: "muted small" }, settings[sd.key] ? settings[sd.key] : "The theme's own"),
+      settings[sd.key] ? h("button", { class: "btn sm", onclick: () => setSetting(sd.key, "") }, "Use the theme's") : null);
+  } else if (sd.type === "image") {
+    const thumb = h("span", { class: "si-thumb" });
+    look.imageThumb().then((u) => { if (u) thumb.style.backgroundImage = `url("${u}")`; else thumb.classList.add("empty"); });
+    control = h("div", { class: "si-image" }, thumb, h("button", { class: "btn", onclick: () => look.chooseImage() }, "Choose image..."),
+      h("button", { class: "btn", onclick: () => look.removeImage() }, "Remove"));
   } else if (sd.type === "bool") {
     control = h("label", { class: "si-check" }, h("input", { type: "checkbox", checked: settings[sd.key], onchange: (e) => setSetting(sd.key, e.target.checked) }), h("span", {}, "Enabled"));
   } else if (sd.type === "select") {
@@ -3116,7 +3174,7 @@ function renderSettingsBody() {
   const match = (sd) => !q || `${sd.cat} ${sd.label} ${sd.desc} ${sd.key}`.toLowerCase().includes(q);
   const dataRows = [
     { title: "Keyboard shortcuts", desc: "See every shortcut Dexna offers.", btn: "Show", run: showShortcuts },
-    { title: "Reset all settings", desc: "Put every setting above back to its default.", btn: "Reset", run: () => { for (const k of Object.keys(DEFAULT_SETTINGS)) settings[k] = DEFAULT_SETTINGS[k]; setSetting("theme", settings.theme); toast("Settings reset", "ok"); } },
+    { title: "Reset all settings", desc: "Put every setting above back to its default.", btn: "Reset", run: () => { for (const k of Object.keys(DEFAULT_SETTINGS)) settings[k] = DEFAULT_SETTINGS[k]; LS.del("look"); setSetting("theme", settings.theme); toast("Settings reset", "ok"); } },
     { title: "Delete all local data", desc: "Remove every project, setting and history entry Dexna stored in this browser. Download anything you want to keep first.", btn: "Delete...", danger: true, run: resetEverything },
   ].filter((r) => !q || `data privacy ${r.title} ${r.desc}`.toLowerCase().includes(q));
 
@@ -3340,6 +3398,8 @@ const API = {
   symbolsOf: (model) => (model.getLanguageId() === "python" ? (lspReady ? lspCall("symbols", [model.getValue()]) : Promise.resolve(null)) : langTools.symbols(model)),
   symIconHtml, fuzzy, highlight, kbLabel, comboOf: (e) => comboOf(e), normKb: (kb) => normKb(kb), commands: () => COMMANDS,
   setKeybinding: (id, kb) => setKeybinding(id, kb), currentThemeId: () => currentTheme().id,
+  effectiveTheme: () => effectiveTheme(), themeExists: (id) => !!THEME_BY_ID[id], themeById: (id) => THEME_BY_ID[id],
+  refreshEditorOptions: () => editor?.updateOptions(editorOptions()), rerenderSettings: () => settingsOpen && renderSettingsPage(),
 };
 extras = createExtras(API);
 COMMANDS.push(...extras.commands);
@@ -3348,6 +3408,8 @@ power = createPower(API);
 COMMANDS.push(...power.commands);
 more = createMore(API);
 COMMANDS.push(...more.commands);
+look = createLook(API);
+COMMANDS.push(...look.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
@@ -3443,8 +3505,8 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
-  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "theme-new", "theme-import", "-", "about"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-import"],
+  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -3548,7 +3610,7 @@ function showAbout() {
     h("div", { class: "modal-body about" },
       h("p", {}, "Dexna is a code editor and runner that lives in your browser. Open the page, pick a language and run code. There is nothing to install and no account."),
       h("h3", {}, "Privacy"),
-      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser. Source Control commits, local history, snippets, clipboard history, bookmarks and Toolbox inputs never leave this browser either. The Markdown preview loads KaTeX and Mermaid from jsDelivr only when a file has math or diagrams; the text itself is rendered on your device."),
+      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser. Source Control commits, local history, snippets, clipboard history, bookmarks and Toolbox inputs never leave this browser either. The Markdown preview loads KaTeX and Mermaid from jsDelivr only when a file has math or diagrams; the text itself is rendered on your device. Interface and code fonts other than the built-in ones load from Google Fonts when you pick them. A background image you choose is stored in this browser only."),
       h("h3", {}, "Runtimes"),
       row("Python", `${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}, WebAssembly)`), row("JavaScript", "your browser, in a worker"), row("TypeScript", "the editor's compiler, then your browser"),
       row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("HTML/CSS", "your browser, in a preview beside the editor"), row("Online", `${ONLINE_LANGS.length} languages`), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
@@ -3601,6 +3663,7 @@ function wireStatic() {
 
 async function boot() {
   const splash = $("#splash");
+  look.apply();
   applyTheme();
   wireStatic();
   buildMenus();
@@ -3634,6 +3697,7 @@ async function boot() {
   registerLanguageModes(monaco);
   setupAssistant();
   extras.onEditorReady();
+  look.onEditorReady();
   power.onEditorReady();
   more.onEditorReady();
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code

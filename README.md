@@ -79,6 +79,10 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - Monaco (the engine behind VS Code): multi-file projects with folders and tabs, breadcrumbs, minimap, sticky scroll, bracket pair colouring, multi-cursor, find and replace, code folding.
 - **Snippets for every language**: type the trigger and press Tab (`main`, `for`, `class`, `cw`, `sout`, `forp`, `ct` and more). **Help > Languages and Snippets** lists them all.
 - **28 colour themes** (17 dark, 11 light): Settings > Appearance, or Ctrl+Shift+P > "Color Theme". The sun/moon button flips between your last dark and last light theme.
+- **Looks** (Settings > Background and effects, or View > Choose a Look): one click sets a theme plus a matching animated background and effects. **Aurora**, **Deep space**, **Constellation** (points that link up and follow your mouse), **Synthwave** (a neon grid to the horizon), **Ocean**, **Code rain**, **Lagoon** (bubbles in a light theme), **Soft light** and **Classic** (no effects).
+- **Animated backgrounds** behind a see-through editor and panels: aurora, flowing gradient, constellation, starfield, waves, retro grid, code rain, bubbles, or **your own image** (with blur). Sliders set the strength, the speed and how much the panels cover it; **Frosted glass** blurs it behind the side bar and panel. The animation runs at a gentle frame rate, pauses when the tab is hidden, and stays still when your system asks for reduced motion.
+- **Fonts and shape**: 7 interface fonts and 10 code fonts (Fira Code, Source Code Pro, IBM Plex Mono and more), line spacing, sharp or rounded corners, and your own **accent color** with any theme.
+- **Cursor effects**: a soft glow around the cursor, or sparks as you type.
 - **Your own themes** (Help > Create Color Theme, or **New theme** in Settings): pick 15 colours, see the whole app change as you go, and save. Dexna nudges colours that would be hard to read. **Copy** a theme as text and **Import** it on another device.
 - **Back and forward** (Alt+Left / Alt+Right, the arrows next to the menus, or the mouse's side buttons): retrace your jumps between files and places. On a Mac, where Option+Left moves by word, these have no keys until you set your own. **Go to Last Edit Location** takes you back to where you last typed.
 - **Symbols in every file** (Ctrl+Alt+O, or `#` in Ctrl+P): jump to any function, class or variable in the project.
@@ -191,6 +195,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
 | `js/starters.js` | The preset each new project starts with |
 | `js/extras.js` | The diff viewer, change markers, bookmarks, TODOs, text commands, code images, Zen mode, Vim keys, the calculator, statistics and the Markdown preview |
+| `js/look.js` | Looks, animated backgrounds, your background image, fonts, corners and cursor effects |
 | `js/more.js` | Back and forward, symbols across the project, your own shortcuts and themes, colour swatches |
 | `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |
 | `js/scm.js`, `js/diff.js` | Source Control (commits in IndexedDB) and the line diff (Myers' algorithm) behind it |
