@@ -1,5 +1,6 @@
 // Look and feel: animated backgrounds behind a see-through workbench, a background image, fonts, corners,
 // cursor effects and one-click "looks" that set several of these at once.
+import { makeScenes, SCENES } from "./scenes.js";
 
 /* =====================================================================
  * Choices
@@ -12,6 +13,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
+  ...SCENES,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
@@ -57,6 +59,19 @@ export const LOOKS = [
   { id: "circuit", name: "Circuit", desc: "Pulses running along traces", theme: "poimandres", set: { bgEffect: "circuit", bgIntensity: 85, bgSpeed: 40, glass: 66, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "storm", name: "Storm", desc: "Rain on the window and distant lightning", theme: "nightfox", set: { bgEffect: "rainglass", bgIntensity: 85, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "studio", name: "Studio", desc: "A soft, slowly moving gradient mesh", theme: "github-light-default", set: { bgEffect: "mesh", bgIntensity: 70, bgSpeed: 30, glass: 70, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "forest", name: "Forest", desc: "Pine trees and mist at night", theme: "everforest-dark", set: { bgEffect: "forest", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "alpine", name: "Alpine", desc: "Mountain ridges, drifting clouds and birds", theme: "nord", set: { bgEffect: "mountains", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "lake", name: "Mountain lake", desc: "Peaks reflected in still water", theme: "tokyo-night", set: { bgEffect: "lake", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "beach", name: "Sunset beach", desc: "The sun setting over the sea", theme: "rose-pine", set: { bgEffect: "sunset", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "dunes", name: "Dunes", desc: "Desert dunes under the sun", theme: "github-light", set: { bgEffect: "desert", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "skyline", name: "Skyline", desc: "A city at night with lights in the windows", theme: "github-dark", set: { bgEffect: "city", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "deepsea", name: "Deep sea", desc: "Light rays, fish and kelp", theme: "midnight", set: { bgEffect: "underwater", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "nightsky", name: "Night sky", desc: "Stars wheeling around the pole", theme: "oled", set: { bgEffect: "startrails", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "meadow", name: "Meadow", desc: "Grass in the wind on a summer day", theme: "github-light-default", set: { bgEffect: "meadow", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "koi", name: "Koi pond", desc: "Koi gliding under lily pads. Click to make a ripple", theme: "everforest-dark", set: { bgEffect: "koi", bgIntensity: 90, bgSpeed: 35, glass: 66, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "jelly", name: "Jellyfish", desc: "Glowing jellyfish drifting up", theme: "poimandres", set: { bgEffect: "jellyfish", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "lanterns", name: "Lantern festival", desc: "Paper lanterns rising into the night", theme: "gruvbox-dark", set: { bgEffect: "lanterns", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "saturn", name: "Ringed planet", desc: "A ringed planet and its moon", theme: "tokyo-night", set: { bgEffect: "planet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -101,6 +116,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 
 function makeEffects() {
   return {
+    ...makeScenes(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1097,6 +1113,19 @@ export function createLook(A) {
       fireworks: `radial-gradient(circle at 35% 40%, transparent 0 8px, ${c.accent} 9px 10px, transparent 11px), repeating-conic-gradient(from 0deg at 70% 35%, ${c.keyword}aa 0 4deg, transparent 4deg 24deg)`,
       bubbles: `radial-gradient(circle at 25% 70%, ${c.accent}66 0 9px, transparent 10px), radial-gradient(circle at 70% 40%, ${c.func}55 0 14px, transparent 15px), radial-gradient(circle at 50% 85%, ${c.keyword}55 0 6px, transparent 7px)`,
       gradient: `linear-gradient(120deg, ${c.accent}66, ${c.keyword}55, ${c.string}55)`,
+      forest: `repeating-linear-gradient(90deg, transparent 0 6px, #0a140fcc 6px 9px, transparent 9px 16px) 0 55% / 100% 45% no-repeat, linear-gradient(#0b1424, #2c4152)`,
+      mountains: `linear-gradient(160deg, transparent 52%, #1b2540 52.5%) 0 0 / 50% 100% no-repeat, linear-gradient(200deg, transparent 52%, #26314f 52.5%) 100% 0 / 50% 100% no-repeat, linear-gradient(#0a0f1f, #4a5878)`,
+      lake: `linear-gradient(transparent 58%, #0b1426dd 58%), linear-gradient(160deg, transparent 50%, #24304d 50.5%) 0 0 / 55% 58% no-repeat, radial-gradient(circle at 62% 20%, #f1f4ff 0 4px, transparent 5px), linear-gradient(#060a18, #3b4a6b)`,
+      sunset: `radial-gradient(circle at 50% 62%, #ffd27a 0 14px, transparent 15px), linear-gradient(transparent 62%, #1a1838 62%), linear-gradient(#140f2e, #5a2a5e 40%, #e0784a 62%)`,
+      desert: `radial-gradient(120% 50% at 30% 100%, #b9733a 60%, transparent 61%), radial-gradient(120% 50% at 80% 100%, #e9b97d 60%, transparent 61%), radial-gradient(circle at 70% 30%, #fff4d0 0 8px, transparent 9px), linear-gradient(#6aa6dc, #fbe4c0)`,
+      city: `repeating-linear-gradient(90deg, #07080f 0 10px, transparent 10px 13px, #0b0d18 13px 20px, transparent 20px 22px) 0 100% / 100% 45% no-repeat, radial-gradient(1px 1px at 30% 70%, #ffd38a, transparent), linear-gradient(#05060f, #3a2f55)`,
+      underwater: `repeating-linear-gradient(100deg, transparent 0 18px, #bfe9ff22 18px 26px), linear-gradient(#0d4466, #020d1a)`,
+      startrails: `repeating-radial-gradient(circle at 50% 10%, transparent 0 5px, #ffffff44 5px 6px), linear-gradient(#03040c, #1d2650)`,
+      meadow: `repeating-linear-gradient(80deg, transparent 0 3px, #4f8a3a 3px 4px) 0 100% / 100% 30% no-repeat, linear-gradient(#7ab8ea, #f4f0d8)`,
+      koi: `radial-gradient(8px 4px at 35% 45%, #f26b1d, transparent), radial-gradient(8px 4px at 65% 65%, #ffffff, transparent), radial-gradient(circle at 75% 30%, #1d4a2c 0 9px, transparent 10px), radial-gradient(#06222a, #020c10)`,
+      jellyfish: `radial-gradient(10px 7px at 35% 40%, #ff8fd8, transparent), radial-gradient(8px 6px at 68% 62%, #8fd3ff, transparent), linear-gradient(#03122a, #010409)`,
+      lanterns: `radial-gradient(circle at 30% 40%, #ffb347 0 3px, #ffb34744 6px, transparent 10px), radial-gradient(circle at 65% 60%, #ffb347 0 4px, #ffb34744 7px, transparent 12px), radial-gradient(circle at 50% 25%, #ffb347 0 2px, transparent 6px), linear-gradient(#05040f, #3a2440)`,
+      planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;
     return A.h("button", { class: "look-card" + (on ? " on" : ""), title: l.desc, onclick: () => applyLook(l) },
