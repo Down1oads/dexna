@@ -1,4 +1,6 @@
 // Main-thread client for a Python worker (kernel or language server).
+const LOAD_ID = Date.now().toString(36);
+
 export class PyClient {
   /** @param {"kernel"|"lsp"} role @param {(msg:any)=>void} onEvent */
   constructor(role, onEvent) {
@@ -14,7 +16,9 @@ export class PyClient {
 
   start() {
     const cfg = window.DEXNA_CONFIG;
-    const url = new URL(`pyworker.js?role=${this.role}&pyodide=${encodeURIComponent(cfg.pyodide)}`, import.meta.url);
+    // "v" changes on every page load, so a reload always starts the worker from the newest files
+    // (Ctrl+Shift+R refreshes the page's own files, but not what a worker loads).
+    const url = new URL(`pyworker.js?role=${this.role}&pyodide=${encodeURIComponent(cfg.pyodide)}&v=${LOAD_ID}`, import.meta.url);
     this.worker = new Worker(url);
     let sab = null;
     if (this.isolated) {

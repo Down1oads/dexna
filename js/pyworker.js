@@ -190,7 +190,7 @@ async function boot(msg) {
   mkdirp(PROJECT);
   pyodide.FS.chdir(PROJECT);
 
-  const src = await (await fetch(BASE + `py/${ROLE}.py`)).text();
+  const src = await (await fetch(BASE + `py/${ROLE}.py`, { cache: "no-cache" })).text(); // always the newest version
   pyodide.runPython(src, { filename: `<dexna-${ROLE}>` });
 
   if (ROLE === "lsp") {

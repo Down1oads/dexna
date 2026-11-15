@@ -2001,7 +2001,7 @@ async function runOther(path, lang) {
     setBusy(false);
     return;
   }
-  const worker = new Worker(new URL("runner.js", import.meta.url), { type: "module" });
+  const worker = new Worker(new URL(`runner.js?v=${RUNNER_LOAD_ID}`, import.meta.url), { type: "module" });
   let finished = false;
   const finish = (res) => {
     if (finished) return;
@@ -3610,6 +3610,7 @@ function tidyOnSave() {
   if (t !== m.getValue()) applyText(m, t, "tidy");
 }
 
+const RUNNER_LOAD_ID = Date.now().toString(36); // a fresh runner on every page load, never a cached old one
 let flashTimer;
 function setStatusFlash(text) {
   $("#sb-run").textContent = text;
