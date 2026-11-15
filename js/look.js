@@ -7,7 +7,9 @@
 export const EFFECTS = [
   ["none", "None"], ["aurora", "Aurora"], ["gradient", "Flowing gradient"], ["particles", "Constellation"],
   ["stars", "Starfield"], ["waves", "Waves"], ["grid", "Retro grid"], ["rain", "Code rain"], ["bubbles", "Bubbles"],
-  ["silk", "Silk ribbons"], ["dotsea", "Sea of dots"], ["ripples", "Ripples"], ["flow", "Flow field"], ["hills", "Rolling hills"], ["lava", "Lava lamp"], ["plasma", "Plasma"], ["image", "Your image"],
+  ["silk", "Silk ribbons"], ["dotsea", "Sea of dots"], ["ripples", "Ripples"], ["flow", "Flow field"], ["hills", "Rolling hills"], ["lava", "Lava lamp"], ["plasma", "Plasma"],
+  ["ink", "Mouse ink"], ["snow", "Snow"], ["sakura", "Sakura petals"], ["leaves", "Autumn leaves"], ["fireflies", "Fireflies"], ["fireworks", "Fireworks"],
+  ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
 export const UI_FONTS = [
@@ -40,6 +42,12 @@ export const LOOKS = [
   { id: "lava", name: "Lava lamp", desc: "Warm blobs rising and sinking", theme: "gruvbox-dark", set: { bgEffect: "lava", bgIntensity: 70, bgSpeed: 35, glass: 66, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "plasma", name: "Plasma", desc: "Slowly swirling color", theme: "one-dark", set: { bgEffect: "plasma", bgIntensity: 80, bgSpeed: 30, glass: 70, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "seaside", name: "Seaside", desc: "Waves in a bright light theme", theme: "github-light", set: { bgEffect: "waves", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "winter", name: "Winter night", desc: "Snow drifting past", theme: "nord", set: { bgEffect: "snow", bgIntensity: 90, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "hanami", name: "Hanami", desc: "Cherry blossom petals on the wind", theme: "rose-pine-dawn", set: { bgEffect: "sakura", bgIntensity: 90, bgSpeed: 35, glass: 62, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "#d7827e" } },
+  { id: "autumn", name: "Autumn", desc: "Falling leaves", theme: "gruvbox-dark", set: { bgEffect: "leaves", bgIntensity: 85, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "summer", name: "Summer night", desc: "Fireflies in the dark", theme: "everforest-dark", set: { bgEffect: "fireflies", bgIntensity: 95, bgSpeed: 40, glass: 64, glassBlur: false, corners: "round", cursorEffect: "glow", accentColor: "" } },
+  { id: "celebrate", name: "Celebration", desc: "Fireworks", theme: "tokyo-night", set: { bgEffect: "fireworks", bgIntensity: 85, bgSpeed: 40, glass: 66, glassBlur: false, corners: "round", cursorEffect: "sparks", accentColor: "" } },
+  { id: "ink", name: "Ink", desc: "Colored ink follows your mouse", theme: "catppuccin-mocha", set: { bgEffect: "ink", bgIntensity: 85, bgSpeed: 40, glass: 62, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -56,7 +64,11 @@ const imgDb = () => (dbp ||= new Promise((res, rej) => {
 async function idb(mode, fn) {
   try { const d = await imgDb(); return await new Promise((res, rej) => { const t = d.transaction("files", mode); const q = fn(t.objectStore("files")); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); } catch (_) { return undefined; }
 }
+let memVideo = null;
 const imageStore = {
+  async getVideo() { return (await idb("readonly", (s) => s.get("bgVideo"))) ?? memVideo; },
+  async setVideo(blob) { memVideo = blob; await idb("readwrite", (s) => s.put(blob, "bgVideo")); },
+  async delVideo() { memVideo = null; await idb("readwrite", (s) => s.delete("bgVideo")); },
   async get() { return (await idb("readonly", (s) => s.get("bgImage"))) ?? memImage; },
   async set(blob) { memImage = blob; await idb("readwrite", (s) => s.put(blob, "bgImage")); },
   async del() { memImage = null; await idb("readwrite", (s) => s.delete("bgImage")); },
@@ -386,6 +398,141 @@ function makeEffects() {
         ctx.putImageData(s.img, 0, 0);
       },
     },
+
+    ink: {
+      trails: true,
+      init(s) { s.p = []; s.prev = null; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.globalCompositeOperation = "destination-out"; ctx.fillStyle = `rgba(0,0,0,${Math.min(1, dt * 1.1 + 0.002)})`; ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = s.dark ? "lighter" : "source-over";
+        const m = s.mouse;
+        if (m && s.prev) {
+          const vx = (m.x - s.prev.x), vy = (m.y - s.prev.y), sp = Math.hypot(vx, vy);
+          const n = Math.min(8, Math.floor(sp / 6));
+          for (let i = 0; i < n; i++) {
+            const k = i / Math.max(1, n);
+            s.p.push({ x: s.prev.x + vx * k, y: s.prev.y + vy * k, vx: vx * 6 + rand(-30, 30) * s.px, vy: vy * 6 + rand(-30, 30) * s.px, r: rand(16, 34) * s.px, life: 1, c: s.colors[Math.floor(t * 0.4) % 4] });
+          }
+        } else if (dt > 0 && Math.random() < 0.15) { // gentle drifting wisps when the mouse is still
+          s.p.push({ x: rand(0, w), y: rand(0, h), vx: rand(-20, 20) * s.px, vy: rand(-20, 20) * s.px, r: rand(14, 30) * s.px, life: 0.6, c: s.colors[Math.floor(rand(0, 4))] });
+        }
+        s.prev = m ? { ...m } : null;
+        if (s.p.length > 900) s.p.splice(0, s.p.length - 900);
+        s.p = s.p.filter((q) => (q.life -= dt * 0.55) > 0);
+        for (const q of s.p) {
+          q.vx *= 1 - dt * 1.8; q.vy *= 1 - dt * 1.8;
+          q.vx += Math.sin(q.y * 0.01 + t) * 12 * dt * s.px; q.vy += Math.cos(q.x * 0.01 + t) * 12 * dt * s.px;
+          q.x += q.vx * dt; q.y += q.vy * dt;
+          const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, q.r);
+          g.addColorStop(0, rgba(q.c, (s.dark ? 0.075 : 0.1) * q.life)); g.addColorStop(0.5, rgba(q.c, (s.dark ? 0.04 : 0.05) * q.life)); g.addColorStop(1, rgba(q.c, 0));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, q.r, 0, 6.3); ctx.fill();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      },
+    },
+    snow: {
+      init(s) { const n = Math.min(320, Math.round((s.w * s.h) / (5000 * s.px * s.px))); s.f = Array.from({ length: n }, () => this.mk(s, true)); },
+      mk(s, any) { const z = rand(0.3, 1); return { x: rand(0, s.w), y: any ? rand(0, s.h) : rand(-40, -5), z, r: (0.8 + z * 2.6) * s.px, ph: rand(0, 6.3) }; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        const wind = Math.sin(t * 0.13) * 18;
+        for (let i = 0; i < s.f.length; i++) {
+          const f = s.f[i];
+          f.y += (18 + f.z * 38) * dt * s.px; f.x += (wind * f.z + Math.sin(t * 0.9 + f.ph) * 10) * dt * s.px;
+          if (f.y > h + 10 || f.x < -20 || f.x > w + 20) s.f[i] = this.mk(s, false);
+          ctx.fillStyle = s.dark ? `rgba(255,255,255,${0.35 + f.z * 0.55})` : `rgba(120,140,170,${0.3 + f.z * 0.5})`;
+          ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, 6.3); ctx.fill();
+        }
+      },
+    },
+    sakura: {
+      init(s) { const n = Math.min(90, Math.round((s.w * s.h) / (16000 * s.px * s.px))); s.f = Array.from({ length: n }, () => this.mk(s, true)); },
+      mk(s, any) { return { x: rand(-s.w * 0.2, s.w), y: any ? rand(0, s.h) : rand(-60, -10), z: rand(0.5, 1), rot: rand(0, 6.3), spin: rand(-2, 2), flip: rand(0, 6.3), c: ["#ffb7c5", "#ff9eb5", "#ffd1dc", "#f7a1b8"][Math.floor(rand(0, 4))] }; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        for (let i = 0; i < s.f.length; i++) {
+          const f = s.f[i];
+          f.y += (22 + f.z * 26) * dt * s.px; f.x += (26 + Math.sin(t + f.flip) * 22) * dt * s.px; f.rot += f.spin * dt; f.flip += dt * 2.2;
+          if (f.y > h + 20 || f.x > w + 30) s.f[i] = this.mk(s, false);
+          const sz = (6 + f.z * 6) * s.px;
+          ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot); ctx.scale(1, Math.abs(Math.cos(f.flip)) * 0.8 + 0.2);
+          ctx.fillStyle = rgba(f.c, 0.85);
+          ctx.beginPath(); ctx.moveTo(0, -sz); ctx.bezierCurveTo(sz * 0.9, -sz * 0.6, sz * 0.7, sz * 0.6, 0, sz); ctx.bezierCurveTo(-sz * 0.7, sz * 0.6, -sz * 0.9, -sz * 0.6, 0, -sz); ctx.fill();
+          ctx.fillStyle = rgba("#ffffff", 0.35); ctx.beginPath(); ctx.ellipse(0, -sz * 0.75, sz * 0.12, sz * 0.22, 0, 0, 6.3); ctx.fill();
+          ctx.restore();
+        }
+      },
+    },
+    leaves: {
+      init(s) { const n = Math.min(60, Math.round((s.w * s.h) / (24000 * s.px * s.px))); s.f = Array.from({ length: n }, () => this.mk(s, true)); },
+      mk(s, any) { return { x: rand(0, s.w), y: any ? rand(0, s.h) : rand(-60, -10), z: rand(0.5, 1), rot: rand(0, 6.3), spin: rand(-1.5, 1.5), sway: rand(0, 6.3), c: ["#d9622b", "#e8a33d", "#b8401f", "#c9822b", "#9c5a2a"][Math.floor(rand(0, 5))] }; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        for (let i = 0; i < s.f.length; i++) {
+          const f = s.f[i];
+          f.y += (26 + f.z * 22) * dt * s.px; f.x += Math.sin(t * 0.9 + f.sway) * 40 * dt * s.px; f.rot += f.spin * dt + Math.sin(t + f.sway) * dt;
+          if (f.y > h + 30) s.f[i] = this.mk(s, false);
+          const sz = (9 + f.z * 9) * s.px;
+          ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.rot);
+          ctx.fillStyle = rgba(f.c, 0.85);
+          ctx.beginPath(); ctx.moveTo(0, -sz); ctx.quadraticCurveTo(sz * 0.9, -sz * 0.2, 0, sz); ctx.quadraticCurveTo(-sz * 0.9, -sz * 0.2, 0, -sz); ctx.fill();
+          ctx.strokeStyle = rgba("#5a2e12", 0.5); ctx.lineWidth = s.px; ctx.beginPath(); ctx.moveTo(0, -sz * 0.9); ctx.lineTo(0, sz * 1.25); ctx.stroke();
+          ctx.restore();
+        }
+      },
+    },
+    fireflies: {
+      init(s) { const n = Math.min(70, Math.round((s.w * s.h) / (20000 * s.px * s.px))); s.f = Array.from({ length: n }, () => ({ x: rand(0, s.w), y: rand(s.h * 0.2, s.h), a: rand(0, 6.3), sp: rand(10, 28), ph: rand(0, 6.3), blink: rand(0.6, 1.6) })); },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.clearRect(0, 0, w, h);
+        const glow = ctx.createLinearGradient(0, h * 0.5, 0, h);
+        glow.addColorStop(0, rgba("#203a1a", 0)); glow.addColorStop(1, rgba("#203a1a", s.dark ? 0.35 : 0.1));
+        ctx.fillStyle = glow; ctx.fillRect(0, h * 0.5, w, h * 0.5);
+        for (const f of s.f) {
+          f.a += (Math.sin(t * 0.7 + f.ph) * 1.2) * dt;
+          f.x += Math.cos(f.a) * f.sp * dt * s.px; f.y += Math.sin(f.a) * f.sp * dt * s.px * 0.6;
+          if (f.x < 0) f.x += w; if (f.x > w) f.x -= w; if (f.y < h * 0.1) f.a = Math.PI / 2; if (f.y > h) f.a = -Math.PI / 2;
+          const on = Math.max(0, Math.sin(t * f.blink + f.ph)) ** 2;
+          if (on < 0.02) continue;
+          const r = 14 * s.px;
+          const g = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
+          g.addColorStop(0, `rgba(230,255,140,${0.9 * on})`); g.addColorStop(0.25, `rgba(190,240,90,${0.45 * on})`); g.addColorStop(1, "rgba(160,220,60,0)");
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, 6.3); ctx.fill();
+        }
+      },
+    },
+    fireworks: {
+      trails: true,
+      init(s) { s.r = []; s.p = []; s.next = 0.3; },
+      draw(ctx, s, t, dt) {
+        const { w, h } = s;
+        ctx.globalCompositeOperation = "destination-out"; ctx.fillStyle = `rgba(0,0,0,${Math.min(1, dt * 2.4)})`; ctx.fillRect(0, 0, w, h);
+        ctx.globalCompositeOperation = s.dark ? "lighter" : "source-over";
+        s.next -= dt;
+        if (s.next <= 0 && dt > 0) { s.r.push({ x: rand(0.15, 0.85) * w, y: h, vy: -rand(0.9, 1.25) * Math.sqrt(h) * 22, tx: rand(0.15, 0.45) * h, c: s.colors[Math.floor(rand(0, 4))] }); s.next = rand(0.6, 1.6); }
+        s.r = s.r.filter((r) => {
+          r.y += r.vy * dt; r.vy *= 1 - dt * 0.6;
+          ctx.fillStyle = rgba(r.c, 0.9); ctx.beginPath(); ctx.arc(r.x, r.y, 2 * s.px, 0, 6.3); ctx.fill();
+          if (r.y <= r.tx || r.vy > -60) {
+            const n = 70, sp = rand(90, 170) * s.px, c2 = Math.random() < 0.4 ? s.colors[Math.floor(rand(0, 4))] : r.c;
+            for (let i = 0; i < n; i++) { const a = (i / n) * 6.283 + rand(-0.05, 0.05), v = sp * rand(0.6, 1); s.p.push({ x: r.x, y: r.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: rand(1, 1.6), c: i % 3 ? r.c : c2 }); }
+            return false;
+          }
+          return true;
+        });
+        s.p = s.p.filter((q) => (q.life -= dt * 0.8) > 0);
+        for (const q of s.p) {
+          q.vy += 60 * s.px * dt; q.vx *= 1 - dt * 0.9; q.vy *= 1 - dt * 0.9; q.x += q.vx * dt; q.y += q.vy * dt;
+          ctx.fillStyle = rgba(q.c, Math.min(1, q.life)); ctx.beginPath(); ctx.arc(q.x, q.y, 1.6 * s.px, 0, 6.3); ctx.fill();
+        }
+        ctx.globalCompositeOperation = "source-over";
+      },
+    },
   };
 }
 
@@ -395,7 +542,9 @@ function createBackdrop() {
   canvas.setAttribute("aria-hidden", "true");
   const img = document.createElement("div");
   img.id = "backdrop-img";
-  document.body.prepend(img, canvas);
+  const video = Object.assign(document.createElement("video"), { id: "backdrop-video", muted: true, loop: true, playsInline: true, autoplay: true });
+  video.setAttribute("aria-hidden", "true");
+  document.body.prepend(video, img, canvas);
   const ctx = canvas.getContext("2d");
   const effects = makeEffects();
   const reduce = matchMedia("(prefers-reduced-motion: reduce)");
@@ -425,7 +574,7 @@ function createBackdrop() {
   addEventListener("resize", () => { if (fx) { setup(); kick(); } });
   document.addEventListener("visibilitychange", kick);
   reduce.addEventListener?.("change", kick);
-  addEventListener("pointermove", (e) => { if (s && fx === effects.particles) s.mouse = { x: e.clientX * s.px, y: e.clientY * s.px }; }, { passive: true });
+  addEventListener("pointermove", (e) => { if (s && fx) { s.mouse = { x: e.clientX * s.px, y: e.clientY * s.px }; if (fx === effects.ink) kick(); } }, { passive: true });
   document.addEventListener("pointerleave", () => { if (s) s.mouse = null; });
   addEventListener("pointerdown", (e) => { if (s && fx?.tap) { fx.tap(s, e.clientX * s.px, e.clientY * s.px); kick(); } }, { passive: true });
   let imgUrl = null;
@@ -434,6 +583,18 @@ function createBackdrop() {
       opts = o;
       const name = o.effect;
       canvas.style.opacity = img.style.opacity = String(o.intensity);
+      video.style.display = "none";
+      if (name === "video") {
+        fx = null; cancelAnimationFrame(raf); raf = 0; canvas.style.display = "none"; img.style.display = "none";
+        const blob = await imageStore.getVideo();
+        if (video.dataset.size !== String(blob?.size)) { if (video.src) URL.revokeObjectURL(video.src); video.src = blob ? URL.createObjectURL(blob) : ""; video.dataset.size = String(blob?.size); }
+        video.style.opacity = String(o.intensity);
+        video.style.filter = o.imageBlur ? `blur(${o.imageBlur}px)` : "";
+        video.style.display = "block";
+        if (blob) { const moving = o.speed > 0 && !reduce.matches && !document.documentElement.classList.contains("reduce-motion"); if (moving) video.play().catch(() => {}); else video.pause(); }
+        return !!blob;
+      }
+      video.pause?.();
       if (name === "image") {
         fx = null; cancelAnimationFrame(raf); raf = 0; canvas.style.display = "none";
         const blob = await imageStore.get();
@@ -543,6 +704,7 @@ export function createLook(A) {
     if (!fxOn()) { if (backdrop) await backdrop.set({ effect: "none", intensity: 0 }); return; }
     backdrop ||= createBackdrop();
     const ok = await backdrop.set({ effect: st.bgEffect, intensity: Math.max(0.05, Math.min(1, (st.bgIntensity ?? 60) / 100)), speed: ((st.bgSpeed ?? 40) / 40), imageBlur: st.bgImageBlur || 0, ...themeColors() });
+    if (!ok && st.bgEffect === "video") A.toast("Pick a video for the background in Settings > Background and effects.");
     if (!ok && st.bgEffect === "image") A.toast("Pick an image for the background in Settings > Background and effects.");
   }
 
@@ -561,6 +723,20 @@ export function createLook(A) {
     };
     input.click();
   }
+  async function chooseVideo() {
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: "video/mp4,video/webm,video/*" });
+    input.onchange = async () => {
+      const f = input.files[0];
+      if (!f) return;
+      if (!f.type.startsWith("video/")) return A.toast("That is not a video.", "error");
+      if (f.size > 120_000_000) return A.toast("That video is over 120 MB. Pick a shorter or smaller one (a few seconds that loop work best).", "error");
+      await imageStore.setVideo(f);
+      A.setSetting("bgEffect", "video");
+      A.toast("Video background set. It plays muted, on a loop, and is stored in this browser only.", "ok");
+    };
+    input.click();
+  }
+  async function removeVideo() { await imageStore.delVideo(); if (A.settings.bgEffect === "video") A.setSetting("bgEffect", "none"); else A.rerenderSettings?.(); }
   async function removeImage() {
     await imageStore.del();
     if (A.settings.bgEffect === "image") A.setSetting("bgEffect", "none"); else A.rerenderSettings?.();
@@ -600,6 +776,12 @@ export function createLook(A) {
       hills: `radial-gradient(120% 40% at 30% 100%, ${c.accent}77, transparent 70%), radial-gradient(90% 35% at 80% 100%, ${c.keyword}66, transparent 70%), radial-gradient(circle at 72% 35%, ${c.func}66, transparent 18%)`,
       lava: `radial-gradient(circle at 30% 40%, ${c.accent}cc 0 12px, transparent 22px), radial-gradient(circle at 65% 70%, ${c.keyword}bb 0 16px, transparent 26px), radial-gradient(circle at 80% 25%, ${c.func}aa 0 8px, transparent 16px)`,
       plasma: `conic-gradient(from 40deg at 60% 50%, ${c.accent}77, ${c.keyword}77, ${c.func}77, ${c.string}77, ${c.accent}77)`,
+      ink: `radial-gradient(circle at 30% 60%, ${c.accent}88, transparent 30%), radial-gradient(circle at 55% 45%, ${c.keyword}77, transparent 25%), radial-gradient(circle at 75% 35%, ${c.func}66, transparent 20%)`,
+      snow: `radial-gradient(2px 2px at 20% 30%, #fff, transparent), radial-gradient(3px 3px at 60% 20%, #fff, transparent), radial-gradient(2px 2px at 80% 60%, #fff, transparent), radial-gradient(2px 2px at 40% 75%, #fff, transparent), radial-gradient(3px 3px at 70% 85%, #fff, transparent)`,
+      sakura: `radial-gradient(4px 6px at 25% 30%, #ffb7c5, transparent), radial-gradient(5px 7px at 65% 25%, #ff9eb5, transparent), radial-gradient(4px 6px at 80% 70%, #ffd1dc, transparent), radial-gradient(5px 7px at 45% 80%, #ffb7c5, transparent)`,
+      leaves: `radial-gradient(5px 8px at 25% 30%, #d9622b, transparent), radial-gradient(6px 9px at 65% 55%, #e8a33d, transparent), radial-gradient(5px 8px at 80% 25%, #b8401f, transparent)`,
+      fireflies: `radial-gradient(circle at 25% 65%, #e6ff8cdd 0 2px, #bef05a44 4px, transparent 9px), radial-gradient(circle at 60% 45%, #e6ff8cdd 0 2px, #bef05a44 4px, transparent 9px), radial-gradient(circle at 80% 75%, #e6ff8cbb 0 2px, transparent 7px)`,
+      fireworks: `radial-gradient(circle at 35% 40%, transparent 0 8px, ${c.accent} 9px 10px, transparent 11px), repeating-conic-gradient(from 0deg at 70% 35%, ${c.keyword}aa 0 4deg, transparent 4deg 24deg)`,
       bubbles: `radial-gradient(circle at 25% 70%, ${c.accent}66 0 9px, transparent 10px), radial-gradient(circle at 70% 40%, ${c.func}55 0 14px, transparent 15px), radial-gradient(circle at 50% 85%, ${c.keyword}55 0 6px, transparent 7px)`,
       gradient: `linear-gradient(120deg, ${c.accent}66, ${c.keyword}55, ${c.string}55)`,
     }[l.set.bgEffect] || "none";
@@ -635,5 +817,5 @@ export function createLook(A) {
     A.setSetting("bgEffect", "image");
   }
   const burst = (x, y, colors, n) => (sparks ||= createSparks()).burst(x, y, colors || themeColors().colors.slice(0, 4), n);
-  return { apply, updateBackdrop, onEditorReady, fxOn, commands, chooseImage, removeImage, imageThumb, lookCard, pickLook, LOOKS, setImage, burst, themeColors, get backdrop() { return backdrop; }, get sparks() { return sparks; } };
+  return { apply, updateBackdrop, onEditorReady, fxOn, commands, chooseImage, removeImage, chooseVideo, removeVideo, imageThumb, lookCard, pickLook, LOOKS, setImage, burst, themeColors, get backdrop() { return backdrop; }, get sparks() { return sparks; } };
 }

@@ -14,6 +14,8 @@ import { createPlus } from "./plus.js";
 import { createPkgs } from "./pkgs.js";
 import { createTweaks } from "./tweaks.js";
 import { createFx } from "./fx.js";
+import { createJoy } from "./joy.js";
+import { PETS, PET_COLORS } from "./pet.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -69,6 +71,7 @@ const DEFAULT_SETTINGS = {
   greetingName: "", langTabSize: {}, centered: false, centeredWidth: 1000, cursorColor: "", selectionColor: "", eventSounds: false, reduceMotion: false,
   chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, powerMode: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
   timeTheme: false, dayStarts: 7, nightStarts: 19,
+  focusMode: "off", typewriter: false, indentRainbow: false, pet: "off", petColor: "", celebrate: false, achievements: true,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -84,6 +87,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let joy = null; // focus mode, typewriter, rainbow indents, pet, achievements, confetti (joy.js)
 let fx = null; // theme from a picture, chroma, glow, cursor trail, power mode, screen filters, ambient sounds (fx.js)
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
@@ -1752,7 +1756,7 @@ function onKernelEvent(msg) {
 
 function setBusy(busy, mode = null) {
   const was = state.busy && state.mode;
-  if (!busy && (was === "run" || was === "debug")) setTimeout(() => tweaks?.onRunEnded(!!lastRunOutput()?.failed), 0);
+  if (!busy && (was === "run" || was === "debug")) setTimeout(() => { const failed = !!lastRunOutput()?.failed; tweaks?.onRunEnded(failed); joy?.onRunEnded(failed); }, 0);
   state.busy = busy;
   state.mode = busy ? mode : null;
   $("#btn-stop").disabled = !busy;
@@ -3139,6 +3143,14 @@ const SETTINGS_SCHEMA = [
   { key: "filterStrength", cat: "Fun", label: "Filter strength", desc: "How strong the screen filter is.", type: "range", min: 10, max: 100, unit: "%" },
   { key: "ambient", cat: "Fun", label: "Ambient sound", desc: "A calm background sound while you work, made in the browser. It starts after your first click on the page.", type: "select", options: [["off", "Off"], ["rain", "Rain"], ["waves", "Ocean waves"], ["fire", "Fireplace"], ["brown", "Brown noise"], ["hum", "Space hum"]] },
   { key: "ambientVolume", cat: "Fun", label: "Ambient volume", desc: "How loud the ambient sound is.", type: "range", min: 2, max: 100, unit: "%" },
+  { key: "pet", cat: "Fun", label: "Pet", desc: "A little friend that walks along the bottom of the window. It runs when you type, naps when you stop, cheers when your program works and looks worried when it fails. Click it.", type: "select", options: [["off", "No pet"], ...PETS] },
+  { key: "petColor", cat: "Fun", label: "Pet color", desc: "The color of your pet.", type: "select", options: () => (PET_COLORS[settings.pet] || PET_COLORS.cat).map(([v, l]) => [v, l]) },
+  { key: "celebrate", cat: "Fun", label: "Confetti on success", desc: "Confetti bursts from the Run button when a program finishes without errors.", type: "bool" },
+  { key: "achievements", cat: "Fun", label: "Achievements", desc: "Unlock badges as you code: your first run, fixing a bug, streaks, night owl and more. View > Achievements shows them all.", type: "bool" },
+  { key: "showAchievements", cat: "Fun", label: "Your achievements", desc: "See the ones you have and the ones still to get.", type: "action", btn: "Show achievements", run: () => joy.showAchievements() },
+  { key: "focusMode", cat: "Fun", label: "Focus mode", desc: "Dim all the code except the part you are working on.", type: "select", options: [["off", "Off"], ["paragraph", "Dim all but the current block"], ["line", "Dim all but the current line"]] },
+  { key: "typewriter", cat: "Fun", label: "Typewriter scrolling", desc: "Keep the line you are typing on in the middle of the screen.", type: "bool" },
+  { key: "indentRainbow", cat: "Fun", label: "Rainbow indentation", desc: "Color each level of indentation, so nested code is easy to follow.", type: "bool" },
   { key: "timeTheme", cat: "Fun", label: "Day and night themes", desc: "Switch to your light theme in the day and your dark theme at night (the last ones you picked of each).", type: "bool" },
   { key: "dayStarts", cat: "Fun", label: "Day starts at", desc: "When the light theme comes on.", type: "select", options: [5, 6, 7, 8, 9, 10].map((n) => [n, `${n}:00`]) },
   { key: "nightStarts", cat: "Fun", label: "Night starts at", desc: "When the dark theme comes on.", type: "select", options: [16, 17, 18, 19, 20, 21, 22].map((n) => [n, `${n}:00`]) },
@@ -3211,6 +3223,7 @@ function setSettingLive(key, value) {
   if (LOOK_KEYS.has(key)) look?.apply();
   tweaks?.onSetting(key);
   fx?.onSetting(key);
+  joy?.onSetting(key);
   if (editor) editor.updateOptions(editorOptions());
 }
 function setSetting(key, value) {
@@ -3222,6 +3235,7 @@ function setSetting(key, value) {
   if (key === "tabSize" || key === "useTabs" || key === "langTabSize") for (const [path, m] of models) m.updateOptions({ tabSize: tabSizeFor(path), insertSpaces: !settings.useTabs });
   tweaks?.onSetting(key);
   fx?.onSetting(key);
+  joy?.onSetting(key);
   if (key === "autoLint") lintAll();
   extras?.onSetting(key, value);
   power?.onSetting(key, value);
@@ -3293,10 +3307,13 @@ function settingItem(sd) {
     const thumb = h("span", { class: "si-thumb" });
     look.imageThumb().then((u) => { if (u) thumb.style.backgroundImage = `url("${u}")`; else thumb.classList.add("empty"); });
     control = h("div", { class: "si-image" }, thumb, h("button", { class: "btn", onclick: () => look.chooseImage() }, "Choose image..."),
-      h("button", { class: "btn", onclick: () => look.removeImage() }, "Remove"));
+      h("button", { class: "btn", onclick: () => look.removeImage() }, "Remove"),
+      h("span", { class: "si-or" }, "or"), h("button", { class: "btn", title: "A short video that loops (MP4 or WebM), played muted", onclick: () => look.chooseVideo() }, "Choose video..."),
+      settings.bgEffect === "video" ? h("button", { class: "btn", onclick: () => look.removeVideo() }, "Remove video") : null);
   } else if (sd.type === "bool") {
     control = h("label", { class: "si-check" }, h("input", { type: "checkbox", checked: settings[sd.key], onchange: (e) => setSetting(sd.key, e.target.checked) }), h("span", {}, "Enabled"));
   } else if (sd.type === "select") {
+    if (typeof sd.options === "function") sd = { ...sd, options: sd.options() };
     control = h("select", { onchange: (e) => setSetting(sd.key, typeof sd.options[0][0] === "number" ? +e.target.value : e.target.value) },
       sd.options.map(([v, l]) => h("option", { value: v, selected: settings[sd.key] == v }, l)));
   } else {
@@ -3590,6 +3607,9 @@ tweaks = createTweaks(API);
 COMMANDS.push(...tweaks.commands);
 fx = createFx(API);
 COMMANDS.push(...fx.commands);
+API.icon = icon;
+joy = createJoy(API);
+COMMANDS.push(...joy.commands);
 pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
@@ -3688,7 +3708,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick", "pet-pick", "achievements", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
@@ -3885,6 +3905,7 @@ async function boot() {
   look.onEditorReady();
   tweaks.onEditorReady();
   fx.onEditorReady();
+  joy.onEditorReady();
   power.onEditorReady();
   more.onEditorReady();
   plus.onReady();

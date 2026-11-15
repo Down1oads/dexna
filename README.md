@@ -101,6 +101,12 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
   - **Screen filters**: retro CRT monitor, film grain, vignette, or a warm night light.
   - **Ambient sounds**: rain, ocean waves, a fireplace, brown noise or a space hum, all made in the browser.
   - **Day and night themes** that switch by the clock.
+  - **A pet**: a cat, a dog or a slime walks along the bottom of the window. It runs while you type, naps when you stop, jumps for joy when your program works and looks worried when it fails. Click it.
+  - **Achievements**: 18 badges to unlock, from your first run and your first bug to streaks, night owl and a 200 combo. View > Achievements.
+  - **Confetti** from the Run button when a program works.
+  - **Focus mode** dims all but the block (or line) you are on; **typewriter scrolling** keeps your line in the middle of the screen; **rainbow indentation** colors each level.
+  - The browser tab's icon takes on your accent color.
+- **More backgrounds**: mouse ink that follows the pointer, snow, sakura petals, autumn leaves, fireflies, fireworks, and **your own video** (a short clip that loops, muted). New looks to match: Winter night, Hanami, Autumn, Summer night, Celebration and Ink.
 - **Your own themes** (Help > Create Color Theme, or **New theme** in Settings): pick 15 colours, see the whole app change as you go, and save. Dexna nudges colours that would be hard to read. **Copy** a theme as text and **Import** it on another device.
 - **Back and forward** (Alt+Left / Alt+Right, the arrows next to the menus, or the mouse's side buttons): retrace your jumps between files and places. On a Mac, where Option+Left moves by word, these have no keys until you set your own. **Go to Last Edit Location** takes you back to where you last typed.
 - **Symbols in every file** (Ctrl+Alt+O, or `#` in Ctrl+P): jump to any function, class or variable in the project.
