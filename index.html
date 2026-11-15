@@ -66,12 +66,16 @@
         <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></button>
       <button data-view="search" title="Search (Ctrl+Shift+F)">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></button>
+      <button data-view="scm" title="Source Control (Ctrl+Shift+G)">
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="7.5" r="2.2"/><path d="M6 7.2v9.6M18 9.7c0 5-12 3-12 7"/></svg><span class="ab-badge hidden"></span></button>
       <button data-view="outline" title="Outline">
         <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
       <button data-view="debug" title="Run &amp; Debug">
         <svg viewBox="0 0 24 24"><path d="m6 3 14 9-14 9z"/></svg></button>
       <button data-view="packages" title="Packages">
         <svg viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg></button>
+      <button data-view="tools" title="Toolbox">
+        <svg viewBox="0 0 24 24"><path d="M14.5 3.5a4.5 4.5 0 0 0-4.2 6.1L4.2 15.7a2.1 2.1 0 0 0 3 3l6.1-6.1a4.5 4.5 0 0 0 6.1-4.2l-2.6 2.6-3-.7-.7-3z"/></svg></button>
       <button data-view="assistant" title="Assistant (Ctrl+Alt+I)">
         <svg viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4.5 3.5V17H6a2 2 0 0 1-2-2z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/></svg></button>
       <div class="spacer"></div>
@@ -112,6 +116,11 @@
         <div id="search-results" class="tree"></div>
       </section>
 
+      <section class="view" data-view="scm">
+        <div class="view-title">Source Control</div>
+        <div id="scm-root" class="scm-root"></div>
+      </section>
+
       <section class="view" data-view="outline">
         <div class="view-title">Outline <span class="muted" id="outline-file"></span></div>
         <input id="outline-filter" class="filter" placeholder="Filter symbols" spellcheck="false">
@@ -138,6 +147,11 @@
       <section class="view" data-view="assistant">
         <div class="view-title">Assistant</div>
         <div id="ai-root" class="ai-root"></div>
+      </section>
+
+      <section class="view" data-view="tools">
+        <div class="view-title">Toolbox</div>
+        <div id="tools-root" class="tools-root"></div>
       </section>
 
       <section class="view" data-view="packages">
@@ -179,6 +193,8 @@
             <button data-panel="problems">Problems <span class="badge" id="problems-badge"></span></button>
             <button data-panel="variables">Variables</button>
             <button data-panel="plots">Plots <span class="badge" id="plots-badge"></span></button>
+            <button data-panel="todos">TODOs <span class="badge" id="todos-badge"></span></button>
+            <button data-panel="bookmarks">Bookmarks <span class="badge" id="bookmarks-badge"></span></button>
           </div>
           <div class="panel-actions">
             <button class="btn icon sm" id="panel-clear" title="Clear"><i data-icon="clear"></i></button>
@@ -202,6 +218,8 @@
             <table class="vars"><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Value</th></tr></thead><tbody id="vars"></tbody></table>
           </div>
           <div class="panel-view" data-panel="plots"><div id="plots" class="plots"></div></div>
+          <div class="panel-view" data-panel="todos"><div id="todos" class="tree small list-view"></div></div>
+          <div class="panel-view" data-panel="bookmarks"><div id="bookmarks" class="tree small list-view"></div></div>
         </div>
       </div>
     </section>
@@ -211,10 +229,12 @@
   <footer id="statusbar">
     <div class="left">
       <span class="sb-item" id="sb-kernel"><i class="dot"></i><span>Starting…</span></span>
+      <span class="sb-item clickable" id="sb-scm"></span>
       <span class="sb-item clickable" id="sb-problems" title="Problems"></span>
       <span class="sb-item" id="sb-run"></span>
     </div>
     <div class="right">
+      <span class="sb-item hidden" id="sb-vim"></span>
       <span class="sb-item clickable" id="sb-cursor">Ln 1, Col 1</span>
       <span class="sb-item clickable" id="sb-indent">Spaces: 4</span>
       <span class="sb-item">UTF-8</span>
@@ -244,6 +264,7 @@
     gofmt: "https://cdn.jsdelivr.net/npm/@wasm-fmt/gofmt@0.7.3/",
     emmet: "https://cdn.jsdelivr.net/npm/emmet-monaco-es@5.7.0/dist/emmet-monaco.esm.min.js",
     webllm: "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.86/lib/index.js",
+    vim: "https://cdn.jsdelivr.net/npm/monaco-vim@0.4.2/dist/monaco-vim.js",
     esm: "https://esm.sh/"
   }
 };</script>

@@ -6,6 +6,7 @@ import { starterFor, STARTER_FILES } from "./starters.js";
 import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline, isObjC } from "./online.js";
 import { registerLanguageModes, loadEmmet, MODES } from "./langmodes.js";
 import { createAssistant } from "./assistant.js";
+import { createExtras } from "./extras.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -50,6 +51,7 @@ const DEFAULT_SETTINGS = {
   theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
+  vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
 // older versions stored "dark" / "light"
@@ -62,6 +64,7 @@ const layout = { sidebarWidth: 260, panelHeight: 270, view: "explorer", panel: "
 const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
+let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
 
 const EMPTY_PROJECT = { name: "My project", files: {} };
 const newId = () => Math.random().toString(36).slice(2, 10);
@@ -86,6 +89,7 @@ const persistProject = debounce(() => {
   if (meta) { meta.name = project.name; meta.updated = project.updated; }
   LS.set("projects", projectsIndex);
   LS.set("current", project.id);
+  extras?.onFilesChanged();
 }, 400);
 
 /* =====================================================================
@@ -304,6 +308,7 @@ function applyTheme() {
   try { localStorage.setItem("dexna:themecache", JSON.stringify({ type: t.type, vars })); } catch (_) {}
   updateThemeIcon();
   monaco?.editor.setTheme(t.id);
+  if (web.path && extras?.isMarkdown(web.path)) setTimeout(() => refreshPreview({ full: true }), 0);
 }
 /** Flip between the last dark and the last light theme. */
 function toggleTheme() {
@@ -320,13 +325,15 @@ function editorOptions() {
     wordWrap: settings.wordWrap ? "on" : "off", minimap: { enabled: settings.minimap && innerWidth > 760, renderCharacters: false, scale: 1 },
     stickyScroll: { enabled: settings.stickyScroll }, renderWhitespace: settings.renderWhitespace,
     bracketPairColorization: { enabled: settings.bracketColors }, guides: { bracketPairs: "active", indentation: true },
+    cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers,
+    cursorSmoothCaretAnimation: settings.smoothCaret ? "on" : "off", smoothScrolling: settings.smoothCaret,
   };
 }
 
 function createEditor() {
   editor = monaco.editor.create($("#editor"), {
-    model: null, automaticLayout: true, glyphMargin: true, fixedOverflowWidgets: true, smoothScrolling: true,
-    cursorBlinking: "smooth", cursorSmoothCaretAnimation: "on", mouseWheelZoom: true, padding: { top: 8 },
+    model: null, automaticLayout: true, glyphMargin: true, fixedOverflowWidgets: true,
+    cursorBlinking: "smooth", mouseWheelZoom: true, padding: { top: 8 },
     scrollBeyondLastLine: true, renderLineHighlight: "all", suggest: { showStatusBar: true, preview: false }, suggestLineHeight: 24,
     inlineSuggest: { enabled: true }, linkedEditing: true, formatOnPaste: false, lightbulb: { enabled: "on" },
     "semanticHighlighting.enabled": true, quickSuggestionsDelay: 80, ...editorOptions(),
@@ -413,6 +420,7 @@ function ensureModel(path) {
   m.onDidChangeContent((ev) => onModelChange(path, m, ev));
   renderBreakpointDecos(path);
   updateCellDecos(path);
+  extras?.onModelCreated(path);
   return m;
 }
 
@@ -433,6 +441,7 @@ function onModelChange(path, model, ev) {
   project.files[path] = model.getValue();
   persistProject();
   if (bpDecos.get(path)?.length) syncBreakpointsFromDecos(path);
+  extras?.onModelContent(path);
   clearRuntimeError(path);
   if (!lspWriters.has(path)) lspWriters.set(path, debounce(() => lspSyncFile(path), 350));
   lspWriters.get(path)();
@@ -473,6 +482,7 @@ async function loadProject(id) {
   plotsClear();
   if (lspReady) lspSyncAll();
   if (kernel?.info) syncKernelProject();
+  extras?.onProjectLoaded();
   return true;
 }
 
@@ -500,6 +510,7 @@ async function deleteProject() {
   if (!(await confirmDialog({ title: "Delete project", message: `Delete "${project.name}" and all of its files? This cannot be undone.`, okLabel: "Delete", danger: true }))) return;
   const id = project.id;
   LS.del("project:" + id);
+  extras?.scm.deleteProject(id).catch(() => {});
   projectsIndex = projectsIndex.filter((p) => p.id !== id);
   LS.set("projects", projectsIndex);
   project = null;
@@ -614,6 +625,7 @@ function movePath(from, to) {
     delete project.files[a];
     project.files[b] = content;
     if (project.breakpoints[a]) { project.breakpoints[b] = project.breakpoints[a]; delete project.breakpoints[a]; }
+    if (project.bookmarks?.[a]) { project.bookmarks[b] = project.bookmarks[a]; delete project.bookmarks[a]; }
     if (project.entry === a) project.entry = b;
     project.open = project.open.map((o) => (o === a ? b : o));
     if (project.active === a) project.active = b;
@@ -649,14 +661,20 @@ async function deletePath(path) {
   const isFile = project.files[path] != null;
   if (!(await confirmDialog({ title: "Delete", message: `Delete ${isFile ? "file" : "folder"} "${path}"${isFile ? "" : " and everything inside it"}?`, okLabel: "Delete", danger: true }))) return;
   const files = isFile ? [path] : Object.keys(project.files).filter((f) => f.startsWith(path + "/"));
+  if (!isFile) project.dirs = project.dirs.filter((d) => d !== path && !d.startsWith(path + "/"));
+  removeFiles(files);
+}
+/** Delete files without asking. */
+function removeFiles(files) {
   for (const f of files) {
+    if (project.files[f] == null) continue;
     delete project.files[f];
     delete project.breakpoints[f];
+    if (project.bookmarks) delete project.bookmarks[f];
     if (project.open.includes(f)) closeTab(f, { silent: true });
     disposeModel(f);
     lsp?.call("remove", { path: f }).catch(() => {});
   }
-  if (!isFile) project.dirs = project.dirs.filter((d) => d !== path && !d.startsWith(path + "/"));
   if (project.entry && project.files[project.entry] == null) project.entry = null;
   persistProject();
   renderTree();
@@ -1028,6 +1046,8 @@ function renderHome() {
             action("download", "Import project from ZIP...", () => $("#zip-upload").click()),
             action("file", "Upload files...", () => { uploadTarget = ""; $("#file-upload").click(); }),
             action("star", "Command palette...", () => quickOpen(">"), "ctrl+shift+p"),
+            action("branch", "Source control and history", () => setView("scm"), "ctrl+shift+g"),
+            action("tools", "Toolbox: regex, JSON, hashes, colors...", () => setView("tools")),
             action("settings", "Settings and color themes", () => showSettings(true)),
             action("info", "Languages and snippets", showLanguageGuide),
             action("info", "Keyboard shortcuts", () => showShortcuts()))),
@@ -1077,10 +1097,13 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
   updateBreadcrumbs();
   updateCursorStatus();
   updateRuntimeBadge();
-  $("#sb-lang").textContent = { python: "Python", plaintext: "Plain Text", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", json: "JSON", markdown: "Markdown", html: "HTML", css: "CSS", yaml: "YAML", csharp: "C#", java: "Java", c: "C", cpp: "C++", go: "Go", rust: "Rust", kotlin: "Kotlin", php: "PHP", ruby: "Ruby", swift: "Swift", perl: "Perl", dart: "Dart", scala: "Scala", r: "R", shell: "Shell", elixir: "Elixir", pascal: "Pascal", clojure: "Clojure", fsharp: "F#", vb: "Visual Basic", "objective-c": "Objective-C" }[model.getLanguageId()] || model.getLanguageId();
+  $("#sb-lang").textContent = langName(model.getLanguageId());
   updateRunTarget();
   scheduleOutline();
 }
+
+const LANG_NAMES = { python: "Python", plaintext: "Plain Text", javascript: "JavaScript", typescript: "TypeScript", lua: "Lua", sql: "SQL", json: "JSON", markdown: "Markdown", html: "HTML", css: "CSS", yaml: "YAML", csharp: "C#", java: "Java", c: "C", cpp: "C++", go: "Go", rust: "Rust", kotlin: "Kotlin", php: "PHP", ruby: "Ruby", swift: "Swift", perl: "Perl", dart: "Dart", scala: "Scala", r: "R", shell: "Shell", elixir: "Elixir", pascal: "Pascal", clojure: "Clojure", fsharp: "F#", vb: "Visual Basic", "objective-c": "Objective-C", xml: "XML", ini: "INI", powershell: "PowerShell", haskell: "Haskell", julia: "Julia", zig: "Zig", nim: "Nim", ocaml: "OCaml", fortran: "Fortran", octave: "Octave", erlang: "Erlang", groovy: "Groovy", dlang: "D", cobol: "COBOL", nasm: "Assembly", prolog: "Prolog", commonlisp: "Common Lisp", crystal: "Crystal", ada: "Ada", odin: "Odin", raku: "Raku", vala: "Vala", mojo: "Mojo", modula2: "Modula-2", freebasic: "BASIC" };
+const langName = (id) => LANG_NAMES[id] || MODES[id]?.name || (id ? id[0].toUpperCase() + id.slice(1) : "");
 
 const extTabs = [];
 function closeTab(key, { silent } = {}) {
@@ -1133,6 +1156,12 @@ function renderTabs() {
         { label: "Reveal in Explorer", disabled: ext, run: () => { expandTo(key); renderTree(); setView("explorer"); selectTreeRow(key); } },
         { label: "Copy Path", run: () => navigator.clipboard?.writeText(p) },
         { label: "Run This File", disabled: ext || !isRunnable(p), run: () => runFile({ path: p }) },
+        ...(!ext && extras?.isMarkdown(p) ? [{ label: "Open Preview", kb: "ctrl+shift+v", run: () => previewFile(p) }] : []),
+        "-",
+        { label: "Compare with Last Commit", disabled: ext || !extras?.scm.head, run: () => extras.scm.diffWithHead(p) },
+        { label: "File History", disabled: ext || !extras?.scm.head, run: () => extras.scm.fileHistory(p) },
+        { label: "Compare With…", disabled: ext, run: () => { openFile(key); cmdById("compare-file").run(); } },
+        { label: "Toggle Bookmark Here", disabled: ext, run: () => extras.toggleBookmark(p, editor.getPosition()?.lineNumber || 1) },
       ]);
     });
     tab.addEventListener("dragstart", (e) => { tab.classList.add("dragging"); e.dataTransfer.setData("dexna/tab", key); });
@@ -1182,6 +1211,7 @@ function updateBreadcrumbs() {
   for (const s of syms) {
     bc.append(h("span", { class: "sep" }, icon("chevronRight")), h("span", { class: "crumb", onclick: () => openFile(key, { line: s.line, col: s.col }) }, symIcon(s.kind), s.name));
   }
+  if (!key.startsWith("ext:") && extras?.isMarkdown(key)) bc.append(h("button", { class: "btn sm bc-action", title: "Open the preview beside the editor (Ctrl+Shift+V)", onclick: () => previewFile(key) }, icon("eye"), web.path === key ? "Preview open" : "Preview"));
 }
 
 function updateCursorStatus() {
@@ -1769,7 +1799,7 @@ async function replExec(code, { echo = true, label } = {}) {
   }
 }
 
-function applyFileChanges(changes) {
+function applyFileChanges(changes, { silent = false } = {}) {
   if (!changes) return;
   const added = [];
   for (const [p, text] of Object.entries(changes)) {
@@ -1781,7 +1811,8 @@ function applyFileChanges(changes) {
     }
   }
   if (Object.keys(changes).length) { persistProject(); renderTree(); }
-  if (added.length) toast(`Your program created ${added.length === 1 ? added[0] : added.length + " files"}`, "ok");
+  if (added.length) { added.forEach(lspSyncFile); renderTabs(); }
+  if (added.length && !silent) toast(`Your program created ${added.length === 1 ? added[0] : added.length + " files"}`, "ok");
 }
 
 async function stopExecution() {
@@ -1937,15 +1968,41 @@ function setPreviewWidth(px) {
 function showPreview(on) {
   $("#preview").classList.toggle("hidden", !on);
   $("#editor-wrap").classList.toggle("with-preview", on);
-  if (!on) { web.path = null; $("#preview-frame").srcdoc = ""; }
+  if (!on) { web.path = null; web.mdLoaded = null; $("#preview-frame").srcdoc = ""; updateBreadcrumbs(); }
 }
-function refreshPreview({ announce = false } = {}) {
+function refreshPreview({ announce = false, full = false } = {}) {
   if (!web.path || project.files[web.path] == null) return showPreview(false);
+  if (extras?.isMarkdown(web.path)) {
+    const path = web.path, seq = (web.seq = (web.seq || 0) + 1);
+    $("#preview-title").textContent = path;
+    if (web.mdLoaded === path && !full) { // only the content changed: keep the page and its scroll position
+      extras.markdownBody(textOf(path), path).then((html) => { if (seq === web.seq) postToPreview({ __dexnaMd: 1, html }); });
+    } else {
+      extras.markdownPage(textOf(path), path).then((html) => {
+        if (seq !== web.seq) return;
+        web.html = html; web.mdLoaded = path;
+        $("#preview-frame").srcdoc = html;
+      });
+    }
+    return;
+  }
+  web.mdLoaded = null;
   const { html, missing } = buildPage(web.path);
   web.html = html;
   $("#preview-title").textContent = web.path;
   $("#preview-frame").srcdoc = html;
   if (announce && missing.length) terminal.system(`Not found in the project: ${[...new Set(missing)].join(", ")}`, "stderr");
+}
+function postToPreview(msg) { try { $("#preview-frame").contentWindow?.postMessage(msg, "*"); } catch (_) {} }
+/** Show a page or a Markdown file in the preview beside the editor. */
+function previewFile(path) {
+  if (!extras?.isMarkdown(path)) return runWeb(path);
+  web.path = path;
+  web.mdLoaded = null;
+  setPreviewWidth();
+  showPreview(true);
+  refreshPreview();
+  updateBreadcrumbs();
 }
 function runWeb(path) {
   showPanel("terminal");
@@ -1972,7 +2029,7 @@ function setupPreview() {
     if (!m || m.__dexna !== 1 || e.source !== $("#preview-frame").contentWindow) return;
     if (m.type === "nav") {
       const p = resolveRef(web.path, m.href);
-      if (project.files[p] != null && /\.html?$/i.test(p)) { web.path = p; refreshPreview({ announce: true }); }
+      if (project.files[p] != null && (/\.html?$/i.test(p) || extras?.isMarkdown(p))) { web.path = p; refreshPreview({ announce: true }); openFile(p, { focus: false }); }
       else terminal.system(`The page links to ${m.href}, which is not a page in this project.`, "stderr");
     } else if (m.type === "storage") {
       try { localStorage.setItem("dexna:webstore:" + project.id, JSON.stringify(m.items || {})); } catch (_) {}
@@ -2951,9 +3008,15 @@ const SETTINGS_SCHEMA = [
   { key: "minimap", cat: "Appearance", label: "Minimap", desc: "Show a small overview of the file on the right edge.", type: "bool" },
   { key: "stickyScroll", cat: "Appearance", label: "Sticky scroll", desc: "Keep the current class or function header pinned at the top while you scroll.", type: "bool" },
   { key: "bracketColors", cat: "Appearance", label: "Bracket pair colors", desc: "Color matching brackets so nested ones are easy to tell apart.", type: "bool" },
+  { key: "cursorStyle", cat: "Appearance", label: "Cursor style", desc: "How the text cursor is drawn.", type: "select", options: [["line", "Line"], ["block", "Block"], ["underline", "Underline"], ["line-thin", "Thin line"], ["block-outline", "Block outline"]] },
+  { key: "smoothCaret", cat: "Appearance", label: "Smooth cursor and scrolling", desc: "Animate the cursor as it moves, and scroll smoothly.", type: "bool" },
+  { key: "lineNumbers", cat: "Appearance", label: "Line numbers", desc: "Relative numbers count from the cursor line, which makes Vim motions like 5j easy.", type: "select", options: [["on", "On"], ["relative", "Relative"], ["interval", "Every 10 lines"], ["off", "Off"]] },
+  { key: "changeMarkers", cat: "Appearance", label: "Change markers", desc: "Color bars next to the line numbers show lines added, changed or deleted since the last commit. Click one to see the changes.", type: "bool" },
   { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
+  { key: "vimMode", cat: "Editor", label: "Vim keys", desc: "Edit with Vim key bindings: modes, motions, operators, registers, macros, and :w to save. The mode shows in the status bar.", type: "bool" },
+  { key: "zenFullscreen", cat: "Editor", label: "Zen mode uses full screen", desc: "Also make the browser full screen in Zen mode (Ctrl+K Z).", type: "bool" },
   { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
   { key: "onlineRunners", cat: "Languages", label: "Online runners", desc: "C#, Java, C, C++, Go, Rust, Kotlin, PHP, Ruby and other compiled languages cannot run in the browser, so Dexna sends the file and the input you type to a public online compiler (godbolt.org, ce.judge0.com or wandbox.org, depending on the language). Turn this off to keep everything on your device. Dexna asks the first time you run one.", type: "bool" },
   { key: "autoLint", cat: "Python", label: "Live linting", desc: "Check Python code with pyflakes as you type and underline problems.", type: "bool" },
@@ -2972,6 +3035,7 @@ function setSetting(key, value) {
   if (editor) editor.updateOptions(editorOptions());
   if (key === "tabSize") for (const m of models.values()) m.updateOptions({ tabSize: value });
   if (key === "autoLint") lintAll();
+  extras?.onSetting(key, value);
   $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
   if (settingsOpen) renderSettingsPage();
 }
@@ -3058,6 +3122,7 @@ function renderSettingsBody() {
 async function resetEverything() {
   if (!(await confirmDialog({ title: "Delete all local data", message: "This removes every project, setting and history entry stored by Dexna in this browser. Download anything you want to keep first.", okLabel: "Delete everything", danger: true }))) return;
   Object.keys(localStorage).filter((k) => k.startsWith("dexna:")).forEach((k) => localStorage.removeItem(k));
+  try { indexedDB.deleteDatabase("dexna-scm"); } catch (_) {}
   persistProject.flush = () => {};
   location.reload();
 }
@@ -3109,6 +3174,7 @@ function setView(view, { toggle = false } = {}) {
   if (layout.view === "packages" && layout.sidebar && !installedPkgs.length) refreshPackages();
   if (layout.view === "outline") renderOutline();
   if (layout.view === "assistant" && layout.sidebar) assistant?.show();
+  if (layout.sidebar) extras?.onView(layout.view);
   saveLayout();
 }
 $$("#activitybar [data-view]").forEach((b) => (b.onclick = () => (b.dataset.view === "settings" ? (settingsOpen ? closePage("settings") : showSettings(true)) : setView(b.dataset.view, { toggle: true }))));
@@ -3234,6 +3300,17 @@ const COMMANDS = [
   { id: "language-guide", label: "Languages and Snippets", cat: "Help", run: () => showLanguageGuide() },
   { id: "about", label: "About Dexna", cat: "Help", run: () => showAbout() },
 ];
+extras = createExtras({
+  h, $, icon, iconSvg, fileIconSvg, esc, debounce, toast, ago, LS, cfg, settings, layout,
+  get monaco() { return monaco; }, get editor() { return editor; }, get project() { return project; }, models,
+  openModal, closeModal: () => closeOverlay?.(), quickPick, confirmDialog, promptDialog, showMenu, quickOpen: (p) => quickOpen(p),
+  openFile, textOf, langOf, langName, currentPath, modelFor: ensureModel, currentFiles: () => project?.files || {},
+  writeFiles: (changes) => applyFileChanges(changes, { silent: true }), removeFiles, persist: () => persistProject(),
+  setView, showPanel, setSetting, setStatusFlash, downloadBlob, resolveRef, save: () => saveCommand(), closeActive: () => project.active && closeTab(project.active),
+  previewFile, previewPath: () => web.path, postToPreview,
+});
+COMMANDS.push(...extras.commands);
+
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
 for (const c of COMMANDS) if (c.kb && !c.kb.includes(" ")) keymap.set(normKb(c.kb), c);
@@ -3272,7 +3349,7 @@ async function saveCommand() {
 
 function quickOpen(prefix = "") {
   quickPick({
-    placeholder: "Search files by name (type > for commands, : for line, @ for symbols)",
+    placeholder: "Search files by name (> commands, : line, @ symbols, = calculator, ? help)",
     value: prefix,
     source: (q) => {
       if (q.startsWith(">")) {
@@ -3283,6 +3360,8 @@ function quickOpen(prefix = "") {
         return [...own, ...ed].map((c) => ({ ...c, m: fuzzy(t, c.label) })).filter((c) => c.m)
           .sort((a, b) => b.m.score - a.m.score).map((c) => ({ label: c.label, labelHtml: highlight(c.label, c.m.idx), desc: kbLabel(c.kb), run: c.run }));
       }
+      if (q.startsWith("=")) return extras.calcItems(q.slice(1));
+      if (q.startsWith("?")) return extras.helpItems((p) => quickOpen(p));
       if (q.startsWith(":")) {
         const n = parseInt(q.slice(1), 10);
         return editor.getModel() ? [{ label: Number.isFinite(n) ? `Go to line ${n}` : `Type a line number (1-${editor.getModel().getLineCount()})`, run: () => Number.isFinite(n) && openFile(project.active, { line: n }) }] : [];
@@ -3306,11 +3385,12 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "-", "save", "close-tab", "-", "rename-project", "delete-project"],
-  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "palette"],
+  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "rename-project", "delete-project"],
+  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "compare-file", "compare-clip", "-", "palette"],
+  Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term"],
-  View: ["explorer", "find-files", "outline", "debug-view", "packages", "-", "sidebar", "panel", "console", "problems", "variables", "plots", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
-  Help: ["home", "language-guide", "shortcuts", "examples", "-", "about"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme"],
+  Help: ["home", "language-guide", "shortcuts", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -3345,7 +3425,7 @@ function showShortcuts(initialQuery = "") {
       ["Show suggestions", "ctrl+space"], ["Show parameter hints", "ctrl+shift+space"], ["Go to definition", "f12"], ["Peek definition", "alt+f12"], ["Find all references", "shift+f12"],
       ["Rename symbol", "f2"], ["Quick fix", "ctrl+."], ["Show hover", "ctrl+k ctrl+i"], ["Accept a suggestion", "tab / enter"],
     ]],
-    ["Find and navigate", [["Find in file", "ctrl+f"], ["Replace in file", "ctrl+h"], ["Find next or previous", "f3 / shift+f3"], ...fromCommands(["Go", "View"])]],
+    ["Find and navigate", [["Find in file", "ctrl+f"], ["Replace in file", "ctrl+h"], ["Find next or previous", "f3 / shift+f3"], ...fromCommands(["Go", "View", "Source Control"])]],
     ["Preferences", fromCommands(["Preferences", "Help"])],
   ];
   const q = h("input", { placeholder: "Filter shortcuts", spellcheck: "false", value: initialQuery });
@@ -3414,12 +3494,12 @@ function showAbout() {
     h("div", { class: "modal-body about" },
       h("p", {}, "Dexna is a code editor and runner that lives in your browser. Open the page, pick a language and run code. There is nothing to install and no account."),
       h("h3", {}, "Privacy"),
-      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser."),
+      h("p", {}, "Python, JavaScript, TypeScript, Lua, SQL and web pages (HTML/CSS) run on your device, and your projects are stored in this browser only. C#, Java, C, C++, Go, Rust and the other online languages send the file you run, plus any input you type, to a public compile service (godbolt.org, ce.judge0.com or wandbox.org). Dexna asks first, and you can turn it off in Settings. The Assistant runs its model on your device: it downloads the model once from huggingface.co, and your code and questions stay in this browser. Source Control commits, bookmarks and Toolbox inputs never leave this browser either."),
       h("h3", {}, "Runtimes"),
       row("Python", `${kernelInfo?.version || "..."} (Pyodide ${kernelInfo?.pyodide || ""}, WebAssembly)`), row("JavaScript", "your browser, in a worker"), row("TypeScript", "the editor's compiler, then your browser"),
       row("Lua", "5.4 (wasmoon, WebAssembly)"), row("SQL", "SQLite (WebAssembly)"), row("HTML/CSS", "your browser, in a preview beside the editor"), row("Online", `${ONLINE_LANGS.length} languages`), row("Mode", kernel?.isolated ? "Full: input(), Stop and the debugger are available" : "Limited: reload the page to enable input() and the debugger"),
       h("h3", {}, "Built with"),
-      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), WebLLM with Qwen2.5-Coder (the Assistant), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
+      h("p", { class: "muted" }, "Monaco editor, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), monaco-vim (Vim keys), WebLLM with Qwen2.5-Coder (the Assistant), IBM Plex Sans and JetBrains Mono. Online runs use Judge0 CE, Compiler Explorer and Wandbox."),
       h("p", {}, h("a", { href: "https://github.com/Down1oads/dexna", target: "_blank", rel: "noopener" }, "Source code on GitHub"))),
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { closeOverlay(); showLanguageGuide(); } }, "Languages"), h("button", { class: "btn", onclick: () => { closeOverlay(); showShortcuts(); } }, "Shortcuts"), h("button", { class: "btn primary", onclick: () => closeOverlay() }, "Close"))));
 }
@@ -3446,6 +3526,7 @@ function wireStatic() {
   $("#btn-share").onclick = shareProject;
   $("#btn-theme").onclick = toggleTheme;
   updateThemeIcon();
+  $("#sb-scm").onclick = () => setView("scm");
   $("#sb-kernel").classList.add("clickable");
   $("#sb-kernel").onclick = (e) => showMenu(e.clientX, e.clientY - 90, [
     { label: "Restart Python", run: () => restartKernel() },
@@ -3498,6 +3579,7 @@ async function boot() {
   window.addEventListener("unhandledrejection", (e) => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
   registerLanguageModes(monaco);
   setupAssistant();
+  extras.onEditorReady();
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => schedulePreview());
   setupPreview();

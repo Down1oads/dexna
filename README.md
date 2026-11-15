@@ -80,7 +80,48 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Snippets for every language**: type the trigger and press Tab (`main`, `for`, `class`, `cw`, `sout`, `forp`, `ct` and more). **Help > Languages and Snippets** lists them all.
 - **28 colour themes** (17 dark, 11 light): Settings > Appearance, or Ctrl+Shift+P > "Color Theme". The sun/moon button flips between your last dark and last light theme.
 - Settings is a full page with search, categories and per-setting reset.
-- Command palette (Ctrl+Shift+P), quick open (Ctrl+P), search and replace across files.
+- Command palette (Ctrl+Shift+P), quick open (Ctrl+P), search and replace across files. Quick open also takes `>` for commands, `:` for a line, `@` for a symbol, `=` for a **calculator** (`=2^10`, `=sqrt(2)`, `=15% * 80`, `=0xff + 1`) and `?` for help.
+- **Vim keys** (Settings > Editor): modes, motions, operators, registers, macros, `:w` to save. The mode shows in the status bar.
+- **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
+- **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
+- **Text menu**: sort lines (numbers in order), remove duplicates, reverse, shuffle, change case (camelCase, snake_case, PascalCase, kebab-case, CONSTANT_CASE and more), Base64 and URL encode/decode, evaluate math in the selection, insert a UUID or a date.
+- **Markdown preview** (Ctrl+Shift+V): beside the editor, updated as you type and scrolled along with it. Tables, task lists, GitHub-style notes and highlighted code blocks.
+- **Save code as an image** (File menu or right-click): a PNG of the selection or file in your theme's colours, to download or copy.
+- **Zen mode** (Ctrl+K Z): just the code, centred. Esc twice leaves.
+- **Project statistics** (View menu): files, lines of code, comments and blank lines per language, and the largest files.
+- Cursor style, relative line numbers and smooth caret animation in Settings.
+
+## Source Control
+
+A local history for every project, like a small Git with no setup: open **Source Control** (Ctrl+Shift+G).
+
+- **Changes** lists every file added, changed or deleted since the last commit, with line counts. Click one to see a side-by-side (or inline) **diff**; untick files to leave them out of a commit.
+- **Commit** saves a snapshot of the whole project. Leave the message empty and Dexna writes one ("Update main.py").
+- **History**: see what any commit changed, compare it with your files now, **restore** a version, or undo the last commit.
+- **Change markers** next to the line numbers show added (green), changed (blue) and deleted (red) lines. Click one to open the diff.
+- **File History** and **Compare with Last Commit** on a tab's right-click menu. **Compare Active File With...** compares two files, or a file with the clipboard.
+
+Commits are stored in this browser (IndexedDB), next to the projects.
+
+## Toolbox
+
+Developer tools in the sidebar, all running in the browser:
+
+| Tool | What it does |
+| --- | --- |
+| Regex tester | Live matches, capture groups (numbered and named) and replace. Runs in a worker and stops after a second, so a runaway pattern cannot freeze the page |
+| JSON | Validate (with line and column), format, minify, sort keys, generate TypeScript interfaces |
+| Encode / decode | Base64, Base64 URL, URL, HTML entities, hex, binary and Unicode escapes, both directions |
+| Hash | MD5, SHA-1, SHA-256, SHA-384, SHA-512 and CRC-32 |
+| UUIDs and passwords | UUID v4 and v7, passwords with a strength meter, random numbers |
+| Timestamps | Unix seconds or milliseconds to dates in UTC and your time zone, and back |
+| Colors | Any CSS color to hex, RGB and HSL, WCAG contrast, tints and shades |
+| Number bases | Decimal, hex, octal and binary of any size |
+| JWT decoder | Header, claims, and when it expires (decoded only, never sent anywhere) |
+| Text | Counts, case conversion, line tools, lorem ipsum |
+| Compare text | Paste two versions and see the diff |
+
+Every result has Copy and Insert (into the editor at the cursor).
 
 ## Running code
 
@@ -98,7 +139,7 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 
 ## Projects
 
-Multiple projects, upload files or import a ZIP, download a project as a ZIP, and **share links** that pack the whole project into the URL (nothing is uploaded). Everything autosaves to your browser's local storage.
+Multiple projects, upload files or import a ZIP, download a project as a ZIP, and **share links** that pack the whole project into the URL (nothing is uploaded). Everything autosaves to your browser's local storage, and Source Control keeps as many committed versions as you like.
 
 ## Keyboard shortcuts
 
@@ -119,6 +160,10 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | Move line | Alt+Up / Alt+Down |
 | Select next occurrence | Ctrl+D |
 | Settings | Ctrl+, |
+| Source Control | Ctrl+Shift+G |
+| Markdown preview | Ctrl+Shift+V |
+| Toggle bookmark / next / previous | Ctrl+Alt+K / Ctrl+Alt+L / Ctrl+Alt+J |
+| Zen mode | Ctrl+K Z |
 
 ## How it works
 
@@ -131,6 +176,10 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/langtools.js`, `js/langdata.js` | Completion, hover, signatures, formatting and outlines for every language except Python |
 | `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
 | `js/starters.js` | The preset each new project starts with |
+| `js/extras.js` | The diff viewer, change markers, bookmarks, TODOs, text commands, code images, Zen mode, Vim keys, the calculator, statistics and the Markdown preview |
+| `js/scm.js`, `js/diff.js` | Source Control (commits in IndexedDB) and the line diff (Myers' algorithm) behind it |
+| `js/toolbox.js` | The Toolbox |
+| `js/markdown.js` | The Markdown renderer for the preview |
 | `js/assistant.js`, `js/ai-worker.js` | The Assistant: the chat panel, and the worker that runs the model with WebLLM on WebGPU |
 | `js/online.js`, `js/wrap.js` | The online runners, and the logic that adds a missing `Main` and maps compiler errors back to your lines |
 | `coi-serviceworker.js` | Adds the COOP/COEP headers GitHub Pages cannot send, enabling `SharedArrayBuffer` (needed for `input()`, interrupts and the debugger) |
@@ -153,4 +202,4 @@ The included workflow (`.github/workflows/pages.yml`) publishes the site on ever
 
 ## Credits
 
-Monaco, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, IBM Plex Sans and JetBrains Mono (both under the SIL Open Font License). Online runs use Judge0 CE, Compiler Explorer and Wandbox.
+Monaco, Pyodide, jedi, pyflakes, black, isort, wasmoon, SQLite, StyLua, sql-formatter, clang-format, gofmt, luaparse, Emmet (emmet-monaco-es), monaco-vim, WebLLM with Qwen2.5-Coder, IBM Plex Sans and JetBrains Mono (both under the SIL Open Font License). Online runs use Judge0 CE, Compiler Explorer and Wandbox.
