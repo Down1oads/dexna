@@ -167,6 +167,7 @@ export function createTweaks(A) {
         if (!(await A.confirmDialog({ title: "Import settings", message: `Replace your ${keys.map((k) => ({ settings: "settings", customThemes: "themes", keybindings: "keyboard shortcuts", userSnippets: "snippets", look: "look", templates: "templates", focusSound: "timer sound" })[k]).join(", ")} with the ones in ${f.name}? Your projects stay as they are. Dexna reloads to apply them.`, okLabel: "Import and reload" }))) return;
         for (const k of keys) A.LS.set(k, d.data[k]);
         A.flush?.();
+        window.__dexnaReloading = true;
         location.reload();
       } catch (e) { A.toast("Could not import: " + e.message, "error"); }
     };

@@ -73,7 +73,7 @@ const DEFAULT_SETTINGS = {
   timeTheme: false, dayStarts: 7, nightStarts: 19,
   focusMode: "off", typewriter: false, indentRainbow: false, celebrate: false,
   autoSave: "delay", autoSaveDelay: 400, filesExclude: "**/__pycache__\n**/.DS_Store\n*.pyc", explorerSort: "name", confirmDelete: true, fileAssociations: {},
-  inlayHints: "off", inlayParams: "literals", inlayTypes: true,
+  inlayHints: "off", inlayParams: "literals", inlayTypes: true, confirmClose: "always", fullscreenCtrlW: true,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -3202,6 +3202,9 @@ const SETTINGS_SCHEMA = [
   { key: "autoSaveDelay", cat: "Files", label: "Auto save delay", desc: "How long after you stop typing \"As you type\" saves.", type: "select", options: [[400, "Right away"], [1000, "1 second"], [3000, "3 seconds"], [10000, "10 seconds"]] },
   { key: "filesExclude", cat: "Files", label: "Hide files", desc: "Files and folders to hide from the Explorer, search and Go to File, one pattern per line. * matches within a name, ** across folders; a pattern without / matches anywhere (*.log, __pycache__, build/**).", type: "css" },
   { key: "explorerSort", cat: "Files", label: "Explorer sort order", desc: "How files are sorted in the Explorer (folders always come first).", type: "select", options: [["name", "By name"], ["type", "By type, then name"]] },
+  { key: "confirmClose", cat: "Files", label: "Ask before closing the tab", desc: "Protect against an accidental Ctrl+W: the browser asks \"Leave site?\" before the Dexna tab closes or reloads, so you can cancel. Browsers do not let a page block Ctrl+W itself; in full screen (F11 or Zen mode), Ctrl+W closes the editor tab instead (see below).", type: "select", options: [["always", "Always"], ["unsaved", "Only with unsaved edits (auto save off)"]] },
+  { key: "fullscreenCtrlW", cat: "Files", label: "Ctrl+W in full screen closes the editor tab", desc: "In full screen Dexna can take Ctrl+W from the browser, so it closes the file you are editing (like in VS Code) instead of the whole browser tab. Works in Chrome and Edge.", type: "bool" },
+  { key: "toggleFullscreen", cat: "Files", label: "Full screen", desc: "Enter full screen now (Esc, held for a moment, leaves).", type: "action", btn: "Enter full screen", run: () => document.documentElement.requestFullscreen?.().catch(() => toast("The browser did not allow full screen.", "error")) },
   { key: "confirmDelete", cat: "Files", label: "Confirm before deleting", desc: "Ask before deleting a file or folder from the Explorer. Deleted files can be brought back from File > Local History either way.", type: "bool" },
   { key: "fileAssociations", cat: "Files", label: "File associations", desc: "Open files that match a pattern as a given language, for example *.mdx as Markdown or *.jsonc as JSON.", type: "assoc" },
   { key: "sidebarSide", cat: "Layout", label: "Side bar position", desc: "Put the side bar (Explorer, Search and the rest) on the left or the right. The activity bar moves with it.", type: "select", options: [["left", "Left"], ["right", "Right"]] },
@@ -3487,6 +3490,7 @@ async function resetEverything() {
   Object.keys(localStorage).filter((k) => k.startsWith("dexna:")).forEach((k) => localStorage.removeItem(k));
   try { indexedDB.deleteDatabase("dexna-scm"); indexedDB.deleteDatabase("dexna-history"); } catch (_) {}
   persistProject.flush = () => {};
+  window.__dexnaReloading = true;
   location.reload();
 }
 
@@ -3682,6 +3686,7 @@ const COMMANDS = [
   { id: "shortcuts", label: "Keyboard Shortcuts", cat: "Help", kb: "ctrl+k ctrl+s", run: () => showShortcuts() },
   { id: "language-guide", label: "Languages and Snippets", cat: "Help", run: () => showLanguageGuide() },
   { id: "about", label: "About Dexna", cat: "Help", run: () => showAbout() },
+  { id: "fullscreen", label: "Toggle Full Screen (Ctrl+W closes editor tabs)", cat: "View", run: () => (document.fullscreenElement ? document.exitFullscreen?.() : document.documentElement.requestFullscreen?.())?.catch?.(() => {}) },
 ];
 const API = {
   h, $, icon, iconSvg, fileIconSvg, esc, debounce, toast, ago, LS, cfg, settings, layout,
@@ -3759,7 +3764,18 @@ function comboOf(e) {
   if (k === "control" || k === "shift" || k === "alt" || k === "meta") return null;
   return [(e.ctrlKey || e.metaKey) && "ctrl", e.altKey && "alt", e.shiftKey && "shift", k].filter(Boolean).join("+");
 }
+// In full screen the page may claim keys the browser normally keeps (Keyboard Lock): Ctrl+W then closes the editor tab.
+document.addEventListener("fullscreenchange", () => {
+  if (!navigator.keyboard?.lock) return;
+  if (document.fullscreenElement && settings.fullscreenCtrlW) navigator.keyboard.lock(["KeyW"]).catch(() => {});
+  else navigator.keyboard.unlock?.();
+});
 window.addEventListener("keydown", (e) => {
+  if (document.fullscreenElement && settings.fullscreenCtrlW && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyW") {
+    e.preventDefault(); e.stopPropagation();
+    if (!closeOverlay && project?.active) closeTab(project.active);
+    return;
+  }
   if (closeOverlay) return;
   const combo = comboOf(e);
   if (!combo) return;
@@ -3979,8 +3995,11 @@ function wireStatic() {
   $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
   window.addEventListener("beforeunload", (e) => {
     LS.set("layout", layout);
-    if (settings.autoSave === "off" && dirty.size) { e.preventDefault(); e.returnValue = ""; persistProject.flush(); return; } // ask before losing unsaved edits
-    commitDirty();
+    if (window.__dexnaReloading) { commitDirty(); persistProject.flush(); return; } // Dexna reloading itself
+    const unsaved = settings.autoSave === "off" && dirty.size;
+    // Ctrl+W, the tab's x or quitting: the browser asks "Leave site?" so an accidental close can be cancelled
+    if (unsaved || settings.confirmClose === "always") { e.preventDefault(); e.returnValue = ""; }
+    if (!unsaved) commitDirty();
     persistProject.flush();
   });
   // "when focus leaves": save as soon as you click away from the editor or switch windows
