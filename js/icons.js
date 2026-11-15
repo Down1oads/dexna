@@ -95,11 +95,13 @@ const TYPES = {
   bas: ["Ba", "#2f6db5"], d: ["D", "#b03931"], lisp: ["Ls", "#3f6e9a"], f90: ["Fo", "#734f96"], m: ["M", "#438eff"], lua: ["Lu", "#3b4a9c"], mjs: ["Js", "#c9a515"], sh: ["$", "#4d8a4a"], xml: ["<>", "#8f5bb8"],
 };
 
+let fileIconStyle = "color"; // "color", "simple" (grey badges) or "none" (a plain page)
+export function setFileIconStyle(style) { fileIconStyle = style; }
 export function fileIconSvg(path) {
   const ext = path.split(".").pop().toLowerCase();
   const t = TYPES[ext];
-  if (!t) return iconSvg("file", "ft");
-  const [label, color] = t;
+  if (!t || fileIconStyle === "none") return iconSvg("file", "ft");
+  const label = t[0], color = fileIconStyle === "simple" ? "var(--fg-faint)" : t[1];
   const size = label.length > 1 ? 6.2 : 7.5;
   return `<svg class="icon ft" viewBox="0 0 16 16" aria-hidden="true">
     <path d="M4.5 1.5h5L13 5v8.5A1 1 0 0 1 12 14.5H4.5a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z" fill="var(--page)" stroke="var(--page-line)" stroke-width="1"/>

@@ -12,6 +12,7 @@ import { createMore } from "./more.js";
 import { createLook, EFFECTS, UI_FONTS, CODE_FONTS } from "./look.js";
 import { createPlus } from "./plus.js";
 import { createPkgs } from "./pkgs.js";
+import { createTweaks } from "./tweaks.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -59,6 +60,10 @@ const DEFAULT_SETTINGS = {
   runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
   bgEffect: "none", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
   accentColor: "", uiFont: "plex", editorFont: "jetbrains", lineHeight: 0,
+  sidebarSide: "left", panelSide: "bottom", showActivityBar: true, showStatusBar: true, density: "normal", uiFontSize: 13, fileIcons: "color", activityHidden: [],
+  rulers: "none", cursorBlinking: "smooth", cursorWidth: 2, lineHighlight: "all", guides: "both", folding: true, minimapSide: "right", scrollbarSize: "normal",
+  autoClose: "languageDefined", multiCursorKey: "alt", fontWeight: "400", letterSpacing: 0, useTabs: false, trimOnSave: false, finalNewline: false,
+  hoverDelay: 300, suggestWhileTyping: true, acceptOnEnter: true, terminalFontSize: 13, typingSound: "off", typingVolume: 50, customCss: "",
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -74,6 +79,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
@@ -350,10 +356,18 @@ function editorOptions() {
   return {
     fontSize: settings.fontSize, fontLigatures: settings.fontLigatures,
     fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono"),
-    tabSize: settings.tabSize, insertSpaces: true, detectIndentation: false,
-    wordWrap: settings.wordWrap ? "on" : "off", minimap: { enabled: settings.minimap && innerWidth > 760, renderCharacters: false, scale: 1 },
+    tabSize: settings.tabSize, insertSpaces: !settings.useTabs, detectIndentation: false,
+    wordWrap: settings.wordWrap ? "on" : "off", minimap: { enabled: settings.minimap && innerWidth > 760, renderCharacters: false, scale: 1, side: settings.minimapSide },
     stickyScroll: { enabled: settings.stickyScroll }, renderWhitespace: settings.renderWhitespace,
-    bracketPairColorization: { enabled: settings.bracketColors }, guides: { bracketPairs: "active", indentation: true },
+    bracketPairColorization: { enabled: settings.bracketColors },
+    guides: { bracketPairs: settings.guides === "both" ? "active" : false, indentation: settings.guides !== "none", highlightActiveIndentation: settings.guides !== "none" },
+    rulers: settings.rulers === "none" ? [] : String(settings.rulers).split(",").map(Number),
+    cursorBlinking: settings.cursorBlinking, cursorWidth: +settings.cursorWidth || 2, renderLineHighlight: settings.lineHighlight, folding: settings.folding,
+    scrollbar: { verticalScrollbarSize: { thin: 7, normal: 12, thick: 16 }[settings.scrollbarSize] || 12, horizontalScrollbarSize: { thin: 7, normal: 12, thick: 16 }[settings.scrollbarSize] || 12 },
+    autoClosingBrackets: settings.autoClose, autoClosingQuotes: settings.autoClose, multiCursorModifier: settings.multiCursorKey,
+    fontWeight: String(settings.fontWeight), letterSpacing: +settings.letterSpacing || 0,
+    hover: { enabled: settings.hoverDelay > 0, delay: Math.max(100, settings.hoverDelay) },
+    quickSuggestions: settings.suggestWhileTyping ? { other: true, comments: false, strings: false } : false, acceptSuggestionOnEnter: settings.acceptOnEnter ? "on" : "off",
     cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers, colorDecorators: settings.colorSwatches,
     lineHeight: settings.lineHeight || 0,
     cursorSmoothCaretAnimation: settings.smoothCaret ? "on" : "off", smoothScrolling: settings.smoothCaret,
@@ -363,8 +377,8 @@ function editorOptions() {
 function createEditor() {
   editor = monaco.editor.create($("#editor"), {
     model: null, automaticLayout: true, glyphMargin: true, fixedOverflowWidgets: true,
-    cursorBlinking: "smooth", mouseWheelZoom: true, padding: { top: 8 },
-    scrollBeyondLastLine: true, renderLineHighlight: "all", suggest: { showStatusBar: true, preview: false }, suggestLineHeight: 24,
+    mouseWheelZoom: true, padding: { top: 8 },
+    scrollBeyondLastLine: true, suggest: { showStatusBar: true, preview: false }, suggestLineHeight: 24,
     inlineSuggest: { enabled: true }, linkedEditing: true, formatOnPaste: false, lightbulb: { enabled: "on" },
     "semanticHighlighting.enabled": true, quickSuggestionsDelay: 80, ...editorOptions(),
   });
@@ -445,7 +459,7 @@ function ensureModel(path) {
   let m = models.get(path);
   if (m) return m;
   m = monaco.editor.createModel(project.files[path] ?? "", langOf(path), uriFor(path));
-  m.updateOptions({ tabSize: settings.tabSize, insertSpaces: true });
+  m.updateOptions({ tabSize: settings.tabSize, insertSpaces: !settings.useTabs });
   models.set(path, m);
   m.onDidChangeContent((ev) => onModelChange(path, m, ev));
   renderBreakpointDecos(path);
@@ -3094,11 +3108,41 @@ const SETTINGS_SCHEMA = [
   { key: "glass", cat: "Background and effects", label: "Panel cover", desc: "How much the editor and panels cover the background. Lower shows more of it; higher keeps code easier to read.", type: "range", min: 40, max: 100, unit: "%" },
   { key: "glassBlur", cat: "Background and effects", label: "Frosted glass", desc: "Blur the background behind the side bar, panel and title bar.", type: "bool" },
   { key: "bgImageBlur", cat: "Background and effects", label: "Image blur", desc: "Soften your background image.", type: "range", min: 0, max: 40, unit: " px" },
+  { key: "typingSound", cat: "Background and effects", label: "Typing sounds", desc: "A soft sound for each key you press in the editor.", type: "select", options: [["off", "Off"], ["soft", "Soft clicks"], ["typewriter", "Typewriter"], ["bubble", "Bubbles"], ["keys", "Mechanical keyboard"]] },
+  { key: "typingVolume", cat: "Background and effects", label: "Typing sound volume", desc: "How loud the typing sounds are.", type: "range", min: 5, max: 100, unit: "%" },
   { key: "cursorEffect", cat: "Background and effects", label: "Cursor effect", desc: "A glow around the text cursor, or sparks as you type.", type: "select", options: [["none", "None"], ["glow", "Glow"], ["sparks", "Sparks while typing"]] },
   { key: "colorSwatches", cat: "Appearance", label: "Color swatches", desc: "Show a small swatch next to colors written in code (#ff8800, rgb(...), hsl(...)) in every language. Click one to pick a new color.", type: "bool" },
   { key: "renderWhitespace", cat: "Appearance", label: "Render whitespace", desc: "When to draw dots and arrows for spaces and tabs.", type: "select", options: [["none", "Never"], ["selection", "In selection"], ["boundary", "At boundaries"], ["all", "Always"]] },
+  { key: "sidebarSide", cat: "Layout", label: "Side bar position", desc: "Put the side bar (Explorer, Search and the rest) on the left or the right. The activity bar moves with it.", type: "select", options: [["left", "Left"], ["right", "Right"]] },
+  { key: "panelSide", cat: "Layout", label: "Panel position", desc: "Show the panel (Terminal, Shell, Problems and the rest) below the editor or beside it.", type: "select", options: [["bottom", "Bottom"], ["right", "Right"]] },
+  { key: "density", cat: "Layout", label: "Spacing", desc: "How tightly menus, tabs, the file tree and the bars are packed.", type: "select", options: [["compact", "Compact"], ["normal", "Normal"], ["comfortable", "Roomy"]] },
+  { key: "uiFontSize", cat: "Layout", label: "Interface text size", desc: "Text size of menus, panels and the side bar (the editor has its own size under Appearance).", type: "select", options: [[12, "Small"], [13, "Normal"], [14, "Large"], [15, "Larger"]] },
+  { key: "fileIcons", cat: "Layout", label: "File icons", desc: "Colored badges for each file type, plain grey ones, or no badges.", type: "select", options: [["color", "Colorful"], ["simple", "Plain"], ["none", "None"]] },
+  { key: "showActivityBar", cat: "Layout", label: "Activity bar", desc: "The column of icons at the edge. Hidden, the views are still in the View menu and their shortcuts work.", type: "bool" },
+  { key: "activityHidden", cat: "Layout", label: "Activity bar icons", desc: "Untick the ones you do not use.", type: "checks" },
+  { key: "showStatusBar", cat: "Layout", label: "Status bar", desc: "The bar at the bottom with the line number, language and run status.", type: "bool" },
+  { key: "terminalFontSize", cat: "Layout", label: "Terminal text size", desc: "Text size in the Terminal, Shell and Python console.", type: "select", options: [[11, "11"], [12, "12"], [13, "13"], [14, "14"], [15, "15"], [16, "16"]] },
+  { key: "customCss", cat: "Layout", label: "Your own CSS", desc: "Restyle anything. For example: #tabs { height: 30px } or .tab.active { font-weight: 600 }. Applied as you type; clear it to undo.", type: "css" },
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
+  { key: "useTabs", cat: "Editor", label: "Indent with tabs", desc: "Use tab characters instead of spaces when you indent.", type: "bool" },
+  { key: "rulers", cat: "Editor", label: "Rulers", desc: "Thin vertical lines at a column, to keep lines short.", type: "select", options: [["none", "None"], ["80", "At 80"], ["100", "At 100"], ["120", "At 120"], ["80,120", "At 80 and 120"]] },
+  { key: "cursorBlinking", cat: "Editor", label: "Cursor blinking", desc: "How the text cursor blinks.", type: "select", options: [["smooth", "Smooth"], ["blink", "Blink"], ["phase", "Fade"], ["expand", "Expand"], ["solid", "Do not blink"]] },
+  { key: "cursorWidth", cat: "Editor", label: "Cursor width", desc: "Thickness of the line cursor, in pixels.", type: "select", options: [[1, "1"], [2, "2"], [3, "3"], [4, "4"]] },
+  { key: "lineHighlight", cat: "Editor", label: "Current line highlight", desc: "How the line with the cursor stands out.", type: "select", options: [["all", "Line and number"], ["line", "Line"], ["gutter", "Number only"], ["none", "None"]] },
+  { key: "guides", cat: "Editor", label: "Guides", desc: "Faint lines that show indentation and which brackets belong together.", type: "select", options: [["both", "Indentation and brackets"], ["indent", "Indentation"], ["none", "None"]] },
+  { key: "folding", cat: "Editor", label: "Code folding", desc: "Arrows next to the line numbers that fold blocks of code.", type: "bool" },
+  { key: "minimapSide", cat: "Editor", label: "Minimap side", desc: "Which edge of the editor the minimap sits on.", type: "select", options: [["right", "Right"], ["left", "Left"]] },
+  { key: "scrollbarSize", cat: "Editor", label: "Scroll bars", desc: "Thickness of the editor's scroll bars.", type: "select", options: [["thin", "Thin"], ["normal", "Normal"], ["thick", "Thick"]] },
+  { key: "fontWeight", cat: "Editor", label: "Code font weight", desc: "How heavy the code font is.", type: "select", options: [["300", "Light"], ["400", "Regular"], ["500", "Medium"], ["600", "Semibold"]] },
+  { key: "letterSpacing", cat: "Editor", label: "Letter spacing", desc: "Extra space between characters in the editor.", type: "select", options: [[0, "Normal"], [0.3, "A little"], [0.6, "More"], [1, "Wide"]] },
+  { key: "autoClose", cat: "Editor", label: "Close brackets and quotes", desc: "Type the closing bracket or quote for you.", type: "select", options: [["languageDefined", "Yes"], ["beforeWhitespace", "Only before a space"], ["never", "Never"]] },
+  { key: "suggestWhileTyping", cat: "Editor", label: "Suggest while typing", desc: "Show completions as you type. Off, they only appear with Ctrl+Space.", type: "bool" },
+  { key: "acceptOnEnter", cat: "Editor", label: "Enter accepts a suggestion", desc: "Off, only Tab accepts it and Enter always starts a new line.", type: "bool" },
+  { key: "hoverDelay", cat: "Editor", label: "Hover pop-ups", desc: "How soon the pop-up with docs and errors appears when you point at code.", type: "select", options: [[150, "Fast"], [300, "Normal"], [800, "Slow"], [0, "Off"]] },
+  { key: "multiCursorKey", cat: "Editor", label: "Add a cursor with", desc: "Hold this key and click to add another cursor. The other one then opens links and definitions.", type: "select", options: [["alt", "Alt + click"], ["ctrlCmd", "Ctrl + click (Cmd on a Mac)"]] },
+  { key: "trimOnSave", cat: "Editor", label: "Trim trailing spaces on save", desc: "Remove spaces at the ends of lines when you press Ctrl+S.", type: "bool" },
+  { key: "finalNewline", cat: "Editor", label: "End files with a newline on save", desc: "Make sure the file ends with exactly one empty line when you press Ctrl+S.", type: "bool" },
   { key: "vimMode", cat: "Editor", label: "Vim keys", desc: "Edit with Vim key bindings: modes, motions, operators, registers, macros, and :w to save. The mode shows in the status bar.", type: "bool" },
   { key: "zenFullscreen", cat: "Editor", label: "Zen mode uses full screen", desc: "Also make the browser full screen in Zen mode (Ctrl+K Z).", type: "bool" },
   { key: "runOnSave", cat: "Editor", label: "Run on save", desc: "Run the file each time you press Ctrl+S.", type: "bool" },
@@ -3112,7 +3156,7 @@ const SETTINGS_SCHEMA = [
   { key: "clearOnRun", cat: "Terminal", label: "Clear on run", desc: "Clear the terminal each time you run a program.", type: "bool" },
   { key: "inlineplots", cat: "Terminal", label: "Inline plots", desc: "Also show matplotlib figures inside the terminal, not just in the Plots tab.", type: "bool" },
 ];
-const SETTING_CATS = ["Appearance", "Background and effects", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
+const SETTING_CATS = ["Appearance", "Background and effects", "Layout", "Editor", "Languages", "Python", "Terminal", "Data and privacy"];
 const settingsUI = { query: "" };
 
 const LOOK_KEYS = new Set(["bgEffect", "bgIntensity", "bgSpeed", "glass", "glassBlur", "bgImageBlur", "cursorEffect", "corners", "uiFont", "editorFont"]);
@@ -3121,6 +3165,7 @@ function setSettingLive(key, value) {
   settings[key] = value;
   LS.set("settings", settings);
   if (LOOK_KEYS.has(key)) look?.apply();
+  tweaks?.onSetting(key);
   if (editor) editor.updateOptions(editorOptions());
 }
 function setSetting(key, value) {
@@ -3129,7 +3174,8 @@ function setSetting(key, value) {
   if (key === "theme" || key === "accentColor" || key === "bgEffect") applyTheme(); // also records the last dark / light theme
   LS.set("settings", settings);
   if (editor) editor.updateOptions(editorOptions());
-  if (key === "tabSize") for (const m of models.values()) m.updateOptions({ tabSize: value });
+  if (key === "tabSize" || key === "useTabs") for (const m of models.values()) m.updateOptions({ tabSize: settings.tabSize, insertSpaces: !settings.useTabs });
+  tweaks?.onSetting(key);
   if (key === "autoLint") lintAll();
   extras?.onSetting(key, value);
   power?.onSetting(key, value);
@@ -3177,6 +3223,16 @@ function settingItem(sd) {
     control = h("div", { class: "si-color" }, h("input", { type: "color", value: v, onchange: (e) => setSetting(sd.key, e.target.value) }),
       h("span", { class: "muted small" }, settings[sd.key] ? settings[sd.key] : "The theme's own"),
       settings[sd.key] ? h("button", { class: "btn sm", onclick: () => setSetting(sd.key, "") }, "Use the theme's") : null);
+  } else if (sd.type === "checks") {
+    const items = $$("#activitybar [data-view]").map((b) => [b.dataset.view, b.title || b.dataset.view]);
+    control = h("div", { class: "si-checks" }, items.map(([id, label]) => h("label", { class: "si-check" },
+      h("input", { type: "checkbox", checked: !(settings[sd.key] || []).includes(id), onchange: (e) => setSetting(sd.key, e.target.checked ? settings[sd.key].filter((x) => x !== id) : [...(settings[sd.key] || []), id]) }),
+      h("span", {}, label.replace(/ \(.*\)$/, "")))));
+  } else if (sd.type === "css") {
+    const ta = h("textarea", { class: "si-css", spellcheck: "false", rows: 6, placeholder: "/* your CSS */" });
+    ta.value = settings[sd.key] || "";
+    ta.addEventListener("input", debounce(() => setSettingLive(sd.key, ta.value), 300));
+    control = ta;
   } else if (sd.type === "image") {
     const thumb = h("span", { class: "si-thumb" });
     look.imageThumb().then((u) => { if (u) thumb.style.backgroundImage = `url("${u}")`; else thumb.classList.add("empty"); });
@@ -3204,6 +3260,8 @@ function renderSettingsBody() {
   const match = (sd) => !q || `${sd.cat} ${sd.label} ${sd.desc} ${sd.key}`.toLowerCase().includes(q);
   const dataRows = [
     { title: "Keyboard shortcuts", desc: "See every shortcut Dexna offers.", btn: "Show", run: showShortcuts },
+    { title: "Export settings", desc: "Download your settings, themes, shortcuts, snippets and looks as a file, to keep or to use on another device.", btn: "Export", run: () => tweaks.exportSettings() },
+    { title: "Import settings", desc: "Load a file made with Export settings. Your projects are not touched.", btn: "Import...", run: () => tweaks.importSettings() },
     { title: "Reset all settings", desc: "Put every setting above back to its default.", btn: "Reset", run: () => { for (const k of Object.keys(DEFAULT_SETTINGS)) settings[k] = DEFAULT_SETTINGS[k]; LS.del("look"); setSetting("theme", settings.theme); toast("Settings reset", "ok"); } },
     { title: "Delete all local data", desc: "Remove every project, setting and history entry Dexna stored in this browser. Download anything you want to keep first.", btn: "Delete...", danger: true, run: resetEverything },
   ].filter((r) => !q || `data privacy ${r.title} ${r.desc}`.toLowerCase().includes(q));
@@ -3339,8 +3397,27 @@ function setupResizers() {
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
   });
-  drag($("#sidebar-resizer"), (e) => { layout.sidebarWidth = Math.max(170, Math.min(600, e.clientX - sb.getBoundingClientRect().left)); sb.style.width = layout.sidebarWidth + "px"; });
-  drag($("#panel-resizer"), (e) => { const r = $("#workbench").getBoundingClientRect(); layout.panelHeight = Math.max(90, Math.min(r.height - 120, r.bottom - e.clientY)); panel.style.height = layout.panelHeight + "px"; });
+  if (layout.panelWidth) panel.style.width = layout.panelWidth + "px";
+  drag($("#sidebar-resizer"), (e) => {
+    const r = sb.getBoundingClientRect();
+    layout.sidebarWidth = Math.max(170, Math.min(600, settings.sidebarSide === "right" ? r.right - e.clientX : e.clientX - r.left));
+    sb.style.width = layout.sidebarWidth + "px";
+  });
+  drag($("#panel-resizer"), (e) => {
+    const r = $("#workbench").getBoundingClientRect();
+    if (settings.panelSide === "right") { layout.panelWidth = Math.max(220, Math.min(r.width - 240, r.right - e.clientX)); panel.style.width = layout.panelWidth + "px"; }
+    else { layout.panelHeight = Math.max(90, Math.min(r.height - 120, r.bottom - e.clientY)); panel.style.height = layout.panelHeight + "px"; }
+  });
+}
+
+/** Trim trailing spaces and/or end the file with one newline, as the settings ask (Markdown keeps its two-space line breaks). */
+function tidyOnSave() {
+  const m = editor?.getModel(), p = currentPath();
+  if (!m || !p) return;
+  let t = m.getValue();
+  if (settings.trimOnSave) t = t.split("\n").map((l) => (/\.(md|markdown)$/i.test(p) && / {2}$/.test(l) && l.trim() ? l.replace(/\s+$/, "  ") : l.replace(/[ \t]+$/, ""))).join("\n");
+  if (settings.finalNewline && t.length) t = t.replace(/\n*$/, "\n");
+  if (t !== m.getValue()) applyText(m, t, "tidy");
 }
 
 let flashTimer;
@@ -3448,6 +3525,10 @@ look = createLook(API);
 COMMANDS.push(...look.commands);
 plus = createPlus(API);
 COMMANDS.push(...plus.commands);
+API.rerenderFiles = () => { renderTree(); renderTabs(); if (homeOpen) renderHome(); };
+API.flush = () => persistProject.flush();
+tweaks = createTweaks(API);
+COMMANDS.push(...tweaks.commands);
 pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
@@ -3496,6 +3577,7 @@ window.addEventListener("keydown", (e) => {
 
 async function saveCommand() {
   if (settings.formatOnSave) await formatDocument().catch(() => {});
+  if (settings.trimOnSave || settings.finalNewline) tidyOnSave();
   persistProject.flush();
   setStatusFlash(settings.runOnSave ? "Saved, running" : "Saved locally");
   power?.onSave();
@@ -3544,7 +3626,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-import"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-import"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
@@ -3703,6 +3785,7 @@ function wireStatic() {
 async function boot() {
   const splash = $("#splash");
   look.apply();
+  tweaks.apply();
   applyTheme();
   wireStatic();
   buildMenus();
@@ -3738,6 +3821,7 @@ async function boot() {
   if (layout.view === "assistant" && layout.sidebar) assistant.show(); // it was the open view when the page was left
   extras.onEditorReady();
   look.onEditorReady();
+  tweaks.onEditorReady();
   power.onEditorReady();
   more.onEditorReady();
   plus.onReady();
