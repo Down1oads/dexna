@@ -420,7 +420,7 @@ function createBackdrop() {
     fx.draw.call(fx, ctx, s, clock, dt * speed);
     if (moving()) raf = requestAnimationFrame(frame);
   };
-  const moving = () => opts.speed > 0 && !reduce.matches && !document.hidden;
+  const moving = () => opts.speed > 0 && !reduce.matches && !document.hidden && !document.documentElement.classList.contains("reduce-motion");
   const kick = () => { if (!raf && fx) { last = 0; raf = requestAnimationFrame(frame); } };
   addEventListener("resize", () => { if (fx) { setup(); kick(); } });
   document.addEventListener("visibilitychange", kick);

@@ -64,6 +64,8 @@ const DEFAULT_SETTINGS = {
   rulers: "none", cursorBlinking: "smooth", cursorWidth: 2, lineHighlight: "all", guides: "both", folding: true, minimapSide: "right", scrollbarSize: "normal",
   autoClose: "languageDefined", multiCursorKey: "alt", fontWeight: "400", letterSpacing: 0, useTabs: false, trimOnSave: false, finalNewline: false,
   hoverDelay: 300, suggestWhileTyping: true, acceptOnEnter: true, terminalFontSize: 13, typingSound: "off", typingVolume: 50, customCss: "",
+  tabStyle: "classic", tabClose: "hover", tabIcons: true, tabWrap: false, showTabs: true, showBreadcrumbs: true, runButtons: "text", statusHidden: [], clock: "off",
+  greetingName: "", langTabSize: {}, centered: false, centeredWidth: 1000, cursorColor: "", selectionColor: "", eventSounds: false, reduceMotion: false,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
@@ -320,6 +322,9 @@ function effectiveTheme() {
 /** Monaco's theme; see-through when a background effect is on, so the effect shows behind the code. */
 function editorThemeData(t) {
   const d = monacoTheme(t);
+  const hex = (v) => (/^#[0-9a-f]{6}$/i.test(v || "") ? v : null);
+  if (hex(settings.cursorColor)) d.colors = { ...d.colors, "editorCursor.foreground": settings.cursorColor };
+  if (hex(settings.selectionColor)) d.colors = { ...d.colors, "editor.selectionBackground": settings.selectionColor + "66", "editor.inactiveSelectionBackground": settings.selectionColor + "33" };
   if (look?.fxOn()) d.colors = { ...d.colors, "editor.background": "#00000000", "editorGutter.background": "#00000000", "minimap.background": "#00000000", "editorOverviewRuler.background": "#00000000", "focusBorder": "#00000000" };
   return d;
 }
@@ -370,7 +375,7 @@ function editorOptions() {
     quickSuggestions: settings.suggestWhileTyping ? { other: true, comments: false, strings: false } : false, acceptSuggestionOnEnter: settings.acceptOnEnter ? "on" : "off",
     cursorStyle: settings.cursorStyle, lineNumbers: settings.lineNumbers, colorDecorators: settings.colorSwatches,
     lineHeight: settings.lineHeight || 0,
-    cursorSmoothCaretAnimation: settings.smoothCaret ? "on" : "off", smoothScrolling: settings.smoothCaret,
+    cursorSmoothCaretAnimation: settings.smoothCaret && !settings.reduceMotion ? "on" : "off", smoothScrolling: settings.smoothCaret && !settings.reduceMotion,
   };
 }
 
@@ -455,11 +460,13 @@ function applyText(model, text, source = "dexna") {
   return true;
 }
 
+/** Indent size for a file: its language's own size if you set one, else the general one. */
+function tabSizeFor(path) { return +settings.langTabSize?.[langOf(path)] || settings.tabSize; }
 function ensureModel(path) {
   let m = models.get(path);
   if (m) return m;
   m = monaco.editor.createModel(project.files[path] ?? "", langOf(path), uriFor(path));
-  m.updateOptions({ tabSize: settings.tabSize, insertSpaces: !settings.useTabs });
+  m.updateOptions({ tabSize: tabSizeFor(path), insertSpaces: !settings.useTabs });
   models.set(path, m);
   m.onDidChangeContent((ev) => onModelChange(path, m, ev));
   renderBreakpointDecos(path);
@@ -1094,7 +1101,8 @@ function renderHome() {
   });
   home.textContent = "";
   home.append(h("div", { class: "home-inner" },
-    h("div", { class: "home-head" }, h("h1", {}, "Dexna"), h("p", { class: "home-sub" }, "Code editor and runner for the browser")),
+    h("div", { class: "home-head" }, h("h1", {}, "Dexna"), h("p", { class: "home-sub" }, "Code editor and runner for the browser"),
+      settings.greetingName?.trim() ? h("p", { class: "home-greet" }, tweaks.greeting()) : null),
     h("div", { class: "home-cols" },
       h("div", {},
         h("div", { class: "home-section" }, h("h2", {}, "Start"),
@@ -1739,6 +1747,8 @@ function onKernelEvent(msg) {
 }
 
 function setBusy(busy, mode = null) {
+  const was = state.busy && state.mode;
+  if (!busy && (was === "run" || was === "debug")) setTimeout(() => tweaks?.onRunEnded(!!lastRunOutput()?.failed), 0);
   state.busy = busy;
   state.mode = busy ? mode : null;
   $("#btn-stop").disabled = !busy;
@@ -3108,6 +3118,8 @@ const SETTINGS_SCHEMA = [
   { key: "glass", cat: "Background and effects", label: "Panel cover", desc: "How much the editor and panels cover the background. Lower shows more of it; higher keeps code easier to read.", type: "range", min: 40, max: 100, unit: "%" },
   { key: "glassBlur", cat: "Background and effects", label: "Frosted glass", desc: "Blur the background behind the side bar, panel and title bar.", type: "bool" },
   { key: "bgImageBlur", cat: "Background and effects", label: "Image blur", desc: "Soften your background image.", type: "range", min: 0, max: 40, unit: " px" },
+  { key: "eventSounds", cat: "Background and effects", label: "Sounds for runs and saves", desc: "A short chime when a program finishes, a lower one when it fails, and a soft tick when you save.", type: "bool" },
+  { key: "reduceMotion", cat: "Background and effects", label: "Reduce motion", desc: "Turn off animations and smooth scrolling everywhere, and keep the background still.", type: "bool" },
   { key: "typingSound", cat: "Background and effects", label: "Typing sounds", desc: "A soft sound for each key you press in the editor.", type: "select", options: [["off", "Off"], ["soft", "Soft clicks"], ["typewriter", "Typewriter"], ["bubble", "Bubbles"], ["keys", "Mechanical keyboard"]] },
   { key: "typingVolume", cat: "Background and effects", label: "Typing sound volume", desc: "How loud the typing sounds are.", type: "range", min: 5, max: 100, unit: "%" },
   { key: "cursorEffect", cat: "Background and effects", label: "Cursor effect", desc: "A glow around the text cursor, or sparks as you type.", type: "select", options: [["none", "None"], ["glow", "Glow"], ["sparks", "Sparks while typing"]] },
@@ -3122,9 +3134,24 @@ const SETTINGS_SCHEMA = [
   { key: "activityHidden", cat: "Layout", label: "Activity bar icons", desc: "Untick the ones you do not use.", type: "checks" },
   { key: "showStatusBar", cat: "Layout", label: "Status bar", desc: "The bar at the bottom with the line number, language and run status.", type: "bool" },
   { key: "terminalFontSize", cat: "Layout", label: "Terminal text size", desc: "Text size in the Terminal, Shell and Python console.", type: "select", options: [[11, "11"], [12, "12"], [13, "13"], [14, "14"], [15, "15"], [16, "16"]] },
+  { key: "showTabs", cat: "Layout", label: "Tab bar", desc: "The row of open files above the editor. Without it, switch files with Ctrl+P or the Explorer.", type: "bool" },
+  { key: "tabStyle", cat: "Layout", label: "Tab style", desc: "How the open-file tabs look.", type: "select", options: [["classic", "Classic"], ["pills", "Pills"], ["underline", "Underline"], ["minimal", "Minimal"]] },
+  { key: "tabClose", cat: "Layout", label: "Close button on tabs", desc: "When the x on a tab shows. Middle-click and Alt+W close tabs either way.", type: "select", options: [["hover", "On hover and on the open tab"], ["always", "Always"], ["never", "Never"]] },
+  { key: "tabIcons", cat: "Layout", label: "File icons on tabs", desc: "Show the file-type icon on each tab.", type: "bool" },
+  { key: "tabWrap", cat: "Layout", label: "Wrap tabs", desc: "Show every tab, on more than one row if needed, instead of scrolling sideways.", type: "bool" },
+  { key: "showBreadcrumbs", cat: "Layout", label: "Breadcrumbs", desc: "The path and the current function shown above the code.", type: "bool" },
+  { key: "runButtons", cat: "Layout", label: "Run and Debug buttons", desc: "Show the buttons in the title bar with their names, or as icons only.", type: "select", options: [["text", "Icon and name"], ["icons", "Icon only"]] },
+  { key: "statusHidden", cat: "Layout", label: "Status bar items", desc: "Untick the ones you do not want in the status bar.", type: "checks", items: () => tweaks.statusItems() },
+  { key: "clock", cat: "Layout", label: "Clock", desc: "A clock in the status bar.", type: "select", options: [["off", "Off"], ["24", "24-hour"], ["12", "12-hour"]] },
+  { key: "greetingName", cat: "Layout", label: "Your name", desc: "Shown in a greeting on the Home page, like \"Good morning, Sam\". Leave it empty for no greeting. It stays in this browser.", type: "text" },
   { key: "customCss", cat: "Layout", label: "Your own CSS", desc: "Restyle anything. For example: #tabs { height: 30px } or .tab.active { font-weight: 600 }. Applied as you type; clear it to undo.", type: "css" },
   { key: "tabSize", cat: "Editor", label: "Indent size", desc: "Number of spaces a tab is worth.", type: "select", options: [[2, "2 spaces"], [4, "4 spaces"], [8, "8 spaces"]] },
   { key: "wordWrap", cat: "Editor", label: "Word wrap", desc: "Wrap long lines instead of scrolling sideways. Toggle with Alt+Z.", type: "bool" },
+  { key: "langTabSize", cat: "Editor", label: "Indent size per language", desc: "Override the indent size for some languages, for example 2 spaces for web pages and JavaScript and 4 for Python.", type: "langmap" },
+  { key: "centered", cat: "Editor", label: "Centered editor", desc: "Keep the code in a centered column on wide screens, with space on both sides.", type: "bool" },
+  { key: "centeredWidth", cat: "Editor", label: "Centered width", desc: "How wide the centered column is.", type: "select", options: [[800, "Narrow"], [1000, "Medium"], [1200, "Wide"]] },
+  { key: "cursorColor", cat: "Editor", label: "Cursor color", desc: "Your own color for the text cursor.", type: "color", fallback: () => effectiveTheme().c.accent },
+  { key: "selectionColor", cat: "Editor", label: "Selection color", desc: "Your own color for selected text (drawn see-through).", type: "color", fallback: () => effectiveTheme().c.accent },
   { key: "useTabs", cat: "Editor", label: "Indent with tabs", desc: "Use tab characters instead of spaces when you indent.", type: "bool" },
   { key: "rulers", cat: "Editor", label: "Rulers", desc: "Thin vertical lines at a column, to keep lines short.", type: "select", options: [["none", "None"], ["80", "At 80"], ["100", "At 100"], ["120", "At 120"], ["80,120", "At 80 and 120"]] },
   { key: "cursorBlinking", cat: "Editor", label: "Cursor blinking", desc: "How the text cursor blinks.", type: "select", options: [["smooth", "Smooth"], ["blink", "Blink"], ["phase", "Fade"], ["expand", "Expand"], ["solid", "Do not blink"]] },
@@ -3171,15 +3198,15 @@ function setSettingLive(key, value) {
 function setSetting(key, value) {
   settings[key] = value;
   if (LOOK_KEYS.has(key) || key === "theme") look?.apply();
-  if (key === "theme" || key === "accentColor" || key === "bgEffect") applyTheme(); // also records the last dark / light theme
+  if (key === "theme" || key === "accentColor" || key === "bgEffect" || key === "cursorColor" || key === "selectionColor") applyTheme(); // also records the last dark / light theme
   LS.set("settings", settings);
   if (editor) editor.updateOptions(editorOptions());
-  if (key === "tabSize" || key === "useTabs") for (const m of models.values()) m.updateOptions({ tabSize: settings.tabSize, insertSpaces: !settings.useTabs });
+  if (key === "tabSize" || key === "useTabs" || key === "langTabSize") for (const [path, m] of models) m.updateOptions({ tabSize: tabSizeFor(path), insertSpaces: !settings.useTabs });
   tweaks?.onSetting(key);
   if (key === "autoLint") lintAll();
   extras?.onSetting(key, value);
   power?.onSetting(key, value);
-  $("#sb-indent").textContent = `Spaces: ${settings.tabSize}`;
+  $("#sb-indent").textContent = `${settings.useTabs ? "Tab Size" : "Spaces"}: ${currentPath() ? tabSizeFor(currentPath()) : settings.tabSize}`;
   if (settingsOpen) renderSettingsPage();
 }
 
@@ -3196,7 +3223,7 @@ function renderSettingsPage() {
 }
 
 function settingItem(sd) {
-  const modified = sd.key in DEFAULT_SETTINGS && settings[sd.key] !== DEFAULT_SETTINGS[sd.key];
+  const modified = sd.key in DEFAULT_SETTINGS && JSON.stringify(settings[sd.key]) !== JSON.stringify(DEFAULT_SETTINGS[sd.key]); // lists and maps compare by content
   let control;
   if (sd.type === "theme") {
     const tile = (t) => h("button", { class: "theme-tile" + (settings.theme === t.id ? " on" : ""), title: t.name, onclick: () => setSetting("theme", t.id) },
@@ -3219,15 +3246,23 @@ function settingItem(sd) {
       oninput: (e) => { out.textContent = e.target.value + (sd.unit ?? ""); setSettingLive(sd.key, +e.target.value); },
       onchange: (e) => setSettingLive(sd.key, +e.target.value) }), out); // no redraw, so the slider keeps focus
   } else if (sd.type === "color") {
-    const v = settings[sd.key] || effectiveTheme().c.accent;
+    const v = settings[sd.key] || (sd.fallback ? sd.fallback() : effectiveTheme().c.accent);
     control = h("div", { class: "si-color" }, h("input", { type: "color", value: v, onchange: (e) => setSetting(sd.key, e.target.value) }),
       h("span", { class: "muted small" }, settings[sd.key] ? settings[sd.key] : "The theme's own"),
       settings[sd.key] ? h("button", { class: "btn sm", onclick: () => setSetting(sd.key, "") }, "Use the theme's") : null);
   } else if (sd.type === "checks") {
-    const items = $$("#activitybar [data-view]").map((b) => [b.dataset.view, b.title || b.dataset.view]);
+    const items = sd.items ? sd.items() : $$("#activitybar [data-view]").map((b) => [b.dataset.view, b.title || b.dataset.view]);
     control = h("div", { class: "si-checks" }, items.map(([id, label]) => h("label", { class: "si-check" },
       h("input", { type: "checkbox", checked: !(settings[sd.key] || []).includes(id), onchange: (e) => setSetting(sd.key, e.target.checked ? settings[sd.key].filter((x) => x !== id) : [...(settings[sd.key] || []), id]) }),
       h("span", {}, label.replace(/ \(.*\)$/, "")))));
+  } else if (sd.type === "text") {
+    control = h("input", { class: "si-text", value: settings[sd.key] || "", maxlength: 40, spellcheck: "false", onchange: (e) => setSetting(sd.key, e.target.value.trim()) });
+  } else if (sd.type === "langmap") {
+    const LANGS = [["python", "Python"], ["javascript", "JavaScript"], ["typescript", "TypeScript"], ["html", "HTML"], ["css", "CSS"], ["json", "JSON"], ["markdown", "Markdown"], ["lua", "Lua"], ["sql", "SQL"], ["csharp", "C#"], ["java", "Java"], ["cpp", "C and C++"], ["go", "Go"], ["rust", "Rust"], ["yaml", "YAML"]];
+    const cur = settings[sd.key] || {};
+    control = h("div", { class: "si-langmap" }, LANGS.map(([id, label]) => h("label", {}, h("span", {}, label),
+      h("select", { onchange: (e) => { const next = { ...(settings[sd.key] || {}) }; if (+e.target.value) next[id] = +e.target.value; else delete next[id]; if (id === "cpp") { if (+e.target.value) next.c = +e.target.value; else delete next.c; } setSetting(sd.key, next); } },
+        [[0, "Default"], [2, "2"], [4, "4"], [8, "8"]].map(([v, l]) => h("option", { value: v, selected: (cur[id] || 0) == v }, l))))));
   } else if (sd.type === "css") {
     const ta = h("textarea", { class: "si-css", spellcheck: "false", rows: 6, placeholder: "/* your CSS */" });
     ta.value = settings[sd.key] || "";
@@ -3527,6 +3562,7 @@ plus = createPlus(API);
 COMMANDS.push(...plus.commands);
 API.rerenderFiles = () => { renderTree(); renderTabs(); if (homeOpen) renderHome(); };
 API.flush = () => persistProject.flush();
+API.refreshLook = () => look?.updateBackdrop();
 tweaks = createTweaks(API);
 COMMANDS.push(...tweaks.commands);
 pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
@@ -3580,6 +3616,7 @@ async function saveCommand() {
   if (settings.trimOnSave || settings.finalNewline) tidyOnSave();
   persistProject.flush();
   setStatusFlash(settings.runOnSave ? "Saved, running" : "Saved locally");
+  tweaks?.onSaved();
   power?.onSave();
 }
 
@@ -3825,6 +3862,7 @@ async function boot() {
   power.onEditorReady();
   more.onEditorReady();
   plus.onReady();
+  tweaks.apply(); // again, now that every status bar item exists
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => schedulePreview());
   setupPreview();

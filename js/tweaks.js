@@ -26,13 +26,65 @@ export function createTweaks(A) {
     const hidden = new Set(s.activityHidden || []);
     for (const b of document.querySelectorAll("#activitybar [data-view]")) b.style.display = hidden.has(b.dataset.view) ? "none" : "";
     setFileIconStyle(s.fileIcons || "color");
+    // tabs, bars and motion
+    root.dataset.tabstyle = s.tabStyle || "classic";
+    root.dataset.tabclose = s.tabClose || "hover";
+    a.classList.toggle("no-tab-icons", s.tabIcons === false);
+    a.classList.toggle("tabs-wrap", !!s.tabWrap);
+    a.classList.toggle("no-tabs", s.showTabs === false);
+    a.classList.toggle("no-breadcrumbs", s.showBreadcrumbs === false);
+    a.classList.toggle("run-icons", s.runButtons === "icons");
+    a.classList.toggle("centered", !!s.centered);
+    root.style.setProperty("--center-w", (+s.centeredWidth || 1000) + "px");
+    root.classList.toggle("reduce-motion", !!s.reduceMotion);
+    const off = new Set(s.statusHidden || []);
+    for (const [id] of STATUS_ITEMS) document.getElementById(id)?.classList.toggle("sb-off", off.has(id));
+    updateClock();
     if (s.customCss) { cssEl ||= document.head.appendChild(Object.assign(document.createElement("style"), { id: "user-css" })); cssEl.textContent = s.customCss; }
     else if (cssEl) cssEl.textContent = "";
   }
-  const LAYOUT = new Set(["sidebarSide", "panelSide", "showActivityBar", "showStatusBar", "density", "uiFontSize", "terminalFontSize", "activityHidden", "customCss"]);
+  const LAYOUT = new Set(["sidebarSide", "panelSide", "showActivityBar", "showStatusBar", "density", "uiFontSize", "terminalFontSize", "activityHidden", "customCss",
+    "tabStyle", "tabClose", "tabIcons", "tabWrap", "showTabs", "showBreadcrumbs", "runButtons", "statusHidden", "clock", "centered", "centeredWidth", "reduceMotion"]);
   function onSetting(key) {
     if (LAYOUT.has(key)) { apply(); window.dispatchEvent(new Event("resize")); }
     if (key === "fileIcons") { apply(); A.rerenderFiles(); }
+    if (key === "greetingName") A.rerenderFiles();
+    if (key === "reduceMotion") A.refreshLook?.();
+  }
+
+  /* ---------------- status bar: which items, and a clock ---------------- */
+  const STATUS_ITEMS = [["sb-kernel", "Ready / running"], ["sb-scm", "Source control"], ["sb-problems", "Problems"], ["sb-run", "Last run"], ["sb-focus", "Focus timer"],
+    ["sb-cursor", "Line and column"], ["sb-indent", "Indentation"], ["sb-enc", "Encoding"], ["sb-lang", "Language"], ["sb-python", "Python version"], ["sb-iso", "Limited mode"], ["sb-clock", "Clock"]];
+  let clockEl = null, clockTimer = 0;
+  function updateClock() {
+    const mode = A.settings.clock;
+    if (!mode || mode === "off") { clockEl?.classList.add("hidden"); clearInterval(clockTimer); clockTimer = 0; return; }
+    if (!clockEl) { clockEl = Object.assign(document.createElement("span"), { className: "sb-item", id: "sb-clock" }); document.querySelector("#statusbar .right")?.append(clockEl); }
+    clockEl.classList.remove("hidden");
+    clockEl.classList.toggle("sb-off", (A.settings.statusHidden || []).includes("sb-clock"));
+    const tick = () => { clockEl.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: mode === "12" }); };
+    tick();
+    if (!clockTimer) clockTimer = setInterval(tick, 10000);
+  }
+  const statusItems = () => STATUS_ITEMS.filter(([id]) => id !== "sb-clock" || (A.settings.clock && A.settings.clock !== "off"));
+
+  /* ---------------- greeting ---------------- */
+  function greeting(now = new Date()) {
+    const h = now.getHours(), name = (A.settings.greetingName || "").trim();
+    const part = h < 5 ? "Working late" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    return `${part}, ${name}.`;
+  }
+
+  /* ---------------- sounds for runs and saves ---------------- */
+  function onRunEnded(failed) {
+    if (!A.settings.eventSounds || !audio()) return;
+    const t = ac.currentTime, v = 0.6;
+    if (failed) { tone(t, { freq: 392, len: 0.18, gain: 0.16 * v, type: "triangle" }); tone(t + 0.14, { freq: 294, len: 0.3, gain: 0.16 * v, type: "triangle" }); }
+    else { tone(t, { freq: 784, len: 0.16, gain: 0.12 * v }); tone(t + 0.11, { freq: 1175, len: 0.3, gain: 0.1 * v }); }
+  }
+  function onSaved() {
+    if (!A.settings.eventSounds || !audio()) return;
+    tone(ac.currentTime, { freq: 1400, to: 1800, len: 0.05, gain: 0.07 });
   }
 
   /* ---------------- typing sounds ---------------- */
@@ -89,6 +141,9 @@ export function createTweaks(A) {
   }
   function onEditorReady() {
     A.editor.onKeyDown(keySound);
+    // middle-click closes a tab
+    document.getElementById("tabs")?.addEventListener("auxclick", (e) => { if (e.button !== 1) return; const c = e.target.closest(".tab")?.querySelector(".close"); if (c) { e.preventDefault(); c.click(); } });
+    document.getElementById("tabs")?.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
     window.addEventListener("resize", () => {}); // layout reacts through automaticLayout
   }
 
@@ -126,5 +181,5 @@ export function createTweaks(A) {
     { id: "settings-export", label: "Export Settings", cat: "Preferences", run: exportSettings },
     { id: "settings-import", label: "Import Settings...", cat: "Preferences", run: importSettings },
   ];
-  return { apply, onSetting, onEditorReady, exportSettings, importSettings, commands, keySound };
+  return { apply, onSetting, onEditorReady, exportSettings, importSettings, commands, keySound, statusItems, greeting, onRunEnded, onSaved };
 }

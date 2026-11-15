@@ -85,6 +85,10 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Cursor effects**: a soft glow around the cursor, or sparks as you type.
 - **Layout** (Settings > Layout): the side bar on the left or right, the panel at the bottom or on the right (both still resize by dragging), compact, normal or roomy spacing, interface and terminal text sizes, colorful, plain or no file icons, and hide the activity bar, the status bar or single activity bar icons.
 - **More editor options**: rulers, cursor blinking and width, line highlight, indentation and bracket guides, folding, minimap side, scroll bar size, code font weight and letter spacing, tabs or spaces, closing brackets and quotes, suggestions while typing, Enter or Tab to accept, hover delay, Alt or Ctrl to add cursors, and trim trailing spaces or end with a newline on save.
+- **Tabs and bars**: tab style (classic, pills, underline or minimal), when the close button shows, file icons on tabs, wrapping tabs onto more rows, or no tab bar at all (middle-click also closes a tab). Hide the breadcrumbs, show Run and Debug as icons only, pick which status bar items show, and add a clock.
+- **Per-language indent sizes** (2 for JavaScript and web pages, 4 for Python, and so on), a **centered editor** column for wide screens, and your own **cursor** and **selection colors**.
+- **A greeting**: put your name in Settings > Layout and the Home page says good morning (or afternoon, or evening).
+- **Sounds for runs and saves**: a chime when a program finishes, a lower one when it fails, a soft tick on save. **Reduce motion** turns off animations and smooth scrolling everywhere.
 - **Typing sounds**: soft clicks, a typewriter (with a bell on Enter), bubbles or a mechanical keyboard, with a volume slider.
 - **Your own CSS** (Settings > Layout): restyle anything, applied as you type.
 - **Export and import settings** (Settings > Data and privacy): your settings, themes, shortcuts, snippets, looks and templates in one file, for a backup or another device.
