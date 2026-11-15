@@ -3720,6 +3720,7 @@ async function boot() {
   window.addEventListener("unhandledrejection", (e) => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
   registerLanguageModes(monaco);
   setupAssistant();
+  if (layout.view === "assistant" && layout.sidebar) assistant.show(); // it was the open view when the page was left
   extras.onEditorReady();
   look.onEditorReady();
   power.onEditorReady();
