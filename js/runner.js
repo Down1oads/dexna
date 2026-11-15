@@ -202,7 +202,23 @@ async function runJs(m) {
   self.confirm = (message = "") => /^\s*(y|yes|ok|true)\s*$/i.test(self.prompt(String(message) + " (y/n)") || "");
 
   let ok = true;
-  const clean = (s) => { for (const [u, f] of urlToFile) s = s.split(u).join(f); return s; };
+  // file:line:col in compiled TypeScript -> the line and column in the .ts file
+  const maps = m.maps || {};
+  const remap = (file, line, col) => {
+    const segs = maps[file] && maps[file][line - 1];
+    if (!segs || !segs.length) return null;
+    let best = segs[0];
+    for (const s of segs) if (s[0] <= col - 1) best = s; else break;
+    return `${file}:${best[1] + 1}:${best[2] + 1 + Math.max(0, col - 1 - best[0])}`;
+  };
+  const clean = (s) => {
+    for (const [u, f] of urlToFile) s = s.split(u).join(f);
+    for (const f of Object.keys(maps)) {
+      const esc = f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      s = s.replace(new RegExp(`(^|[\\s(@/])(${esc}):(\\d+):(\\d+)`, "g"), (all, pre, file, l, c) => { const r = remap(file, +l, +c); return r ? pre + r : all; });
+    }
+    return s;
+  };
   function report(ex) {
     ok = false;
     const text = ex instanceof Error ? ex.stack || `${ex.name}: ${ex.message}` : "Uncaught " + inspect(ex);
@@ -273,11 +289,18 @@ async function runLua(m) {
     await lua.doString(`
       local f, e = load(__dx_src, "@" .. __dx_name)
       if not f then error(e, 0) end
-      f()
+      local ok, msg = xpcall(f, function(m)
+        if type(m) ~= "string" then m = tostring(m) end
+        return debug.traceback(m, 2)
+      end)
+      if not ok then error(msg, 0) end
     `);
   } catch (ex) {
     ok = false;
-    err(String(ex && ex.message || ex).replace(/^Error: /, "") + "\n");
+    // keep the lines about the person's code; drop the ones about Dexna's own wrapper
+    const text = String(ex && ex.message || ex).replace(/^Error: /, "");
+    const lines = text.split("\n").filter((l) => !/\[string "|in function 'xpcall'|^\s*\[C\]: in \?$/.test(l));
+    err(lines.join("\n").replace(/\nstack traceback:\s*$/, "") + "\n");
   } finally {
     lua.global.close();
   }
@@ -304,6 +327,12 @@ async function runSql(m) {
   const { default: init } = await import(base + "sqlite3.mjs");
   const sqlite3 = await init({ print: () => {}, printErr: () => {}, locateFile: (f) => base + f });
   const db = new sqlite3.oo1.DB(":memory:", "c");
+  // like the sqlite3 command line tool: "text" in double quotes is a string when it is not a column name
+  try {
+    const capi = sqlite3.capi;
+    if (capi.SQLITE_DBCONFIG_DQS_DML != null) capi.sqlite3_db_config(db.pointer, capi.SQLITE_DBCONFIG_DQS_DML, 1, 0);
+    if (capi.SQLITE_DBCONFIG_DQS_DDL != null) capi.sqlite3_db_config(db.pointer, capi.SQLITE_DBCONFIG_DQS_DDL, 1, 0);
+  } catch (_) {}
   const t0 = performance.now();
   let ok = true;
   try {
@@ -316,7 +345,7 @@ async function runSql(m) {
       try {
         db.exec({ sql, rowMode: "array", resultRows: rows, columnNames: cols });
       } catch (ex) {
-        throw new Error(`Error in statement starting at line ${line}: ${ex.message}`);
+        throw new Error(`Error in statement starting at line ${line}: ${String(ex.message).replace(/^SQLITE_\w+: sqlite3 result code \d+: /, "")}`);
       }
       if (cols.length) {
         out(renderTable(cols, rows) + "\n" + `(${rows.length} row${rows.length === 1 ? "" : "s"})\n\n`);

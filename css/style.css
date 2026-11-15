@@ -1026,17 +1026,6 @@ html[data-glow="soft"] .monaco-editor .view-lines span span { text-shadow: 0 0 6
 html[data-glow="neon"] .monaco-editor .view-lines span span { text-shadow: 0 0 2px currentColor, 0 0 9px currentColor, 0 0 18px color-mix(in srgb, currentColor 45%, transparent); }
 html[data-glow="neon"] .monaco-editor .cursors-layer .cursor { box-shadow: 0 0 8px 1px var(--accent); }
 #cursor-trail { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1400; pointer-events: none; }
-.power-combo { position: absolute; top: 14px; right: 26px; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; pointer-events: none; color: var(--accent); text-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent); }
-.power-combo b { font: 700 38px/1 var(--mono); }
-.power-combo span { font: 600 11px var(--mono); letter-spacing: .25em; text-transform: uppercase; opacity: .8; }
-.power-combo i { display: block; height: 3px; width: 70px; margin-top: 5px; border-radius: 2px; background: var(--accent); transform-origin: right; animation: combo-left 2.6s linear forwards; }
-.power-combo.bump b { animation: combo-bump .18s ease-out; }
-.power-combo.milestone b { animation: combo-big .9s ease-out; }
-@keyframes combo-left { to { transform: scaleX(0); } }
-@keyframes combo-bump { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
-@keyframes combo-big { 0% { transform: scale(2); color: var(--warn); } 100% { transform: scale(1); } }
-#editor-wrap.shake { animation: shake .35s cubic-bezier(.36, .07, .19, .97); }
-@keyframes shake { 10%, 90% { transform: translate(-1px, 1px); } 20%, 80% { transform: translate(3px, -2px); } 30%, 50%, 70% { transform: translate(-5px, 2px); } 40%, 60% { transform: translate(5px, -1px); } }
 #screen-filter { position: fixed; inset: 0; z-index: 3000; pointer-events: none; }
 #screen-filter.sf-crt { background:
   repeating-linear-gradient(to bottom, rgba(0, 0, 0, calc(var(--sf) * .28)) 0 1px, transparent 1px 3px),

@@ -97,7 +97,6 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
   - **Chroma accent**: the accent color slowly travels around the color wheel.
   - **Neon code**: the code glows in its own colors.
   - **Smooth cursor trail**: the cursor glides and leaves a short smear when it jumps.
-  - **Power mode**: sparks as you type, a combo counter, and a screen shake at 25, 50, 100 and beyond. Your best combo is remembered.
   - **Screen filters**: retro CRT monitor, film grain, vignette, or a warm night light.
   - **Ambient sounds**: rain, ocean waves, a fireplace, brown noise or a space hum, all made in the browser.
   - **Day and night themes** that switch by the clock.

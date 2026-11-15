@@ -69,7 +69,7 @@ const DEFAULT_SETTINGS = {
   hoverDelay: 300, suggestWhileTyping: true, acceptOnEnter: true, terminalFontSize: 13, typingSound: "off", typingVolume: 50, customCss: "",
   tabStyle: "classic", tabClose: "hover", tabIcons: true, tabWrap: false, showTabs: true, showBreadcrumbs: true, runButtons: "text", statusHidden: [], clock: "off",
   greetingName: "", langTabSize: {}, centered: false, centeredWidth: 1000, cursorColor: "", selectionColor: "", eventSounds: false, reduceMotion: false,
-  chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, powerMode: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
+  chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
   timeTheme: false, dayStarts: 7, nightStarts: 19,
   focusMode: "off", typewriter: false, indentRainbow: false, celebrate: false,
   autoSave: "delay", autoSaveDelay: 400, filesExclude: "**/__pycache__\n**/.DS_Store\n*.pyc", explorerSort: "name", confirmDelete: true, fileAssociations: {},
@@ -77,6 +77,7 @@ const DEFAULT_SETTINGS = {
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
 const settings = { ...DEFAULT_SETTINGS, ...LS.get("settings", {}) };
+delete settings.powerMode; // left over from a removed feature
 // While a project overrides a setting, `settings` holds the project's value and this holds yours.
 let overriddenUser = {};
 const userSettings = () => ({ ...settings, ...overriddenUser });
@@ -95,7 +96,7 @@ let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
 let prefs = null; // settings JSON, project settings, profiles (prefs.js)
 let joy = null; // focus mode, typewriter, rainbow indents, confetti (joy.js)
-let fx = null; // theme from a picture, chroma, glow, cursor trail, power mode, screen filters, ambient sounds (fx.js)
+let fx = null; // theme from a picture, chroma, glow, cursor trail, screen filters, ambient sounds (fx.js)
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
@@ -1465,7 +1466,7 @@ function configureTypeScript() {
   const options = {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.NodeJs,
     allowNonTsExtensions: true, allowJs: true, checkJs: false, strict: true, esModuleInterop: true, skipLibCheck: true,
-    lib: ["es2022", "dom"], noEmit: false,
+    lib: ["es2022", "dom"], noEmit: false, sourceMap: true,
   };
   ts.typescriptDefaults.setCompilerOptions(options);
   ts.javascriptDefaults.setCompilerOptions(options);
@@ -1967,8 +1968,35 @@ async function stopExecution() {
 let otherRun = null;
 
 /** Compile every TypeScript file in the project to JavaScript with the editor's own TypeScript service. */
+/** Decode a source map's "mappings" into, per generated line, a list of [column, source line, source column]. */
+function decodeSourceMap(mappings) {
+  const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const lines = [];
+  let srcLine = 0, srcCol = 0, src = 0;
+  for (const line of mappings.split(";")) {
+    const segs = [];
+    let genCol = 0;
+    for (const seg of line.split(",")) {
+      if (!seg) continue;
+      const vals = [];
+      let v = 0, shift = 0;
+      for (const ch of seg) {
+        const d = B64.indexOf(ch);
+        v += (d & 31) << shift;
+        if (d & 32) shift += 5;
+        else { vals.push(v & 1 ? -(v >>> 1) : v >>> 1); v = 0; shift = 0; }
+      }
+      genCol += vals[0];
+      if (vals.length >= 4) { src += vals[1]; srcLine += vals[2]; srcCol += vals[3]; segs.push([genCol, srcLine, srcCol]); }
+    }
+    lines.push(segs);
+  }
+  return lines;
+}
+
 async function emitTypeScript() {
   const files = {};
+  const maps = {};
   let getWorker = null; // only start the TypeScript service when there is TypeScript to compile
   for (const [p, content] of Object.entries(project.files)) {
     const ext = p.split(".").pop().toLowerCase();
@@ -1979,9 +2007,13 @@ async function emitTypeScript() {
       const res = await client.getEmitOutput(model.uri.toString());
       const js = res.outputFiles.find((f) => f.name.endsWith(".js"));
       if (!js) throw new Error(`Could not compile ${p}`);
-      files[p] = js.text;
+      files[p] = js.text.replace(/\n?\/\/# sourceMappingURL=\S*\s*$/, "\n");
+      // errors in compiled code must point at the TypeScript line the person wrote
+      const map = res.outputFiles.find((f) => f.name.endsWith(".js.map"));
+      if (map) try { maps[p] = decodeSourceMap(JSON.parse(map.text).mappings); } catch (_) {}
     } else if (ext === "js" || ext === "mjs") files[p] = models.get(p)?.getValue() ?? content;
   }
+  Object.defineProperty(files, "__maps", { value: maps, enumerable: false });
   return files;
 }
 
@@ -2037,7 +2069,7 @@ async function runOther(path, lang) {
   };
   worker.onerror = (e) => { terminal.write(`${e.message || "The runner crashed"}\n`, "stderr"); finish({ ok: false, time: 0 }); };
   setKernelStatus("busy", `Running ${RUN_LANG_NAME[lang]}`);
-  worker.postMessage({ cmd: "run", lang, entry: path, files, libs: cfg.libs, npm: project.npm || {}, sab });
+  worker.postMessage({ cmd: "run", lang, entry: path, files: { ...files }, maps: files.__maps || {}, libs: cfg.libs, npm: project.npm || {}, sab });
 }
 
 /* ---------- web pages: HTML with its CSS and scripts, previewed beside the editor ---------- */
@@ -3197,7 +3229,6 @@ const SETTINGS_SCHEMA = [
   { key: "chromaSeconds", cat: "Extras", label: "Chroma speed", desc: "Seconds for one trip around the color wheel.", type: "select", options: [[8, "Fast (8 s)"], [20, "Normal (20 s)"], [60, "Slow (1 min)"], [300, "Very slow (5 min)"]] },
   { key: "codeGlow", cat: "Extras", label: "Neon code", desc: "Make the code glow in its own colors. Looks best with dark themes.", type: "select", options: [["off", "Off"], ["soft", "Soft glow"], ["neon", "Neon"]] },
   { key: "cursorTrail", cat: "Extras", label: "Smooth cursor trail", desc: "The cursor glides to where it goes and leaves a short smear, so you can follow jumps.", type: "bool" },
-  { key: "powerMode", cat: "Extras", label: "Power mode", desc: "Sparks fly as you type, a combo counter climbs while you keep going, and the screen shakes at 25, 50, 100 and more.", type: "bool" },
   { key: "screenFilter", cat: "Extras", label: "Screen filter", desc: "A filter over the whole app.", type: "select", options: [["none", "None"], ["crt", "Retro CRT monitor"], ["grain", "Film grain"], ["vignette", "Vignette"], ["night", "Night light (warmer colors)"]] },
   { key: "filterStrength", cat: "Extras", label: "Filter strength", desc: "How strong the screen filter is.", type: "range", min: 10, max: 100, unit: "%" },
   { key: "ambient", cat: "Extras", label: "Ambient sound", desc: "A calm background sound while you work, made in the browser. It starts after your first click on the page.", type: "select", options: [["off", "Off"], ["rain", "Rain"], ["waves", "Ocean waves"], ["fire", "Fireplace"], ["brown", "Brown noise"], ["hum", "Space hum"]] },
@@ -3853,7 +3884,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "power-mode", "ambient-pick", "focus-mode", "typewriter"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "about"],
 };
 function buildMenus() {

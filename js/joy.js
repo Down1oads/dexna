@@ -4,7 +4,7 @@
 export function createJoy(A) {
   const { h, toast } = A;
   const root = document.documentElement;
-  for (const k of ["achievements", "joyStats", "petPets"]) A.LS.del(k); // left over from removed features
+  for (const k of ["achievements", "joyStats", "petPets", "powerBest"]) A.LS.del(k); // left over from removed features
 
   /* ---------------- focus mode ---------------- */
   let dimDecos = null;

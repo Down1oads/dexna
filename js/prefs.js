@@ -34,7 +34,7 @@ export const PROJECT_KEYS = ["tabSize", "useTabs", "langTabSize", "wordWrap", "r
   "autoLint", "autoInstall", "clearOnRun", "filesExclude", "fileAssociations", "renderWhitespace", "inlayHints", "autoSave"];
 
 const PRESENTATION = { fontSize: 20, uiFontSize: 15, terminalFontSize: 17, minimap: false, wordWrap: true, density: "comfortable", lineNumbers: "on", bgEffect: "none", screenFilter: "none",
-  codeGlow: "off", powerMode: false, cursorEffect: "none", cursorTrail: false, typingSound: "off", ambient: "off", stickyScroll: false, focusMode: "off", chroma: false };
+  codeGlow: "off", cursorEffect: "none", cursorTrail: false, typingSound: "off", ambient: "off", stickyScroll: false, focusMode: "off", chroma: false };
 
 export function createPrefs(A) {
   const { h, toast } = A;

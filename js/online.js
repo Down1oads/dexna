@@ -76,7 +76,10 @@ export function readsInput(lang, code) {
     haskell: /\bgetLine\b|getContents|interact/, elixir: /IO\.(gets|read)/, pascal: /\bread(ln)?\b/i, fortran: /\bread\s*\(/i, groovy: /System\.in|\.nextLine|readLine/,
     bash: /\bread\b/, julia: /\breadline\s*\(|readlines|stdin/, zig: /getStdIn|stdin/, nim: /readLine|stdin/, crystal: /\bgets\b|STDIN/, ada: /Get_Line|\bGet\s*\(/,
     odin: /os\.stdin|bufio/, raku: /\bget\b|\bprompt\b|\$\*IN|lines\(\)/, vala: /stdin\.read_line|stdin\./, mojo: /\binput\s*\(/, modula2: /ReadString|ReadInt|ReadCard|\bRead\s*\(/,
-    basic: /\b(Input|Line\s+Input)\b/i, octave: /\binput\s*\(|fgetl|fgets|scanf/, ocaml: /read_line|input_line/, d: /readln|stdin/, erlang: /io:(get_line|read)/, lisp: /read-line|\(read\)/, prolog: /\bread\s*\(/, cobol: /ACCEPT/i,
+    basic: /\b(Input|Line\s+Input)\b/i, octave: /\binput\s*\(|fgetl|fgets|scanf/, ocaml: /read_line|input_line/, d: /readln|stdin/, erlang: /io:(get_line|read)/, lisp: /read-line|\(read\)/, prolog: /\bread(_term|_line_to_string|_line_to_codes)?\s*\(|get_char\s*\(/, cobol: /ACCEPT/i,
+    clojure: /\(read-line\)|\(read\)|\*in\*|line-seq/, fsharp: /Console\s*\.\s*(ReadLine|Read|In)\b|stdin\./, vb: /Console\s*\.\s*(ReadLine|Read|In)\b|\bInputBox\b/,
+    objc: /\b(scanf|gets|fgets|getchar|fscanf)\s*\(|fileHandleWithStandardInput|readDataToEndOfFile/,
+    asm: /\bsys_read\b|\bmov\s+(eax|rax),\s*(3|0)\s*(;|$)[\s\S]*?(int\s+0x80|syscall)/im,
   }[lang];
   return !!rx && rx.test(code);
 }

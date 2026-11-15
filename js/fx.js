@@ -1,5 +1,5 @@
 // The fun stuff: a theme made from your picture, a rainbow accent, glowing code, a smooth cursor trail,
-// power mode, screen filters (CRT, film grain, vignette, night light), ambient sounds, and day/night themes.
+// screen filters (CRT, film grain, vignette, night light), ambient sounds, and day/night themes.
 import { registerCustomTheme, monacoTheme, THEMES } from "./themes.js";
 
 /* =====================================================================
@@ -294,37 +294,6 @@ export function createFx(A) {
   }
 
   /* =====================================================================
-   * Power mode: sparks, a combo counter and a shake at milestones
-   * ===================================================================== */
-  const power = { combo: 0, timer: 0, el: null, best: A.LS.get("powerBest", 0) };
-  function comboEl() {
-    if (power.el) return power.el;
-    power.el = h("div", { class: "power-combo hidden" }, h("b", {}), h("span", {}, "combo"), h("i", {}));
-    document.getElementById("editor-wrap")?.append(power.el);
-    return power.el;
-  }
-  function onType(e) {
-    if (!A.settings.powerMode || e.isFlush || e.isUndoing || e.isRedoing || !e.changes.length || e.changes[0].text.length > 3 || !A.editor.hasTextFocus()) return;
-    power.combo++;
-    clearTimeout(power.timer);
-    power.timer = setTimeout(() => { power.combo = 0; comboEl().classList.add("hidden"); }, 2600);
-    const el = comboEl();
-    el.classList.remove("hidden");
-    el.querySelector("b").textContent = power.combo;
-    el.querySelector("i").style.animation = "none"; void el.offsetWidth; el.querySelector("i").style.animation = ""; // restart the countdown bar
-    el.classList.remove("bump"); void el.offsetWidth; el.classList.add("bump");
-    if (power.combo > power.best) { power.best = power.combo; A.LS.set("powerBest", power.best); }
-    const p = cursorPoint();
-    if (p) A.look.burst(p.x, p.y + p.h / 2, null, Math.min(16, 5 + Math.floor(power.combo / 10)));
-    if ([25, 50, 100, 200, 300, 500, 1000].includes(power.combo) && !root.classList.contains("reduce-motion")) {
-      const wrap = document.getElementById("editor-wrap");
-      wrap.classList.remove("shake"); void wrap.offsetWidth; wrap.classList.add("shake");
-      el.classList.add("milestone"); setTimeout(() => el.classList.remove("milestone"), 900);
-      if (p) for (let i = 0; i < 3; i++) setTimeout(() => A.look.burst(p.x, p.y, null, 24), i * 90);
-    }
-  }
-
-  /* =====================================================================
    * Screen filters
    * ===================================================================== */
   let filterEl = null;
@@ -392,7 +361,6 @@ export function createFx(A) {
     ed.onDidChangeCursorPosition(onCursorMove);
     ed.onDidScrollChange(() => { if (trail) trail.last = null; });
     ed.onDidChangeModel(() => { if (trail) trail.last = null; });
-    ed.onDidChangeModelContent(onType);
     apply();
     if (A.settings.chroma) chroma();
     if (A.settings.ambient && A.settings.ambient !== "off") ambientApply();
@@ -401,8 +369,7 @@ export function createFx(A) {
 
   const commands = [
     { id: "theme-picture", label: "Create Theme from a Picture...", cat: "Preferences", run: themeFromPicture },
-    { id: "power-mode", label: "Toggle Power Mode", cat: "Preferences", run: () => { A.setSetting("powerMode", !A.settings.powerMode); toast(A.settings.powerMode ? `Power mode on. Your best combo: ${power.best}` : "Power mode off"); } },
     { id: "ambient-pick", label: "Ambient Sound...", cat: "Preferences", run: () => A.quickPick({ placeholder: "Play a background sound while you work", source: () => [["off", "Off"], ["rain", "Rain"], ["waves", "Ocean waves"], ["fire", "Fireplace"], ["brown", "Brown noise"], ["hum", "Space hum"]].map(([v, l]) => ({ label: l, desc: A.settings.ambient === v ? "playing" : "", run: () => A.setSetting("ambient", v) })) }) },
   ];
-  return { commands, apply, onSetting, onEditorReady, themeFromPicture, get power() { return power; }, ambient };
+  return { commands, apply, onSetting, onEditorReady, themeFromPicture, ambient };
 }

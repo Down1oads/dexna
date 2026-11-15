@@ -189,6 +189,7 @@ const GO_PACKAGES = { fmt: "fmt", os: "os", strings: "strings", strconv: "strcon
  * @returns {{code:string, map:(number|null)[]|null, wrapped:boolean}} map[outputLine-1] = original line (1-based), or null for generated lines.
  */
 export function prepareSource(lang, code, opts = {}) {
+  if (lang === "basic") return prepareBasic(code);
   const rules = RULES[lang];
   if (!rules) return { code, map: null, wrapped: false };
   const plain = stripComments(code);
@@ -276,6 +277,28 @@ export function prepareSource(lang, code, opts = {}) {
   return { code: out.join("\n") + "\n", map, wrapped: true };
 }
 
+/**
+ * FreeBASIC: on the online compiler, Line Input from the console waits forever when the input is
+ * not typed live. Reading the console as a file works, so those reads are pointed at one.
+ */
+function prepareBasic(code) {
+  const rx = /\bLine\s+Input\s+(?!#)(?:("(?:[^"\n]|"")*")\s*[,;]\s*)?([A-Za-z_][\w.]*\$?(?:\([^)\n]*\))?)/gi;
+  const lines = code.split("\n");
+  let used = false;
+  const fixed = lines.map((l) => {
+    const q = l.search(/'|\bRem\b/i); // leave comments alone (a ' inside a string is rare in BASIC code)
+    const head = q < 0 ? l : l.slice(0, q), tail = q < 0 ? "" : l.slice(q);
+    const h2 = head.replace(rx, (all, prompt, v) => { used = true; return `${prompt ? `Print ${prompt}; : ` : ""}Line Input #99, ${v}`; });
+    return h2 + tail;
+  });
+  if (!used) return { code, map: null, wrapped: false };
+  let at = 0; // after #lang / $lang lines, comments and blank lines at the top
+  while (at < fixed.length && /^\s*($|'|#|rem\b)/i.test(fixed[at])) at++;
+  const out = [...fixed.slice(0, at), "Open Cons For Input As #99", ...fixed.slice(at)];
+  const map = out.map((_, i) => (i < at ? i + 1 : i === at ? null : i));
+  return { code: out.join("\n"), map, wrapped: false };
+}
+
 /** Rewrite compiler/runtime messages: generated file names and line numbers become the user's. */
 export function mapDiagnostics(text, map, fileName) {
   if (!text) return text;
@@ -283,6 +306,6 @@ export function mapDiagnostics(text, map, fileName) {
   const base = fileName.split("/").pop();
   return text
     .replace(/<source>\((\d+)(?:,(\d+))?\)/g, (m, l, c) => `${base}(${lineOf(+l)}${c ? "," + c : ""})`)
-    .replace(/\b[\w./\\-]+\.cs\((\d+)(?:,(\d+))?\)/g, (m, l, c) => `${base}(${lineOf(+l)}${c ? "," + c : ""})`)
+    .replace(/(?:\/|\b)[\w./\\-]+\.(?:cs|bas)\((\d+)(?:,(\d+))?\)/g, (m, l, c) => `${base}(${lineOf(+l)}${c ? "," + c : ""})`)
     .replace(/[\w./\\-]+\.(?:java|kt|rs|c|cpp|cc|go|swift|php|rb):(\d+)(?::(\d+))?/g, (m, l, c) => `${base}:${lineOf(+l)}${c ? ":" + c : ""}`);
 }
