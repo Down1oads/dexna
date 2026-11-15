@@ -22,6 +22,8 @@ const P = {
   diff: '<path d="M5 2.5v7M1.5 6h7"/><path d="M8.5 12.5h6"/><path d="M11.5 2.5v4"/>',
   camera: '<path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h1.5l1-1.5h3l1 1.5H12a1.5 1.5 0 0 1 1.5 1.5V12A1.5 1.5 0 0 1 12 13.5H4A1.5 1.5 0 0 1 2.5 12z"/><circle cx="8" cy="8.5" r="2.3"/>',
   eye: '<path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>',
+  terminal: '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4.5 6.5 6.5 8.5l-2 2M8.5 10.5h3"/>',
+  clock: '<circle cx="8" cy="8.5" r="5.5"/><path d="M8 5.5v3.2l2 1.3M6.5 1.5h3"/>',
   chart: '<path d="M2.5 13.5h11"/><path d="M4.5 11V8M7.5 11V4.5M10.5 11V6.5M13 11V9"/>',
   newFile: '<path d="M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14H8"/><path d="M9 2l4 4v2"/><path d="M12 10v5M9.5 12.5h5"/>',
   newFolder: '<path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.5 1.5h5A1.5 1.5 0 0 1 14 6v2"/><path d="M2 4.5v7A1.5 1.5 0 0 0 3.5 13H8"/><path d="M12 9.5v5M9.5 12h5"/>',

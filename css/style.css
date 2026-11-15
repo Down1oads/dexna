@@ -432,7 +432,7 @@ table.vars .exp .icon { width: 11px; height: 11px; vertical-align: -1px; }
 .sp-nav button:hover { background: var(--bg-hover); color: var(--fg); }
 .sp-nav button.active { background: var(--bg-active); color: var(--fg); }
 .sp-nav .n { font-size: 11px; color: var(--fg-faint); }
-.sp-main { flex: 1; overflow: auto; padding: 4px 48px 120px 40px; scroll-behavior: smooth; }
+.sp-main { flex: 1; overflow: auto; padding: 4px 48px 120px 40px; }
 .sp-sec h2 { margin: 30px 0 6px; padding-bottom: 8px; font-size: 20px; font-weight: 600; border-bottom: 1px solid var(--border); max-width: 780px; }
 .si { position: relative; max-width: 780px; padding: 14px 0 14px 16px; margin-left: -16px; border-left: 2px solid transparent; }
 .si.modified { border-left-color: var(--accent); }
@@ -888,3 +888,42 @@ html[data-cursorfx="glow"] .monaco-editor .cursors-layer .cursor { box-shadow: 0
 .si-image { display: flex; align-items: center; gap: 10px; }
 .si-thumb { width: 96px; height: 54px; border: 1px solid var(--border); border-radius: 4px; background: center / cover no-repeat var(--bg-1); }
 .si-thumb.empty { background: repeating-linear-gradient(45deg, var(--bg-1) 0 6px, var(--bg-2) 6px 12px); }
+
+/* ================= Shell ================= */
+.sh-out { flex: 1; overflow: auto; padding: 8px 12px; font: 13px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; background: var(--term-bg); outline: none; }
+.panel-view[data-panel="shell"].active, .panel-view[data-panel="notes"].active { display: flex; flex-direction: column; }
+.sh-bar { align-items: center; }
+.sh-ps { color: var(--accent); white-space: nowrap; font: 13px var(--mono); }
+.sh-input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: 13px var(--mono); color: var(--fg); padding: 2px 0; }
+.sh-prompt { color: var(--accent); } .sh-typed { color: var(--fg); font-weight: 500; }
+.sh-dim { color: var(--fg-dim); } .sh-err { color: var(--err); } .sh-ok { color: var(--run); } .sh-cmd { color: var(--accent-2); }
+.sh-dir { color: var(--info); font-weight: 600; }
+.sh-file { color: var(--fg); text-decoration: none; border-bottom: 1px dotted var(--fg-faint); cursor: pointer; }
+.sh-file:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.sh-hit { background: var(--sel); color: var(--warn); border-radius: 2px; }
+html.fx .sh-out { background: color-mix(in srgb, var(--term-bg) 45%, transparent); }
+
+/* ================= Notes ================= */
+.notes-area { flex: 1; width: 100%; border: 0; resize: none; outline: none; padding: 10px 14px; background: var(--bg); color: var(--fg); font: 13.5px/1.6 var(--ui); }
+html.fx .notes-area { background: transparent; }
+.panel-tabs button.has-notes::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: 1px; }
+
+/* ================= Focus timer ================= */
+#sb-focus { font-variant-numeric: tabular-nums; font-weight: 600; }
+#sb-focus.break { opacity: .85; font-weight: 500; }
+#sb-focus svg { width: 14px; height: 14px; }
+
+/* ================= Activity ================= */
+.modal.act-modal { width: min(820px, calc(100vw - 32px)); margin-top: -6vh; }
+.act-modal .st-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; margin-bottom: 14px; }
+.act-modal .st-tile b { font-size: 17px; }
+.hm-wrap { overflow-x: auto; padding-bottom: 4px; }
+.hm { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 11px); gap: 3px; width: max-content; }
+.hm-c { display: block; width: 11px; height: 11px; border-radius: 2px; background: var(--bg-3); }
+.hm-c.l1 { background: color-mix(in srgb, var(--run) 30%, var(--bg-3)); } .hm-c.l2 { background: color-mix(in srgb, var(--run) 55%, var(--bg-3)); }
+.hm-c.l3 { background: color-mix(in srgb, var(--run) 78%, var(--bg-3)); } .hm-c.l4 { background: var(--run); }
+.hm-legend { display: flex; align-items: center; gap: 4px; justify-content: flex-end; margin: 6px 0 12px; }
+.act-lang { display: grid; grid-template-columns: 120px 1fr 70px; gap: 10px; align-items: center; padding: 3px 0; font-size: 12.5px; }
+.act-lang .st-bar { height: 8px; }
+.tpl-row .ld { color: var(--fg-dim); }
+.act-lang .st-bar { width: auto; } .act-lang .st-bar i { height: 8px; }

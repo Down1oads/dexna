@@ -99,6 +99,12 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Your own snippets** (Edit > Configure User Snippets): a prefix, a language (or all of them) and a body with tab stops (`$1`, `${1:name}`, `$0`). They show in the suggestions like built-in ones. **Save Selection as Snippet** turns selected code into one. Import and export in VS Code's snippet format.
 - **Clipboard history** (Ctrl+Shift+Alt+V): the last 40 things you copied or cut, to paste again.
 - **Local history** (File > Local History, or a tab's right-click menu): Dexna keeps earlier versions of every file automatically, separate from commits: when you start editing, every few minutes while you type, when you press Ctrl+S, and before a file is deleted. Compare any version with the file now and restore it, or bring back a deleted file.
+- **Previews for data files** (Ctrl+Shift+V or the **Preview** button): CSV and TSV files as a table you can sort and filter, JSON as a tree you can fold (with the line and column of any mistake), and SVG files as a picture you can zoom.
+- **Shell** (a tab in the bottom panel): `ls`, `cd`, `tree`, `cat`, `head`, `tail`, `wc`, `touch`, `mkdir`, `rm`, `mv`, `cp`, `echo ... > file`, `grep`, `find`, `open`, `run`, `calc` and more, on your project's files. File names in the output open in the editor; Tab completes, Up and Down bring back earlier commands, and `&&` chains them.
+- **Notes** (a tab in the bottom panel): notes for each project, saved with it.
+- **Focus timer** (View > Focus Timer): 25-minute Pomodoro, 50, 15, 90 or any number of minutes. The countdown sits in the status bar, keeps going if you reload, chimes at the end and offers a break.
+- **Your coding activity** (View menu or Home): time spent coding today, this week and this month, your streak, a year-long heatmap and your languages. A minute counts when you type in it; nothing leaves the browser.
+- **Project templates** (File > Save Project as Template): start new projects from your own setups. They appear on the Home page.
 - **Run on save** (Settings > Editor, or Run > Toggle Run on Save): Ctrl+S also runs the file.
 - **Save code as an image** (File menu or right-click): a PNG of the selection or file in your theme's colours, to download or copy.
 - **Zen mode** (Ctrl+K Z): just the code, centred. Esc twice leaves.
@@ -195,6 +201,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/langmodes.js` | Syntax colours, comment toggling, keyword completion and snippets for the languages Monaco has no full support for, and Emmet for HTML and CSS |
 | `js/starters.js` | The preset each new project starts with |
 | `js/extras.js` | The diff viewer, change markers, bookmarks, TODOs, text commands, code images, Zen mode, Vim keys, the calculator, statistics and the Markdown preview |
+| `js/plus.js` | The shell, CSV / JSON / SVG previews, the focus timer, coding activity, templates and notes |
 | `js/look.js` | Looks, animated backgrounds, your background image, fonts, corners and cursor effects |
 | `js/more.js` | Back and forward, symbols across the project, your own shortcuts and themes, colour swatches |
 | `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |

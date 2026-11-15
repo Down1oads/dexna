@@ -757,7 +757,7 @@ export function createExtras(A) {
     { id: "compare-file", label: "Compare Active File With…", cat: "File", run: () => compareWith() },
     { id: "compare-clip", label: "Compare Active File with Clipboard", cat: "File", run: compareClipboard },
     { id: "tools-view", label: "Show Toolbox", cat: "View", run: () => A.setView("tools") },
-    { id: "md-preview", label: "Open Markdown Preview", cat: "View", kb: "ctrl+shift+v", when: (e) => !e.target.matches?.("input, textarea:not(.inputarea), [contenteditable]"), run: () => { const p = A.currentPath(); if (!isMarkdown(p)) return toast("Open a Markdown (.md) file first.", "info"); A.previewFile(p); } },
+    { id: "md-preview", label: "Open Preview (Markdown, CSV, JSON, SVG)", cat: "View", kb: "ctrl+shift+v", when: (e) => !e.target.matches?.("input, textarea:not(.inputarea), [contenteditable]"), run: () => { const p = A.currentPath(); if (!isMarkdown(p) && !A.canPreview?.(p)) return toast("Open a Markdown, CSV, JSON or SVG file first.", "info"); A.previewFile(p); } },
     { id: "bm-toggle", label: "Toggle Bookmark", cat: "Go", kb: "ctrl+alt+k", run: () => toggleBookmark() },
     { id: "bm-next", label: "Next Bookmark", cat: "Go", kb: "ctrl+alt+l", run: () => jumpBookmark(1) },
     { id: "bm-prev", label: "Previous Bookmark", cat: "Go", kb: "ctrl+alt+j", run: () => jumpBookmark(-1) },

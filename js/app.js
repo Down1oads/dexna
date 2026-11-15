@@ -10,6 +10,7 @@ import { createExtras } from "./extras.js";
 import { createPower } from "./power.js";
 import { createMore } from "./more.js";
 import { createLook, EFFECTS, UI_FONTS, CODE_FONTS } from "./look.js";
+import { createPlus } from "./plus.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -72,6 +73,7 @@ const saveLayout = debounce(() => LS.set("layout", layout), 300);
 let projectsIndex = LS.get("projects", []);
 let project = null;
 let extras = null; // source control, toolbox, bookmarks and the rest (extras.js)
+let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
 let power = null; // split editor, snippets, clipboard and local history, run on save (power.js)
@@ -101,6 +103,7 @@ const persistProject = debounce(() => {
   LS.set("current", project.id);
   extras?.onFilesChanged();
   power?.onFilesChanged();
+  plus?.onFilesChanged();
 }, 400);
 
 /* =====================================================================
@@ -332,7 +335,7 @@ function applyTheme() {
   updateThemeIcon();
   if (monaco) { monaco.editor.defineTheme(t.id, editorThemeData(t)); monaco.editor.setTheme(t.id); }
   look?.updateBackdrop();
-  if (web.path && extras?.isMarkdown(web.path)) setTimeout(() => refreshPreview({ full: true }), 0);
+  if (web.path && (extras?.isMarkdown(web.path) || plus?.canPreview(web.path))) setTimeout(() => refreshPreview({ full: true }), 0);
 }
 /** Flip between the last dark and the last light theme. */
 function toggleTheme() {
@@ -470,6 +473,7 @@ function onModelChange(path, model, ev) {
   if (bpDecos.get(path)?.length) syncBreakpointsFromDecos(path);
   extras?.onModelContent(path);
   power?.onModelContent(path);
+  plus?.recordEdit(path);
   more?.onModelContent(path);
   clearRuntimeError(path);
   if (!lspWriters.has(path)) lspWriters.set(path, debounce(() => lspSyncFile(path), 350));
@@ -513,6 +517,7 @@ async function loadProject(id) {
   if (kernel?.info) syncKernelProject();
   extras?.onProjectLoaded();
   power?.onProjectLoaded();
+  plus?.onProjectLoaded();
   more?.onProjectLoaded();
   return true;
 }
@@ -659,6 +664,7 @@ function movePath(from, to) {
     if (project.breakpoints[a]) { project.breakpoints[b] = project.breakpoints[a]; delete project.breakpoints[a]; }
     if (project.bookmarks?.[a]) { project.bookmarks[b] = project.bookmarks[a]; delete project.bookmarks[a]; }
     power?.onRename(a, b);
+    plus?.onRename(a, b);
     more?.onRename(a, b);
     if (project.entry === a) project.entry = b;
     project.open = project.open.map((o) => (o === a ? b : o));
@@ -1083,12 +1089,15 @@ function renderHome() {
             action("star", "Command palette...", () => quickOpen(">"), "ctrl+shift+p"),
             action("branch", "Source control and history", () => setView("scm"), "ctrl+shift+g"),
             action("tools", "Toolbox: regex, JSON, hashes, colors...", () => setView("tools")),
+            action("terminal", "Shell for your files", () => { showHome(false); cmdById("shell").run(); }),
+            action("chart", "Your coding activity", () => cmdById("activity").run()),
             action("settings", "Settings and color themes", () => showSettings(true)),
             action("info", "Languages and snippets", showLanguageGuide),
             action("info", "Keyboard shortcuts", () => showShortcuts()))),
         h("div", { class: "home-section" }, h("h2", {}, "Recent"),
           recent.length ? h("div", { class: "recent-list" }, recent) : h("div", { class: "muted small" }, "Projects you create will show up here."))),
       h("div", {},
+        plus?.homeSection(),
         h("div", { class: "home-section" }, h("h2", {}, "New project"),
           h("h3", {}, "Runs on your device"), h("div", { class: "lang-list" }, localRows),
           h("h3", {}, "Runs online"), h("p", { class: "home-aside" }, "These compile on a public online service. Dexna asks before sending anything."), h("div", { class: "lang-list" }, onlineRows)),
@@ -1191,7 +1200,7 @@ function renderTabs() {
         { label: "Reveal in Explorer", disabled: ext, run: () => { expandTo(key); renderTree(); setView("explorer"); selectTreeRow(key); } },
         { label: "Copy Path", run: () => navigator.clipboard?.writeText(p) },
         { label: "Run This File", disabled: ext || !isRunnable(p), run: () => runFile({ path: p }) },
-        ...(!ext && extras?.isMarkdown(p) ? [{ label: "Open Preview", kb: "ctrl+shift+v", run: () => previewFile(p) }] : []),
+        ...(!ext && (extras?.isMarkdown(p) || plus?.canPreview(p)) ? [{ label: "Open Preview", kb: "ctrl+shift+v", run: () => previewFile(p) }] : []),
         "-",
         { label: "Compare with Last Commit", disabled: ext || !extras?.scm.head, run: () => extras.scm.diffWithHead(p) },
         { label: "File History", disabled: ext || !extras?.scm.head, run: () => extras.scm.fileHistory(p) },
@@ -1249,7 +1258,7 @@ function updateBreadcrumbs() {
   for (const s of syms) {
     bc.append(h("span", { class: "sep" }, icon("chevronRight")), h("span", { class: "crumb", onclick: () => openFile(key, { line: s.line, col: s.col }) }, symIcon(s.kind), s.name));
   }
-  if (!key.startsWith("ext:") && extras?.isMarkdown(key)) bc.append(h("button", { class: "btn sm bc-action", title: "Open the preview beside the editor (Ctrl+Shift+V)", onclick: () => previewFile(key) }, icon("eye"), web.path === key ? "Preview open" : "Preview"));
+  if (!key.startsWith("ext:") && (extras?.isMarkdown(key) || plus?.canPreview(key))) bc.append(h("button", { class: "btn sm bc-action", title: "Open the preview beside the editor (Ctrl+Shift+V)", onclick: () => previewFile(key) }, icon("eye"), web.path === key ? "Preview open" : "Preview"));
 }
 
 function updateCursorStatus() {
@@ -2011,6 +2020,13 @@ function showPreview(on) {
 }
 function refreshPreview({ announce = false, full = false } = {}) {
   if (!web.path || project.files[web.path] == null) return showPreview(false);
+  if (plus?.canPreview(web.path)) { // CSV, JSON and SVG files
+    web.mdLoaded = null;
+    $("#preview-title").textContent = web.path;
+    web.html = plus.previewPage(web.path, textOf(web.path));
+    $("#preview-frame").srcdoc = web.html;
+    return;
+  }
   if (extras?.isMarkdown(web.path)) {
     const path = web.path, seq = (web.seq = (web.seq || 0) + 1);
     $("#preview-title").textContent = path;
@@ -2035,7 +2051,7 @@ function refreshPreview({ announce = false, full = false } = {}) {
 function postToPreview(msg) { try { $("#preview-frame").contentWindow?.postMessage(msg, "*"); } catch (_) {} }
 /** Show a page or a Markdown file in the preview beside the editor. */
 function previewFile(path) {
-  if (!extras?.isMarkdown(path)) return runWeb(path);
+  if (!extras?.isMarkdown(path) && !plus?.canPreview(path)) return runWeb(path);
   web.path = path;
   web.mdLoaded = null;
   setPreviewWidth();
@@ -3198,11 +3214,14 @@ function renderSettingsBody() {
   const main = h("div", { class: "sp-main" }, sections.length ? sections : h("div", { class: "empty" }, "No settings match your search."));
   main.addEventListener("scroll", () => {
     let cur = null;
-    for (const sec of main.querySelectorAll(".sp-sec")) if (sec.offsetTop - 60 <= main.scrollTop) cur = sec.id;
+    const top = main.getBoundingClientRect().top;
+    for (const sec of main.querySelectorAll(".sp-sec")) if (sec.getBoundingClientRect().top - top <= 48) cur = sec.id;
     navEl.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.sec === (cur || navEl.firstChild?.dataset?.sec)));
   });
   body.replaceChildren(navEl, main);
-  main.scrollTop = prev;
+  // put the list back exactly where it was, without animating (changing a setting redraws it)
+  main.scrollTo({ top: prev, behavior: "instant" });
+  main.dispatchEvent(new Event("scroll"));
 }
 
 async function resetEverything() {
@@ -3289,6 +3308,7 @@ $("#panel-clear").onclick = () => {
   if (layout.panel === "terminal") terminal.clear();
   else if (layout.panel === "console") consoleTerm.clear();
   else if (layout.panel === "plots") plotsClear();
+  else if (layout.panel === "shell") plus.exec("clear");
 };
 
 function setupResizers() {
@@ -3400,6 +3420,8 @@ const API = {
   setKeybinding: (id, kb) => setKeybinding(id, kb), currentThemeId: () => currentTheme().id,
   effectiveTheme: () => effectiveTheme(), themeExists: (id) => !!THEME_BY_ID[id], themeById: (id) => THEME_BY_ID[id],
   refreshEditorOptions: () => editor?.updateOptions(editorOptions()), rerenderSettings: () => settingsOpen && renderSettingsPage(),
+  mkdir: (d) => { addDirs(d); persistProject(); renderTree(); }, rmdir: (d) => { project.dirs = project.dirs.filter((x) => x !== d && !x.startsWith(d + "/")); persistProject(); renderTree(); },
+  canPreview: (p) => !!plus?.canPreview(p), movePath: (a, b) => movePath(a, b), runFile: (path) => runFile({ path }), createProject: (tpl, name) => createProject(tpl, name), refreshHome: () => homeOpen && renderHome(),
 };
 extras = createExtras(API);
 COMMANDS.push(...extras.commands);
@@ -3410,6 +3432,8 @@ more = createMore(API);
 COMMANDS.push(...more.commands);
 look = createLook(API);
 COMMANDS.push(...look.commands);
+plus = createPlus(API);
+COMMANDS.push(...plus.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
@@ -3501,11 +3525,11 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "problems", "todos", "bm-list", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-import"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-import"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "about"],
 };
 function buildMenus() {
@@ -3700,6 +3724,7 @@ async function boot() {
   look.onEditorReady();
   power.onEditorReady();
   more.onEditorReady();
+  plus.onReady();
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => schedulePreview());
   setupPreview();
