@@ -1073,3 +1073,9 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .tab.dirty .close { visibility: visible; }
 .tab.dirty:not(:hover) .close svg { display: none; }
 .tab.dirty:not(:hover) .close::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); }
+
+/* black and white themes: file and language icons in grey too */
+.mono-theme svg.ft, .mono-theme .lang-row .icon, .mono-theme .lang-row img { filter: grayscale(1); }
+.mono-theme .dot.ready { background: var(--fg); }
+.mono-theme .dot.busy { background: var(--fg-dim); }
+.mono-theme .dot.error { background: var(--fg); box-shadow: 0 0 0 2px var(--fg-faint); }

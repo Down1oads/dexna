@@ -362,6 +362,7 @@ function applyTheme() {
   const base = currentTheme(), t = effectiveTheme();
   const root = document.documentElement;
   root.dataset.theme = t.type;
+  root.classList.toggle("mono-theme", !!t.c.mono); // black and white: icons lose their colour too
   const vars = uiVars(t);
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   setAnsiPalette(ansiPalette(t));

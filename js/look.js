@@ -5,6 +5,7 @@ import { makeScenes2, SCENES2 } from "./scenes2.js";
 import { makeCozy, COZY } from "./cozy.js";
 import { makeFlow, FLOW } from "./flow.js";
 import { makeFlow2, FLOW2 } from "./flow2.js";
+import { makeMinimal, MINIMAL } from "./minimal.js";
 
 /* =====================================================================
  * Choices
@@ -17,7 +18,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2,
+  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
@@ -109,6 +110,15 @@ export const LOOKS = [
   { id: "pixelholo", name: "Pixel holo", desc: "Iridescent ribbons as chunky pixels", theme: "catppuccin-mocha", set: { bgEffect: "pixelholo", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelfire", name: "Pixel fire", desc: "The classic retro fire effect", theme: "oled", set: { bgEffect: "pixelfire", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelplanet", name: "Pixel planet", desc: "A turning pixel-art planet with its moon", theme: "tokyo-night", set: { bgEffect: "pixelplanet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "mono", name: "Black and white", desc: "Plain black and white, no effects", theme: "mono-black", set: { bgEffect: "none", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "dust", name: "Dust", desc: "Specks drifting through a faint shaft of light", theme: "mono-black", set: { bgEffect: "dust", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "eclipse", name: "Eclipse", desc: "A black disc with a glowing rim", theme: "mono-black", set: { bgEffect: "eclipse", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "dotgrid", name: "Dot grid", desc: "A dot matrix lit by a wandering spotlight that follows your mouse", theme: "mono-black", set: { bgEffect: "dotgrid", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "waveline", name: "Wave line", desc: "One thin line, slowly changing shape", theme: "mono-black", set: { bgEffect: "waveline", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "sonar", name: "Sonar", desc: "Rings slowly spreading from the center", theme: "mono-black", set: { bgEffect: "sonar", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "ministars", name: "Night", desc: "Sparse stars and the odd shooting star", theme: "mono-black", set: { bgEffect: "ministars", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "driftlines", name: "Drift lines", desc: "Faint lines drifting, with light running down them", theme: "mono-black", set: { bgEffect: "driftlines", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "orbits2", name: "Orbits", desc: "Small dots on thin orbits", theme: "mono-black", set: { bgEffect: "orbits2", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -158,6 +168,7 @@ function makeEffects() {
     ...makeCozy(),
     ...makeFlow(),
     ...makeFlow2(),
+    ...makeMinimal(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1200,6 +1211,14 @@ export function createLook(A) {
       pixelholo: `repeating-linear-gradient(90deg, transparent 0 4px, #00000022 4px 5px), radial-gradient(60% 30% at 45% 50%, #ff8ad8, #5a4bff 50%, transparent 70%), #1c1840`,
       pixelfire: `linear-gradient(transparent 45%, #af3f07 60%, #df5707 72%, #bfa727 86%, #ffffff 100%)`,
       pixelplanet: `radial-gradient(circle at 58% 55%, #5a9a3a 0 6px, #2a5fc4 7px 20px, transparent 21px), radial-gradient(1px 1px at 20% 30%, #fff, transparent), #04030c`,
+      dust: `linear-gradient(110deg, transparent 45%, #ffffff10 55%, transparent 65%), radial-gradient(1px 1px at 30% 40%, #fff, transparent), radial-gradient(1px 1px at 62% 55%, #fff, transparent), radial-gradient(1px 1px at 70% 30%, #ffffffaa, transparent), #000`,
+      eclipse: `radial-gradient(circle at 50% 46%, #000 0 16px, #ffffffdd 17px, #ffffff44 19px, transparent 30px), #000`,
+      dotgrid: `radial-gradient(circle at 40% 50%, transparent 0, #000 45%), radial-gradient(circle, #ffffffaa 1px, transparent 1.5px) 0 0 / 10px 10px, #000`,
+      waveline: `radial-gradient(60% 6% at 50% 50%, transparent 40%, #ffffffcc 45%, transparent 50%), #000`,
+      sonar: `repeating-radial-gradient(circle at 50% 50%, transparent 0 10px, #ffffff33 10px 11px), radial-gradient(circle at 50% 50%, #fff 0 2px, transparent 3px), #000`,
+      ministars: `radial-gradient(1px 1px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 60% 20%, #fff, transparent), radial-gradient(1px 1px at 80% 60%, #ffffffaa, transparent), radial-gradient(1px 1px at 35% 75%, #fff, transparent), linear-gradient(150deg, transparent 30%, #ffffff66 31%, transparent 33%) 60% 30% / 30% 20% no-repeat, #000`,
+      driftlines: `repeating-linear-gradient(90deg, transparent 0 14px, #ffffff22 14px 15px), #000`,
+      orbits2: `radial-gradient(ellipse 30px 12px at 50% 50%, transparent 90%, #ffffff33 95%, transparent), radial-gradient(ellipse 50px 20px at 50% 50%, transparent 92%, #ffffff33 96%, transparent), radial-gradient(circle at 50% 50%, #fff 0 2px, transparent 3px), #000`,
       planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;

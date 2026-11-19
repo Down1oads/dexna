@@ -52,7 +52,9 @@ export const THEMES = [
   T("grape", "Grape", "dark", { bg: "#1d1426", fg: "#e8dcf2", accent: "#b48cff", comment: "#7a6690", keyword: "#ff7ad9", string: "#b2f28c", number: "#ffb36b", type: "#8ce0ff", func: "#c9a6ff", operator: "#ff7ad9", constant: "#ffb36b", err: "#ff6b8a", warn: "#ffd36b", ok: "#b2f28c", info: "#8ce0ff" }),
   T("high-contrast-dark", "High Contrast Dark", "dark", { bg: "#000000", fg: "#ffffff", accent: "#ffd400", comment: "#7ca668", keyword: "#569cd6", string: "#ce9178", number: "#b5cea8", type: "#4ec9b0", func: "#dcdcaa", operator: "#ffffff", constant: "#4fc1ff", err: "#ff6e6e", warn: "#ffd400", ok: "#6ee786", info: "#6cb6ff" }),
 
+  T("mono-black", "Black and White", "dark", { bg: "#000000", fg: "#f2f2f2", accent: "#ffffff", comment: "#6e6e6e", keyword: "#ffffff", string: "#b8b8b8", number: "#d9d9d9", type: "#e6e6e6", func: "#ffffff", operator: "#9a9a9a", constant: "#d9d9d9", err: "#ffffff", warn: "#cfcfcf", ok: "#ffffff", info: "#bdbdbd", mono: true }),
   // ---------------- light ----------------
+  T("mono-white", "White and Black", "light", { bg: "#ffffff", fg: "#111111", accent: "#000000", comment: "#8a8a8a", keyword: "#000000", string: "#4a4a4a", number: "#2e2e2e", type: "#1e1e1e", func: "#000000", operator: "#5e5e5e", constant: "#2e2e2e", err: "#000000", warn: "#3a3a3a", ok: "#000000", info: "#444444", mono: true }),
   T("dexna-light", "Dexna Light", "light", { bg: "#f7f7fa", fg: "#1f2330", accent: "#2f6fe0", comment: "#8a91a3", keyword: "#a626a4", string: "#16803c", number: "#c2410c", type: "#b45309", func: "#2563eb", operator: "#0d7377", constant: "#c2410c", err: "#dc2626", warn: "#b7791f", ok: "#16a34a", info: "#2563eb" }),
   T("github-light", "GitHub Light", "light", { bg: "#ffffff", fg: "#24292f", accent: "#0969da", comment: "#6e7781", keyword: "#cf222e", string: "#0a3069", number: "#0550ae", type: "#953800", func: "#8250df", operator: "#cf222e", constant: "#0550ae", err: "#cf222e", warn: "#9a6700", ok: "#1a7f37", info: "#0969da" }),
   T("solarized-light", "Solarized Light", "light", { bg: "#fdf6e3", fg: "#586e75", accent: "#268bd2", comment: "#93a1a1", keyword: "#859900", string: "#2aa198", number: "#d33682", type: "#b58900", func: "#268bd2", operator: "#859900", constant: "#cb4b16", err: "#dc322f", warn: "#b58900", ok: "#859900", info: "#268bd2" }),
@@ -120,7 +122,7 @@ const ahex = (c, a) => c + Math.round(a * 255).toString(16).padStart(2, "0");
 export function uiVars(theme) {
   const c = palette(theme), dark = theme.type === "dark";
   const { bg, fg, accent } = c;
-  const status = dark ? mix(accent, "#000000", 0.5) : mix(accent, "#000000", 0.12);
+  const status = c.mono ? mix(bg, fg, dark ? 0.12 : 0.9) : dark ? mix(accent, "#000000", 0.5) : mix(accent, "#000000", 0.12);
   return {
     "--bg": bg,
     "--bg-1": mix(bg, fg, dark ? 0.04 : 0.035),
@@ -176,6 +178,8 @@ export function monacoTheme(theme) {
     ["delimiter.bracket", mix(c.bg, c.fg, 0.8)], ["tag", c.keyword], ["attribute.name", c.type], ["attribute.value", c.string],
     ["annotation", c.type], ["metatag", c.type], ["key", c.keyword], ["invalid", c.err],
   ].map(([token, color, fontStyle]) => ({ token, foreground: strip(color), ...(fontStyle ? { fontStyle } : {}) }));
+  // black and white themes have no colour to tell code apart, so keywords are bold and strings italic
+  if (theme.c.mono) for (const r of rules) { if (/^(keyword|key|tag)/.test(r.token) && r.token !== "keyword.operator") r.fontStyle = "bold"; else if (/^string/.test(r.token) && !r.fontStyle) r.fontStyle = "italic"; }
   const colors = {
     "editor.background": c.bg, "editor.foreground": c.fg,
     "editorLineNumber.foreground": mix(c.bg, c.fg, 0.38), "editorLineNumber.activeForeground": mix(c.bg, c.fg, 0.85),
@@ -198,6 +202,8 @@ export function monacoTheme(theme) {
     "scrollbarSlider.background": ahex(c.fg, 0.14), "scrollbarSlider.hoverBackground": ahex(c.fg, 0.24), "scrollbarSlider.activeBackground": ahex(c.fg, 0.32),
     "editorError.foreground": c.err, "editorWarning.foreground": c.warn, "editorInfo.foreground": c.info,
     "editorOverviewRuler.border": c.bg,
+    // black and white themes: matching brackets in shades of grey instead of colours
+    ...(c.mono ? Object.fromEntries([1, 2, 3, 4, 5, 6].map((i) => [`editorBracketHighlight.foreground${i}`, mix(c.bg, c.fg, [0.95, 0.7, 0.5, 0.95, 0.7, 0.5][i - 1])])) : {}),
   };
   return { base: dark ? "vs-dark" : "vs", inherit: true, rules, colors };
 }

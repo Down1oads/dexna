@@ -49,17 +49,19 @@ export function createJoy(A) {
   }
   const scheduleIR = () => { clearTimeout(irTimer); irTimer = setTimeout(indentRainbow, 60); };
 
-  /* ---------------- browser-tab icon in the accent colour ---------------- */
+  /* ---------------- the logo (browser tab and in the app) in the theme's colours ---------------- */
   let lastIcon = "";
   function favicon() {
-    const acc = getComputedStyle(root).getPropertyValue("--accent").trim() || "#4c8dff";
-    const bg = getComputedStyle(root).getPropertyValue("--bg").trim() || "#1a1f2b";
-    const key = acc + bg;
+    const css = getComputedStyle(root), get = (k, d) => { const v = css.getPropertyValue(k).trim(); return /^#|^rgb/.test(v) ? v : d; };
+    const acc = get("--accent", "#4c8dff"), bg = get("--bg-2", get("--bg", "#1a1f2b")), fg = get("--fg", "#e6e9f0"), edge = get("--border", "transparent");
+    const key = acc + bg + fg + edge;
     if (key === lastIcon) return;
     lastIcon = key;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="14" fill="${/^#|^rgb/.test(bg) ? bg : "#1a1f2b"}"/><path d="M19 15h12c10.5 0 18 7.4 18 17s-7.5 17-18 17H19z" fill="none" stroke="${acc}" stroke-width="6" stroke-linejoin="round"/><path d="M28 25.5l6.5 6.5-6.5 6.5" fill="none" stroke="#e6e9f0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="2" y="2" width="60" height="60" rx="14" fill="${bg}" stroke="${edge}" stroke-width="1.5"/><path d="M19 15h12c10.5 0 18 7.4 18 17s-7.5 17-18 17H19z" fill="none" stroke="${acc}" stroke-width="6" stroke-linejoin="round"/><path d="M28 25.5l6.5 6.5-6.5 6.5" fill="none" stroke="${fg}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    const url = "data:image/svg+xml," + encodeURIComponent(svg);
     const link = document.querySelector('link[rel="icon"]');
-    if (link) link.href = "data:image/svg+xml," + encodeURIComponent(svg);
+    if (link) link.href = url;
+    for (const img of document.querySelectorAll("img.dx-logo")) img.src = url;
   }
 
   function onRunEnded(failed) {
