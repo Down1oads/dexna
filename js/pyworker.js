@@ -239,11 +239,23 @@ async function handle(msg) {
       post("status", { state: "busy", msg: msg.debug ? "Debugging" : "Running" });
       const run = pyodide.globals.get("_dexna_run");
       let res;
-      try { res = run(msg.path, !!msg.debug, JSON.stringify(msg.breakpoints || {}), !!msg.stopOnEntry); }
+      try { res = run(msg.path, !!msg.debug, JSON.stringify(msg.breakpoints || {}), !!msg.stopOnEntry, JSON.stringify(msg.opts || {})); }
       finally { run.destroy(); }
       flushAll();
       if (interruptBuffer) interruptBuffer[0] = 0;
       return reply({ ...JSON.parse(res), changes: collectChanges() });
+    }
+    case "tests": {
+      post("status", { state: "busy", msg: "Preparing tests…" });
+      await prepareImports(msg.sources, msg.autoInstall);
+      post("status", { state: "busy", msg: "Running tests" });
+      const run = pyodide.globals.get("_dexna_tests");
+      let res;
+      try { res = run(JSON.stringify({ files: msg.files, only: msg.only || [] })); }
+      finally { run.destroy(); }
+      flushAll();
+      if (interruptBuffer) interruptBuffer[0] = 0;
+      return reply({ results: JSON.parse(res), changes: collectChanges() });
     }
     case "repl": {
       post("status", { state: "busy", msg: "Running" });

@@ -184,6 +184,10 @@ Every result has Copy and Insert (into the editor at the cursor).
 - **Debugger** (Python): breakpoints, step over/into/out, call stack, locals and globals, watch expressions and a debug console.
 - Interactive Python console that shares your program's variables, a variable explorer, and `# %%` cells with "Run Cell" lenses.
 - matplotlib figures show inline and in a Plots tab. Files your program creates appear in the Explorer.
+- **Tests** (the Tests tab, or Run > Run All Tests, Ctrl+Shift+;): finds tests in `test_*.py` and `*_test.py` files: functions named `test_...` with plain `assert`, `Test...` classes, and `unittest.TestCase` classes. Run all of them, one file, one test, or only the ones that failed. Each test gets a check or a cross next to it in the editor, and a failure shows the failing line, the message and the values of the names on that line (`total  0.30000000000000004`). No need to install pytest; tests that need pytest fixtures are skipped with a note.
+- **Coverage** (Run > Run with Coverage): marks every line that ran in green and every line that did not in red, and prints the percentage for each file. Run > Clear Coverage removes the marks.
+- **Profiler** (Run > Run with Profiler): a table of every function with its calls, own time and total time, sortable, with only your code or everything. Click a row to jump to the function.
+- **Run settings** (Run > Run Settings): command-line arguments (`sys.argv`), environment variables (`os.environ`) and answers for `input()`, typed in the dialog or read from a file in the project. They are saved per file with the project; the prepared answers show in the terminal as if typed, and after them `input()` asks as usual.
 - Terminal with ANSI colours and clickable tracebacks. Runtime errors are highlighted in the editor.
 
 ## Packages
@@ -249,6 +253,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/flow2.js` | Liquid marble, glass orbs, layered waves and the pixel-art backgrounds |
 | `js/minimal.js` | Minimal black backgrounds (dust, eclipse, dot grid, wave line, sonar, night, drift lines, orbits) |
 | `js/calm.js` | Calm backgrounds (graph paper, paper, vignette, clock, moon phase, zen garden, breathe, blueprint, terrazzo) |
+| `js/devtools.js` | The Tests and Profile tabs, coverage marks and run settings (the kernel side is in `py/kernel.py`) |
 | `js/more.js` | Back and forward, symbols across the project, your own shortcuts and themes, colour swatches |
 | `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |
 | `js/scm.js`, `js/diff.js` | Source Control (commits in IndexedDB) and the line diff (Myers' algorithm) behind it |

@@ -482,8 +482,158 @@ class Debugger:
         post("resumed", "")
 
 
+# ---------------------------------------------------------------- run options
+class _QueuedStdin:
+    """Serves prepared input lines first (echoing them like typing), then falls back to the keyboard."""
+
+    def __init__(self, text, fallback):
+        self.lines = text.splitlines(True) if text else []
+        if self.lines and not self.lines[-1].endswith("\n"):
+            self.lines[-1] += "\n"
+        self.fallback = fallback
+
+    def readline(self, size=-1):
+        if self.lines:
+            line = self.lines.pop(0)
+            sys.stdout.write(line)  # show it in the terminal as if it had been typed
+            return line
+        return self.fallback.readline()
+
+    def read(self, size=-1):
+        if self.lines:
+            text, self.lines = "".join(self.lines), []
+            return text
+        return self.fallback.read()
+
+    def readlines(self):
+        out = []
+        while True:
+            line = self.readline()
+            if not line:
+                return out
+            out.append(line)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.readline()
+        if not line:
+            raise StopIteration
+        return line
+
+    def isatty(self):
+        return False
+
+    def fileno(self):
+        raise io.UnsupportedOperation("fileno")
+
+    @property
+    def encoding(self):
+        return "utf-8"
+
+
+def _rel(path):
+    return path[len(PROJECT) + 1:] if path.startswith(PROJECT + "/") else path
+
+
+class _Coverage:
+    """Which lines of the project's own files ran (sys.monitoring, so it costs little)."""
+
+    def __init__(self):
+        self.hits = {}
+        self.mon = getattr(sys, "monitoring", None)
+        self.tool = None
+
+    def __enter__(self):
+        m = self.mon
+        if m is not None:
+            for tool in (m.COVERAGE_ID, 4, 5):
+                try:
+                    m.use_tool_id(tool, "dexna-coverage")
+                    self.tool = tool
+                    break
+                except ValueError:
+                    continue
+        if self.tool is not None:
+            def on_line(code, line):
+                f = code.co_filename
+                if f.startswith(PROJECT + "/"):
+                    self.hits.setdefault(f, set()).add(line)
+                return m.DISABLE  # each line only needs to be seen once
+            m.register_callback(self.tool, m.events.LINE, on_line)
+            m.set_events(self.tool, m.events.LINE)
+        else:  # older Python: a trace function
+            def tracer(frame, event, arg):
+                if not frame.f_code.co_filename.startswith(PROJECT + "/"):
+                    return None
+                if event == "line":
+                    self.hits.setdefault(frame.f_code.co_filename, set()).add(frame.f_lineno)
+                return tracer
+            self.old_trace = sys.gettrace()
+            sys.settrace(tracer)
+        return self
+
+    def __exit__(self, *exc):
+        if self.tool is not None:
+            self.mon.set_events(self.tool, 0)
+            self.mon.register_callback(self.tool, self.mon.events.LINE, None)
+            self.mon.free_tool_id(self.tool)
+        else:
+            sys.settrace(self.old_trace)
+        return False
+
+    @staticmethod
+    def executable(path):
+        """Every line that holds code (not blank lines, comments or docstrings)."""
+        try:
+            with open(path, encoding="utf-8") as fh:
+                code = compile(fh.read(), path, "exec")
+        except Exception:
+            return set()
+        lines, stack = set(), [code]
+        while stack:
+            c = stack.pop()
+            for _, _, ln in c.co_lines():
+                if ln is not None:
+                    lines.add(ln)
+            stack.extend(k for k in c.co_consts if isinstance(k, types.CodeType))
+        try:  # a docstring is not code you need to run
+            tree = ast.parse(open(path, encoding="utf-8").read())
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.body:
+                    first = node.body[0]
+                    if isinstance(first, ast.Expr) and isinstance(getattr(first, "value", None), ast.Constant) and isinstance(first.value.value, str):
+                        lines -= set(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+        except Exception:
+            pass
+        lines.discard(0)
+        return lines
+
+    def report(self):
+        out = {}
+        for path, hit in self.hits.items():
+            lines = self.executable(path)
+            if lines:
+                out[_rel(path)] = {"hit": sorted(hit & lines), "missed": sorted(lines - hit)}
+        return out
+
+
+def _profile_rows(prof):
+    import pstats
+    st = pstats.Stats(prof)
+    rows = []
+    for (fname, line, func), (cc, nc, tt, ct, callers) in st.stats.items():
+        mine = fname.startswith(PROJECT + "/")
+        if fname.startswith("<dexna") or "dexna_bridge" in fname:
+            continue
+        rows.append({"file": _rel(fname) if mine else (fname if fname != "~" else ""), "line": line, "func": func, "calls": nc, "prim": cc, "own": tt, "total": ct, "mine": mine})
+    rows.sort(key=lambda r: -r["total"])
+    return rows[:400]
+
+
 # ---------------------------------------------------------------- entry points
-def _dexna_run(path, debug, breakpoints_json, stop_on_entry):
+def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
     import linecache
     linecache.clearcache()  # tracebacks and warnings must quote the files as they are now
     _purge_project_modules()
@@ -493,18 +643,42 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry):
         src = fh.read()
     ns = _reset()
     ns["__file__"] = full
-    sys.argv = [full]
+    opts = json.loads(opts_json or "{}")
+    sys.argv = [full] + [str(a) for a in opts.get("args") or []]
+    saved_env = dict(os.environ)
+    os.environ.update({str(k): str(v) for k, v in (opts.get("env") or {}).items()})
+    saved_stdin = sys.stdin
+    if opts.get("stdin"):
+        sys.stdin = _QueuedStdin(opts["stdin"], saved_stdin)
+    mode = opts.get("mode") or "run"
+    extra = {}
     try:
         _setup_mpl()
     except Exception:
         pass
     ok = True
     t0 = time.perf_counter()
+    cov = prof = None
     try:
         code = compile(src, full, "exec")
         if debug:
             bps = {k: set(v) for k, v in json.loads(breakpoints_json).items()}
             Debugger(bps, stop_on_entry).run(code, ns)
+        elif mode == "coverage":
+            cov = _Coverage()
+            with cov:
+                exec(code, ns)
+        elif mode == "profile":
+            try:
+                import cProfile as _prof_mod
+            except ImportError:
+                import profile as _prof_mod
+            prof = _prof_mod.Profile()
+            prof.enable()
+            try:
+                exec(code, ns)
+            finally:
+                prof.disable()
         else:
             exec(code, ns)
     except SystemExit as e:
@@ -517,13 +691,167 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry):
         ok = False
         sys.stderr.write(_format_exc(e))
     finally:
+        elapsed = time.perf_counter() - t0
+        sys.stdin = saved_stdin
+        os.environ.clear()
+        os.environ.update(saved_env)
+        try:
+            if cov is not None:
+                extra["coverage"] = cov.report()
+            if prof is not None:
+                extra["profile"] = _profile_rows(prof)
+        except Exception as e:
+            sys.stderr.write(f"[Dexna] Could not collect the {mode} results: {e}\n")
         try:
             _flush_plots()
         except Exception:
             pass
         sys.stdout.flush()
         sys.stderr.flush()
-    return json.dumps({"ok": ok, "time": time.perf_counter() - t0})
+    return json.dumps({"ok": ok, "time": elapsed, **extra})
+
+
+# ---------------------------------------------------------------- tests
+def _assert_detail(tb, test_file):
+    """The failing line in the test file, and the values of the names on it."""
+    frames = [f for f in traceback.walk_tb(tb) if f[0].f_code.co_filename == test_file]
+    if not frames:
+        frames = [f for f in traceback.walk_tb(tb) if f[0].f_code.co_filename.startswith(PROJECT + "/")]
+    if not frames:
+        return None, None, {}
+    frame, line = frames[-1]
+    import linecache
+    src = linecache.getline(frame.f_code.co_filename, line).strip()
+    values = {}
+    try:
+        for node in ast.walk(ast.parse(src if not src.startswith(("elif", "else")) else "pass")):
+            if isinstance(node, ast.Name) and node.id in frame.f_locals and not node.id.startswith("__"):
+                v = frame.f_locals[node.id]
+                if not callable(v) or isinstance(v, (list, dict, tuple, set)):
+                    values[node.id] = _repr.repr(v)
+            elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and len(values) < 8:
+                try:  # show what a simple call like f(2) returned
+                    seg = ast.unparse(node)
+                    if len(seg) < 60 and all(isinstance(a, (ast.Constant, ast.Name)) for a in node.args):
+                        values[seg] = _repr.repr(eval(compile(seg, "<dexna-test>", "eval"), frame.f_globals, dict(frame.f_locals)))
+                except Exception:
+                    pass
+    except SyntaxError:
+        pass
+    return line, src, values
+
+
+def _dexna_tests(spec_json):
+    """Find and run tests: unittest.TestCase classes, Test* classes and test_* functions (pytest style)."""
+    import inspect
+    import unittest
+    spec = json.loads(spec_json)
+    only = set(spec.get("only") or [])
+    import linecache
+    linecache.clearcache()
+    _purge_project_modules()
+    os.chdir(PROJECT)
+    results = []
+
+    def record(tid, rel, name, line, status, t0, message="", detail=None):
+        r = {"id": tid, "file": rel, "name": name, "line": line, "status": status, "time": time.perf_counter() - t0, "message": message}
+        if detail:
+            r.update(detail)
+        results.append(r)
+        post("test-result", json.dumps(r))
+
+    def failure(e, test_file):
+        line, src, values = _assert_detail(e.__traceback__, test_file)
+        msg = str(e) or (f"assert {src[len('assert'):].strip()}" if src and src.startswith("assert") else type(e).__name__)
+        if not isinstance(e, AssertionError):
+            msg = f"{type(e).__name__}: {e}"
+        return msg, {"failLine": line, "source": src, "values": values, "trace": _format_exc(e)}
+
+    for rel in spec.get("files", []):
+        full = os.path.join(PROJECT, rel)
+        modname = "dexna_test_" + rel[:-3].replace("/", "_").replace(".", "_")
+        t0 = time.perf_counter()
+        try:
+            s = importlib.util.spec_from_file_location(modname, full)
+            mod = importlib.util.module_from_spec(s)
+            sys.modules[modname] = mod
+            s.loader.exec_module(mod)
+        except BaseException as e:
+            msg, det = failure(e, full)
+            record(rel, rel, rel, 1, "error", t0, "Could not import the file: " + msg, det)
+            continue
+        for name, obj in list(vars(mod).items()):
+            if getattr(obj, "__module__", None) != modname:
+                continue
+            if inspect.isfunction(obj) and name.startswith("test"):
+                tid = f"{rel}::{name}"
+                if only and tid not in only and rel not in only:
+                    continue
+                line = obj.__code__.co_firstlineno
+                t0 = time.perf_counter()
+                params = [p for p in inspect.signature(obj).parameters.values() if p.default is inspect.Parameter.empty]
+                if params:
+                    record(tid, rel, name, line, "skip", t0, f"Needs pytest fixtures ({', '.join(p.name for p in params)}), which Dexna does not provide")
+                    continue
+                try:
+                    obj()
+                    record(tid, rel, name, line, "pass", t0)
+                except AssertionError as e:
+                    msg, det = failure(e, full)
+                    record(tid, rel, name, line, "fail", t0, msg, det)
+                except BaseException as e:
+                    if type(e).__name__ in ("Skipped", "SkipTest"):
+                        record(tid, rel, name, line, "skip", t0, str(e))
+                        continue
+                    if isinstance(e, KeyboardInterrupt):
+                        raise
+                    msg, det = failure(e, full)
+                    record(tid, rel, name, line, "error", t0, msg, det)
+            elif inspect.isclass(obj) and (issubclass(obj, unittest.TestCase) or name.startswith("Test")):
+                methods = [m for m in dir(obj) if m.startswith("test") and callable(getattr(obj, m))]
+                for m in methods:
+                    tid = f"{rel}::{name}::{m}"
+                    if only and tid not in only and rel not in only and f"{rel}::{name}" not in only:
+                        continue
+                    fn = getattr(obj, m)
+                    line = getattr(getattr(fn, "__code__", None), "co_firstlineno", 1)
+                    t0 = time.perf_counter()
+                    if issubclass(obj, unittest.TestCase):
+                        res = unittest.TestResult()
+                        obj(m).run(res)
+                        if res.skipped:
+                            record(tid, rel, f"{name}.{m}", line, "skip", t0, res.skipped[0][1])
+                        elif res.failures or res.errors:
+                            case, text = (res.failures or res.errors)[0]
+                            status = "fail" if res.failures else "error"
+                            last = text.strip().splitlines()[-1] if text.strip() else status
+                            ln = None
+                            for mt in __import__("re").finditer(r'File "([^"]+)", line (\d+)', text):
+                                if mt.group(1) == full:
+                                    ln = int(mt.group(2))
+                            record(tid, rel, f"{name}.{m}", line, status, t0, last, {"failLine": ln, "source": linecache.getline(full, ln).strip() if ln else "", "values": {}, "trace": text.replace(PROJECT + "/", "")})
+                        else:
+                            record(tid, rel, f"{name}.{m}", line, "pass", t0)
+                    else:  # a plain Test* class, pytest style
+                        try:
+                            inst = obj()
+                            if hasattr(inst, "setup_method"):
+                                inst.setup_method(getattr(inst, m))
+                            getattr(inst, m)()
+                            if hasattr(inst, "teardown_method"):
+                                inst.teardown_method(getattr(inst, m))
+                            record(tid, rel, f"{name}.{m}", line, "pass", t0)
+                        except AssertionError as e:
+                            msg, det = failure(e, full)
+                            record(tid, rel, f"{name}.{m}", line, "fail", t0, msg, det)
+                        except BaseException as e:
+                            if isinstance(e, KeyboardInterrupt):
+                                raise
+                            msg, det = failure(e, full)
+                            record(tid, rel, f"{name}.{m}", line, "error", t0, msg, det)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    return json.dumps(results)
 
 
 async def _dexna_repl(src):

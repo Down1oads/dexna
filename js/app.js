@@ -16,6 +16,7 @@ import { createTweaks } from "./tweaks.js";
 import { createFx } from "./fx.js";
 import { createJoy } from "./joy.js";
 import { createPrefs, PROJECT_KEYS, makeMatcher, globToRegExp } from "./prefs.js";
+import { createDevtools } from "./devtools.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -99,6 +100,7 @@ let joy = null; // focus mode, typewriter, rainbow indents, confetti (joy.js)
 let fx = null; // theme from a picture, chroma, glow, cursor trail, screen filters, ambient sounds (fx.js)
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
+let devtools = null; // tests, coverage, profiler and run settings (devtools.js)
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
@@ -132,6 +134,7 @@ const persistProject = debounce(() => {
   LS.set("current", project.id);
   extras?.onFilesChanged();
   power?.onFilesChanged();
+  devtools?.onFilesChanged();
   plus?.onFilesChanged();
 }, 400);
 
@@ -588,6 +591,7 @@ async function loadProject(id) {
   pkgUI.picked = false;
   plus?.onProjectLoaded();
   more?.onProjectLoaded();
+  devtools?.onProjectLoaded();
   return true;
 }
 
@@ -1794,6 +1798,7 @@ function onKernelEvent(msg) {
       break;
     }
     case "plot": addPlot(msg.data); break;
+    case "test-result": devtools?.onTestResult(JSON.parse(msg.data)); break;
     case "clear": sink.clear(); break;
     case "paused": onPaused(JSON.parse(msg.data)); break;
     case "eval-result": onEvalResult(JSON.parse(msg.data)); break;
@@ -1856,7 +1861,7 @@ async function kernelReady() {
   }
 }
 
-async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
+async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" } = {}) {
   if (state.busy) return toast("A program is already running. Press Shift+F5 to stop it.", "warn");
   path ||= getRunTarget();
   if (!path) return toast("Create a file to run first, or start a project from Home.", "warn");
@@ -1864,6 +1869,7 @@ async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
   if (!lang) return toast(`Dexna can't run ${basename(path)}. Help > Languages lists the languages it runs.`, "warn");
   if (lang !== "python") {
     if (debug) return toast("The debugger works with Python files only.", "warn");
+    if (mode !== "run") return toast(`${mode === "coverage" ? "Coverage" : "The profiler"} works with Python files only.`, "warn");
     if (lang === "web") return runWeb(path);
     if (isOnline(lang)) return runOnlineFile(path, ONLINE_BY_ID[lang]);
     return runOther(path, lang);
@@ -1872,7 +1878,9 @@ async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   showPanel("terminal");
   if (settings.clearOnRun) terminal.clear();
-  terminal.separator(`${debug ? "Debugging" : "Running"} ${path} at ${new Date().toLocaleTimeString()}`);
+  const opts = { ...(devtools?.runOptions(path) || {}), mode: debug ? "run" : mode };
+  const what = debug ? "Debugging" : mode === "coverage" ? "Running with coverage" : mode === "profile" ? "Profiling" : "Running";
+  terminal.separator(`${what} ${path}${opts.args?.length ? " " + opts.args.join(" ") : ""} at ${new Date().toLocaleTimeString()}`);
   sink = terminal;
   state.runStderr = "";
   clearRuntimeError();
@@ -1884,11 +1892,13 @@ async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
     await ensurePackages();
     await kernel.call("sync", { files: project.files, dirs: project.dirs });
     const sources = Object.entries(project.files).filter(([p]) => p.endsWith(".py")).map(([, c]) => c);
-    const res = await kernel.call("run", { path, debug, stopOnEntry, breakpoints: project.breakpoints, sources, autoInstall: settings.autoInstall });
+    const res = await kernel.call("run", { path, debug, stopOnEntry, breakpoints: project.breakpoints, sources, autoInstall: settings.autoInstall, opts });
     const secs = res.time.toFixed(res.time < 10 ? 3 : 1);
     if (res.ok) terminal.system(`Process finished in ${secs}s`, "ok");
     else { terminal.system(`Process exited with an error after ${secs}s`, "stderr"); markRuntimeError(state.runStderr); }
     applyFileChanges(res.changes);
+    if (res.coverage) devtools?.showCoverage(res.coverage, path);
+    if (res.profile) devtools?.showProfile(res.profile, path, res.time);
     $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)} ${secs}s</span>`;
   } catch (e) {
     terminal.system(e.message, "stderr");
@@ -1898,6 +1908,33 @@ async function runFile({ debug = false, stopOnEntry = false, path } = {}) {
     setBusy(false);
     dbgEnd();
     refreshVariables();
+  }
+}
+
+/** Run Python tests (all of them, some files, or single tests) and return each result. */
+async function runTests(files, only = []) {
+  if (state.busy) { toast("A program is already running. Press Shift+F5 to stop it.", "warn"); return null; }
+  showPanel("terminal");
+  if (settings.clearOnRun) terminal.clear();
+  terminal.separator(`Running tests at ${new Date().toLocaleTimeString()}`);
+  sink = terminal;
+  clearRuntimeError();
+  setBusy(true, "run");
+  try {
+    await kernelReady();
+    setBusy(true, "run");
+    await ensurePackages();
+    await kernel.call("sync", { files: project.files, dirs: project.dirs });
+    const sources = Object.entries(project.files).filter(([p]) => p.endsWith(".py")).map(([, c]) => c);
+    const res = await kernel.call("tests", { files, only, sources, autoInstall: settings.autoInstall });
+    applyFileChanges(res.changes);
+    return res.results;
+  } catch (e) {
+    terminal.system(e.message, "stderr");
+    return null;
+  } finally {
+    if (terminal.inputActive) terminal.resolveInput(null);
+    setBusy(false);
   }
 }
 
@@ -3776,6 +3813,12 @@ Object.assign(API, { SETTINGS_SCHEMA, DEFAULT_SETTINGS, userSettings, applyProje
 prefs = createPrefs(API);
 COMMANDS.push(...prefs.commands);
 pkgs = createPkgs({ ...API, get project() { return project; }, get editor() { return editor; }, get monaco() { return monaco; }, rerender: () => renderPackagesView() });
+API.runWith = (path, mode) => runFile({ path, mode });
+API.runTests = runTests;
+API.runTarget = () => getRunTarget();
+API.terminalSystem = (text, cls) => terminal.system(text, cls);
+devtools = createDevtools(API);
+COMMANDS.push(...devtools.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
@@ -3884,7 +3927,7 @@ const MENUS = {
   File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
-  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
+  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "about"],
 };
