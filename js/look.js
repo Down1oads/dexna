@@ -3,6 +3,8 @@
 import { makeScenes, SCENES } from "./scenes.js";
 import { makeScenes2, SCENES2 } from "./scenes2.js";
 import { makeCozy, COZY } from "./cozy.js";
+import { makeFlow, FLOW } from "./flow.js";
+import { makeFlow2, FLOW2 } from "./flow2.js";
 
 /* =====================================================================
  * Choices
@@ -15,7 +17,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES, ...SCENES2, ...COZY,
+  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // [value, label, Google Fonts family or null when bundled / built in]
@@ -94,6 +96,19 @@ export const LOOKS = [
   { id: "outrun", name: "Outrun", desc: "Neon grid, striped sun and palm trees", theme: "neon", set: { bgEffect: "outrun", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelcity", name: "Pixel city", desc: "A pixel-art city at night, with a passing train", theme: "tokyo-night", set: { bgEffect: "pixelcity", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelsunset", name: "Pixel sunset", desc: "A pixel-art sun setting over the sea", theme: "rose-pine", set: { bgEffect: "pixelsunset", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "holo", name: "Holographic", desc: "Glossy iridescent ribbons on soft pastel", theme: "github-light", set: { bgEffect: "holo", bgIntensity: 95, bgSpeed: 35, glass: 60, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "liquidglass", name: "Liquid glass", desc: "Clear blue folds of glass", theme: "github-light-default", set: { bgEffect: "liquidglass", bgIntensity: 95, bgSpeed: 35, glass: 60, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "chrome", name: "Liquid chrome", desc: "Flowing silver with rainbow edges", theme: "github-dark", set: { bgEffect: "chrome", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "satin", name: "Satin", desc: "Soft satin folds in your theme's colors", theme: "rose-pine", set: { bgEffect: "satin", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "prism", name: "Prism", desc: "Rainbow ribbons on a dark sky", theme: "oled", set: { bgEffect: "prism", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "marble", name: "Liquid marble", desc: "Paint swirling like marbled ink", theme: "tokyo-night", set: { bgEffect: "marble", bgIntensity: 85, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "orbs", name: "Glass orbs", desc: "Glossy bubbles drifting and bouncing", theme: "catppuccin-latte", set: { bgEffect: "orbs", bgIntensity: 95, bgSpeed: 35, glass: 60, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "layers", name: "Layered waves", desc: "Soft stacked waves in sunset colors", theme: "rose-pine-dawn", set: { bgEffect: "layers", bgIntensity: 90, bgSpeed: 35, glass: 60, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelmarble", name: "Pixel marble", desc: "Swirling color as dithered pixel art", theme: "tokyo-night", set: { bgEffect: "pixelmarble", bgIntensity: 85, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixellayers", name: "Pixel waves", desc: "Stacked waves as pixel art", theme: "rose-pine", set: { bgEffect: "pixellayers", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelholo", name: "Pixel holo", desc: "Iridescent ribbons as chunky pixels", theme: "catppuccin-mocha", set: { bgEffect: "pixelholo", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelfire", name: "Pixel fire", desc: "The classic retro fire effect", theme: "oled", set: { bgEffect: "pixelfire", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelplanet", name: "Pixel planet", desc: "A turning pixel-art planet with its moon", theme: "tokyo-night", set: { bgEffect: "pixelplanet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
 
@@ -141,6 +156,8 @@ function makeEffects() {
     ...makeScenes(),
     ...makeScenes2(),
     ...makeCozy(),
+    ...makeFlow(),
+    ...makeFlow2(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1170,6 +1187,19 @@ export function createLook(A) {
       outrun: `radial-gradient(circle at 50% 58%, #ffb35a 0 16px, transparent 17px), repeating-linear-gradient(90deg, transparent 0 10px, #ff3df288 10px 11px) 0 100% / 100% 40% no-repeat, linear-gradient(transparent 60%, #1a0433 60%), linear-gradient(#0a0221, #3b0a5e 55%, #ff4f7b)`,
       pixelcity: `linear-gradient(90deg, #120c22 0 10%, transparent 10% 13%, #120c22 13% 22%, transparent 22% 24%, #120c22 24% 40%, transparent 40% 44%, #120c22 44% 60%, transparent 60% 63%, #120c22 63% 80%, transparent 80% 83%, #120c22 83%) 0 100% / 100% 45% no-repeat, radial-gradient(circle at 78% 22%, #fffbe8 0 5px, transparent 6px), linear-gradient(#0b0a24, #7a3a7a)`,
       pixelsunset: `radial-gradient(circle at 50% 62%, #ffb35a 0 12px, transparent 13px), repeating-linear-gradient(transparent 0 3px, #ffb35a55 3px 4px) 45% 100% / 12% 38% no-repeat, linear-gradient(transparent 62%, #1a1238 62%), linear-gradient(#1a1040, #c8406a 60%, #ffb35a)`,
+      holo: `radial-gradient(60% 35% at 40% 55%, #5a4bffaa, transparent 70%), radial-gradient(50% 30% at 65% 45%, #ff8ad8aa, transparent 70%), radial-gradient(40% 25% at 30% 70%, #3ddcffaa, transparent 70%), linear-gradient(#ece9fb, #f3eefc)`,
+      liquidglass: `radial-gradient(70% 30% at 50% 45%, #3dcfff99, transparent 70%), radial-gradient(60% 25% at 40% 70%, #2f7bff88, transparent 70%), linear-gradient(#e6f4fb, #eef8fc)`,
+      chrome: `radial-gradient(70% 30% at 45% 40%, #e9ecf2, transparent 70%), radial-gradient(60% 25% at 55% 68%, #a6acba, transparent 70%), radial-gradient(20% 8% at 60% 50%, #ffd6f088, transparent), #1a1c22`,
+      satin: `radial-gradient(70% 30% at 45% 35%, ${c.accent}aa, transparent 70%), radial-gradient(70% 30% at 55% 65%, ${c.keyword}99, transparent 70%), ${c.bg}`,
+      prism: `linear-gradient(160deg, transparent 40%, #ff3d6e88 42%, #ffe83d88 46%, #3dff8a88 50%, #3dc8ff88 54%, #d03dff88 58%, transparent 60%), #03030a`,
+      marble: `radial-gradient(circle at 35% 45%, #ff8ad8, #3ddcff 20%, #5a3ab8 35%, #1a1450 50%, transparent 52%), radial-gradient(circle at 75% 60%, #3d7bff, #2a1a6a 40%, transparent 60%), #0d0b2a`,
+      orbs: `radial-gradient(circle at 28% 38%, #ffffffcc 0 2px, #8fa8ff 6px, #b48aff 11px, transparent 12px), radial-gradient(circle at 66% 58%, #ffffffcc 0 2px, #ffb0e0 8px, #8fa8ff 15px, transparent 16px), linear-gradient(#f1eefb, #e4e8fb)`,
+      layers: `linear-gradient(#fff4e8 0 20%, #ffc9c4 20% 35%, #f39ac8 35% 50%, #d590d8 50% 65%, #b088e2 65% 80%, #8a80e6 80%)`,
+      pixelmarble: `repeating-conic-gradient(#3de8ff 0 25%, #5a3ab8 0 50%) 0 0 / 6px 6px, radial-gradient(circle at 40% 50%, #ff6bd0, transparent 40%)`,
+      pixellayers: `linear-gradient(#1d1f4a 0 22%, #323a86 22% 38%, #4a44a8 38% 55%, #5c48b4 55% 70%, #7550bd 70% 85%, #934fbf 85%)`,
+      pixelholo: `repeating-linear-gradient(90deg, transparent 0 4px, #00000022 4px 5px), radial-gradient(60% 30% at 45% 50%, #ff8ad8, #5a4bff 50%, transparent 70%), #1c1840`,
+      pixelfire: `linear-gradient(transparent 45%, #af3f07 60%, #df5707 72%, #bfa727 86%, #ffffff 100%)`,
+      pixelplanet: `radial-gradient(circle at 58% 55%, #5a9a3a 0 6px, #2a5fc4 7px 20px, transparent 21px), radial-gradient(1px 1px at 20% 30%, #fff, transparent), #04030c`,
       planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;
