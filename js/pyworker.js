@@ -196,7 +196,13 @@ async function boot(msg) {
   mkdirp(PROJECT);
   pyodide.FS.chdir(PROJECT);
 
+  // the kernel also gets Dexna's curses package (Python in the browser has no terminal library)
+  const extra = ROLE === "kernel" ? ["__init__", "ascii", "textpad", "panel"].map((f) => fetch(BASE + `py/curses/${f}.py`, { cache: "no-cache" }).then((r) => (r.ok ? r.text() : null)).then((t) => [f, t]).catch(() => [f, null])) : [];
   const src = await (await fetch(BASE + `py/${ROLE}.py`, { cache: "no-cache" })).text(); // always the newest version
+  if (extra.length) {
+    mkdirp("/home/pyodide/.dexna/curses");
+    for (const [f, t] of await Promise.all(extra)) if (t != null) pyodide.FS.writeFile(`/home/pyodide/.dexna/curses/${f}.py`, t);
+  }
   pyodide.runPython(src, { filename: `<dexna-${ROLE}>` });
 
   if (ROLE === "lsp") {

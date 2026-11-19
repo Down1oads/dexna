@@ -15,35 +15,35 @@ export const CE = "https://godbolt.org";
 // wandbox: { language, prefer, options } (optional backup); monaco: the editor language id
 const L = (id, name, ext, judge0, extra = {}) => ({ id, name, ext, judge0, ...extra });
 export const ONLINE_LANGS = [
-  L("csharp", "C#", ["cs"], 51, { monaco: "csharp", ce: { compiler: "dotnet100csharpcoreclr", lang: "csharp" }, wandbox: { language: "C#", prefer: "mono" }, note: ".NET 10 on Compiler Explorer (Mono 6.6 if that is down)." }),
-  L("java", "Java", ["java"], 91, { monaco: "java", note: "JDK 17. The class with main can have any name." }),
-  L("c", "C", ["c"], 103, { monaco: "c", wandbox: { language: "C", prefer: "gcc-1" }, note: "GCC 14" }),
-  L("cpp", "C++", ["cpp", "cc", "cxx"], 105, { monaco: "cpp", wandbox: { language: "C++", prefer: "gcc-1" }, note: "GCC 14" }),
-  L("go", "Go", ["go"], 107, { monaco: "go", wandbox: { language: "Go", prefer: "go-1" }, note: "Go 1.23" }),
-  L("rust", "Rust", ["rs"], 108, { monaco: "rust", wandbox: { language: "Rust", prefer: "rust-1" }, note: "Rust 1.85" }),
+  L("csharp", "C#", ["cs"], 51, { monaco: "csharp", ce: { compiler: "dotnet100csharpcoreclr", lang: "csharp" }, order: ["judge0", "ce", "wandbox"], retry: true, wandbox: { language: "C#", prefer: "mono" }, note: "Mono first (fast); code that needs newer C# runs on .NET 10." }),
+  L("java", "Java", ["java"], 91, { monaco: "java", ce: { compiler: "java2500", lang: "java" }, order: ["judge0", "ce"], retry: true, note: "JDK 17 first (fast); code that needs a newer Java runs on JDK 25. The class with main can have any name." }),
+  L("c", "C", ["c"], 103, { monaco: "c", ce: { compiler: "cg162", lang: "c" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "C", prefer: "gcc-1" }, note: "GCC 16" }),
+  L("cpp", "C++", ["cpp", "cc", "cxx"], 105, { monaco: "cpp", ce: { compiler: "g162", lang: "c++" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "C++", prefer: "gcc-1" }, note: "GCC 16 (C++23: ranges, std::format, std::print)" }),
+  L("go", "Go", ["go"], 107, { monaco: "go", ce: { compiler: "gl1260", lang: "go" }, order: ["judge0", "ce", "wandbox"], wandbox: { language: "Go", prefer: "go-1" }, note: "Go 1.23" }),
+  L("rust", "Rust", ["rs"], 108, { monaco: "rust", ce: { compiler: "r11000", lang: "rust" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "Rust", prefer: "rust-1" }, note: "Rust 1.100" }),
   L("kotlin", "Kotlin", ["kt"], 111, { monaco: "kotlin", note: "Kotlin 2.1" }),
-  L("swift", "Swift", ["swift"], 83, { monaco: "swift", wandbox: { language: "Swift", prefer: "swift-" }, note: "Swift 5.2" }),
+  L("swift", "Swift", ["swift"], 83, { monaco: "swift", ce: { compiler: "swift642", lang: "swift" }, order: ["judge0", "ce"], retry: true, note: "Swift 5.2 first (fast); code that needs a newer Swift runs on Swift 6.4." }),
   L("php", "PHP", ["php"], 98, { monaco: "php", wandbox: { language: "PHP", prefer: "php-8" }, note: "PHP 8.3" }),
-  L("ruby", "Ruby", ["rb"], 72, { monaco: "ruby", wandbox: { language: "Ruby", prefer: "ruby-3" }, note: "Ruby 2.7" }),
-  L("perl", "Perl", ["pl"], 85, { monaco: "perl", wandbox: { language: "Perl", prefer: "perl-5" } }),
-  L("dart", "Dart", ["dart"], 90, { monaco: "dart" }),
+  L("ruby", "Ruby", ["rb"], 72, { monaco: "ruby", ce: { compiler: "ruby347", lang: "ruby" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "Ruby", prefer: "ruby-3" }, note: "Ruby 3.4" }),
+  L("perl", "Perl", ["pl"], 85, { monaco: "perl", ce: { compiler: "perl5440", lang: "perl" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "Perl", prefer: "perl-5" }, note: "Perl 5.44" }),
+  L("dart", "Dart", ["dart"], 90, { monaco: "dart", ce: { compiler: "dart3140", lang: "dart" }, order: ["judge0", "ce"], retry: true, note: "Dart 2 first (fast); code that needs Dart 3 (records, patterns) runs on Dart 3.14." }),
   L("scala", "Scala", ["scala"], 112, { monaco: "scala", wandbox: { language: "Scala", prefer: "scala-" } }),
   L("r", "R", ["r"], 99, { monaco: "r", wandbox: { language: "R", prefer: "r-" } }),
-  L("haskell", "Haskell", ["hs"], 61, { monaco: "haskell", wandbox: { language: "Haskell", prefer: "ghc-" } }),
+  L("haskell", "Haskell", ["hs"], 61, { monaco: "haskell", ce: { compiler: "ghc9122", lang: "haskell" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "Haskell", prefer: "ghc-" }, note: "GHC 9.12" }),
   L("elixir", "Elixir", ["ex", "exs"], 57, { monaco: "elixir", wandbox: { language: "Elixir", prefer: "elixir-" } }),
-  L("pascal", "Pascal", ["pas"], 67, { monaco: "pascal", wandbox: { language: "Pascal", prefer: "fpc-" } }),
-  L("fortran", "Fortran", ["f90", "f95"], 59, { monaco: "fortran" }),
+  L("pascal", "Pascal", ["pas"], 67, { monaco: "pascal", ce: { compiler: "fpc322", lang: "pascal" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "Pascal", prefer: "fpc-" }, note: "Free Pascal 3.2" }),
+  L("fortran", "Fortran", ["f90", "f95"], 59, { monaco: "fortran", ce: { compiler: "gfortran162", lang: "fortran" }, order: ["ce", "judge0"], note: "gfortran 16" }),
   L("groovy", "Groovy", ["groovy"], 88, { monaco: "groovy", wandbox: { language: "Groovy", prefer: "groovy-" } }),
   L("clojure", "Clojure", ["clj"], 86, { monaco: "clojure" }),
-  L("ocaml", "OCaml", ["ml"], 65, { monaco: "ocaml", wandbox: { language: "OCaml", prefer: "ocaml-" } }),
-  L("fsharp", "F#", ["fs"], 87, { monaco: "fsharp" }),
-  L("vb", "Visual Basic", ["vb"], 84, { monaco: "vb" }),
+  L("ocaml", "OCaml", ["ml"], 65, { monaco: "ocaml", ce: { compiler: "ocaml5502", lang: "ocaml" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "OCaml", prefer: "ocaml-" }, note: "OCaml 5.5" }),
+  L("fsharp", "F#", ["fs"], 87, { monaco: "fsharp", ce: { compiler: "dotnet100fsharpcoreclr", lang: "fsharp" }, order: ["ce", "judge0"], note: "F# on .NET 10" }),
+  L("vb", "Visual Basic", ["vb"], 84, { monaco: "vb", ce: { compiler: "dotnet100vbcoreclr", lang: "vb" }, order: ["judge0", "ce"], retry: true, note: "The Mono compiler first (fast); code it cannot compile runs on .NET 10." }),
   L("objc", "Objective-C", ["m"], 79, { monaco: "objective-c" }),
-  L("d", "D", ["d"], 56, { monaco: "dlang", wandbox: { language: "D", prefer: "dmd-" } }),
+  L("d", "D", ["d"], 56, { monaco: "dlang", ce: { compiler: "ldc1_42", lang: "d" }, order: ["ce", "judge0", "wandbox"], wandbox: { language: "D", prefer: "dmd-" }, note: "LDC 1.42" }),
   L("erlang", "Erlang", ["erl"], 58, { monaco: "erlang", wandbox: { language: "Erlang", prefer: "erlang-" } }),
   L("lisp", "Common Lisp", ["lisp"], 55, { monaco: "commonlisp", wandbox: { language: "Lisp", prefer: "sbcl-" } }),
   L("prolog", "Prolog", ["pro"], 69, { monaco: "prolog" }),
-  L("cobol", "COBOL", ["cob"], 77, { monaco: "cobol" }),
+  L("cobol", "COBOL", ["cob"], 77, { monaco: "cobol", ce: { compiler: "gnucobol32", lang: "cobol" }, order: ["ce", "judge0"], note: "GnuCOBOL 3.2" }),
   L("bash", "Bash", ["sh"], 46, { monaco: "shell" }),
   L("asm", "Assembly (NASM)", ["asm"], 45, { monaco: "nasm" }),
   L("julia", "Julia", ["jl"], null, { monaco: "julia", ce: { compiler: "julia_1_12_5", lang: "julia" }, wandbox: { language: "Julia", prefer: "julia-1.10" }, note: "Julia 1.12" }),
@@ -135,14 +135,18 @@ async function judge0(lang, prep, stdin, signal) {
 const ceText = (lines) => (lines || []).map((l) => l.text).join("\n") + (lines?.length ? "\n" : "");
 async function compilerExplorer(lang, prep, stdin, signal) {
   const t = timeout(60000, signal);
+  // Compiler Explorer saves Java as example.java, where a public class called something else will not compile
+  const source = lang.id === "java" ? prep.code.replace(/^(\s*)public\s+((?:final\s+|abstract\s+|sealed\s+)*(?:class|interface|enum|record)\b)/gm, "$1$2") : prep.code;
   try {
     const r = await fetch(`${CE}/api/compiler/${lang.ce.compiler}/compile`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, signal: t.signal,
-      body: JSON.stringify({ source: prep.code, lang: lang.ce.lang, options: { userArguments: "", executeParameters: { args: [], stdin: stdin || "" }, compilerOptions: { executorRequest: true }, filters: { execute: true }, tools: [], libraries: [] } }),
+      body: JSON.stringify({ source, lang: lang.ce.lang, options: { userArguments: "", executeParameters: { args: [], stdin: stdin || "" }, compilerOptions: { executorRequest: true }, filters: { execute: true }, tools: [], libraries: [] } }),
     });
     if (r.status === 429) throw transient("Compiler Explorer is busy (rate limit).");
     if (!r.ok) throw Object.assign(new Error(`Compiler Explorer returned ${r.status}.`), { transient: r.status >= 500 });
     const j = await r.json();
+    // a compiler version Compiler Explorer no longer has: not your code's fault, so use the next service
+    if (/Compiler with ID .* not found/i.test(ceText(j.stderr) + ceText(j.buildResult?.stderr))) throw transient(`Compiler Explorer no longer has ${lang.ce.compiler}.`);
     const build = j.buildResult || {};
     const noise = (l) => /file name does not match unit name/.test(l.text) || /^Compiler returned: 0$/.test(l.text); // CE always names the file example.*
     const buildText = ceText((build.stdout || []).filter((l) => !noise(l))) + ceText((build.stderr || []).filter((l) => !noise(l)));
@@ -167,10 +171,13 @@ async function wandbox(lang, prep, stdin, signal) {
     const compiler = (all.find((c) => c.name.startsWith(lang.wandbox.prefer) && !c.name.includes("head")) || all.find((c) => !c.name.includes("head")) || all[0])?.name;
     if (!compiler) throw new Error(`${lang.name} is not available on the backup compiler.`);
     const r = await fetch(`${WANDBOX}/api/compile.json`, { method: "POST", headers: { "Content-Type": "application/json" }, signal: t.signal, body: JSON.stringify({ compiler, code, stdin: stdin || "", save: false, ...(lang.wandbox.options ? { "compiler-option-raw": lang.wandbox.options } : {}) }) });
-    if (!r.ok) throw new Error(`The backup compiler returned ${r.status}.`);
+    if (!r.ok) throw Object.assign(new Error(`Wandbox returned ${r.status}.`), { transient: r.status >= 500 || r.status === 429 });
     const j = await r.json();
     const failedCompile = j.status !== "0" && (j.compiler_error || "").trim() && !(j.program_output || j.program_error);
     return { provider: "wandbox.org", ok: j.status === "0", kind: failedCompile ? "compile" : j.status === "0" ? "" : "runtime", stdout: j.program_output || "", stderr: failedCompile ? "" : j.program_error || "", compile: failedCompile ? j.compiler_error : "", time: 0, memory: 0, status: "" };
+  } catch (e) {
+    if (isAbort(e, signal) || e.transient !== undefined || /not available on the backup/.test(e.message)) throw e;
+    throw transient("Could not reach Wandbox (" + (e.message || e) + ")."); // a network hiccup: worth another try
   } finally { t.done(); }
 }
 
@@ -179,11 +186,11 @@ async function wandbox(lang, prep, stdin, signal) {
  * @returns {Promise<{ok:boolean, kind:string, stdout:string, stderr:string, compile:string, time:number, memory:number, provider:string}>}
  */
 export async function runOnline(lang, code, stdin, signal, fileName = "Main") {
-  const attempts = [];
-  if (lang.ce) attempts.push(["ce", compilerExplorer, { modern: true }]);
-  if (lang.judge0) attempts.push(["judge0", judge0, {}]);
-  if (lang.wandbox) attempts.push(["wandbox", wandbox, {}]);
+  const RUNNERS = { ce: [compilerExplorer, { modern: true }], judge0: [judge0, {}], wandbox: [wandbox, {}] };
+  const has = { ce: !!lang.ce, judge0: !!lang.judge0, wandbox: !!lang.wandbox };
+  const attempts = (lang.order || ["ce", "judge0", "wandbox"]).filter((n) => has[n]).map((n) => [n, ...RUNNERS[n]]);
   let firstError = null;
+  let compileFail = null; // a compile error from an older compiler, kept in case the newer one is unreachable
   for (const round of [0, 1]) { // one more round after a short pause when every service was unreachable or busy
     if (round) { if (!firstError?.transient) break; await new Promise((r) => setTimeout(r, 1500)); if (signal?.aborted) throw signal.reason; firstError = null; }
     for (const [name, run, opts] of attempts) {
@@ -194,13 +201,16 @@ export async function runOnline(lang, code, stdin, signal, fileName = "Main") {
         r.wrapped = prep.wrapped;
         r.compile = mapDiagnostics(r.compile, prep.map, fileName);
         r.stderr = mapDiagnostics(r.stderr, prep.map, fileName);
-        if (r.ok) { // JVM start-up noise from the Kotlin and Java tools
-          const clean = (t) => (t || "").split("\n").filter((l) => !/^WARNING: /.test(l)).join("\n").replace(/^\s+$/, "");
+        if (r.ok || lang.id === "vb") { // JVM start-up noise from the Kotlin and Java tools, and the old VB compiler's banner
+          const clean = (t) => (t || "").split("\n").filter((l) => !/^WARNING: |^Visual Basic\.Net Compiler version|^Copyright \(C\) 2004|^Assembly '.*' saved successfully|^Compilation (successful|took)|^There were \d+ errors? and|warning VBNC4202[04]:/.test(l.trim()) && !/^WARNING: /.test(l)).join("\n").replace(/^\s+$/, "");
           r.stderr = clean(r.stderr);
           r.compile = clean(r.compile);
         }
         if (!r.ok) r.hint = caseHint(lang.id, `${r.compile}\n${r.stderr}`);
-        if (name !== attempts[0][0]) r.fallback = true;
+        // the first compiler is older: code that does not compile there may just be newer than it
+        if (lang.retry && r.kind === "compile" && name === attempts[0][0] && attempts.length > 1) { compileFail = r; continue; }
+        if (compileFail) r.upgraded = true;
+        else if (name !== attempts[0][0]) r.fallback = true;
         return r;
       } catch (e) {
         if (isAbort(e, signal)) throw e;
@@ -209,5 +219,6 @@ export async function runOnline(lang, code, stdin, signal, fileName = "Main") {
       }
     }
   }
+  if (compileFail) return compileFail; // the newer compiler could not be reached: show the first error
   throw new Error(`${firstError?.message || "The online compilers are unavailable."}${attempts.length > 1 ? " The backup compilers failed too." : ""}`);
 }

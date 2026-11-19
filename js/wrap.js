@@ -190,6 +190,7 @@ const GO_PACKAGES = { fmt: "fmt", os: "os", strings: "strings", strconv: "strcon
  */
 export function prepareSource(lang, code, opts = {}) {
   if (lang === "basic") return prepareBasic(code);
+  if (lang === "vb") return prepareVB(code);
   const rules = RULES[lang];
   if (!rules) return { code, map: null, wrapped: false };
   const plain = stripComments(code);
@@ -274,6 +275,52 @@ export function prepareSource(lang, code, opts = {}) {
     stmts.forEach((p) => kept(p));
     gen("}");
   }
+  return { code: out.join("\n") + "\n", map, wrapped: true };
+}
+
+/**
+ * Visual Basic: a file of plain statements gets a Module with Sub Main around it. Imports stay at the
+ * top, classes and other types stay as they are, and loose Functions and Subs go into the module.
+ */
+function prepareVB(code) {
+  const lines = code.split("\n");
+  const noComment = (l) => l.replace(/("[^"]*")|'.*$/g, (m, str) => str || "");
+  if (lines.some((l) => /^\s*(?:(?:Public|Private|Friend|Shared|Async)\s+)*Sub\s+Main\b/i.test(noComment(l)))) return { code, map: null, wrapped: false };
+  if (!lines.some((l) => noComment(l).trim())) return { code, map: null, wrapped: false };
+  const MODS = "(?:(?:Public|Private|Friend|Protected|Partial|MustInherit|NotInheritable|Shared|Overrides|Overridable|Async|Static)\\s+)*";
+  const typeStart = new RegExp(`^\\s*${MODS}(Class|Structure|Enum|Interface|Module)\\s+\\w`, "i");
+  const memberStart = new RegExp(`^\\s*${MODS}(Function|Sub)\\s+\\w`, "i");
+  const head = [], types = [], members = [], body = [];
+  for (let i = 0; i < lines.length; i++) {
+    const l = noComment(lines[i]);
+    let m;
+    if (/^\s*(Imports|Option)\b/i.test(l)) { head.push(i); continue; }
+    if ((m = typeStart.exec(l)) || (m = memberStart.exec(l))) {
+      const kind = m[1], into = /Function|Sub/i.test(kind) ? members : types;
+      const end = new RegExp(`^\\s*End\\s+${kind}\\b`, "i"), again = new RegExp(`^\\s*${MODS}${kind}\\s+\\w`, "i");
+      let depth = 0, j = i;
+      for (; j < lines.length; j++) {
+        const t = noComment(lines[j]);
+        if (again.test(t)) depth++;
+        if (end.test(t) && --depth === 0) break;
+      }
+      for (let k = i; k <= Math.min(j, lines.length - 1); k++) into.push(k);
+      i = j;
+      continue;
+    }
+    body.push(i);
+  }
+  const out = [], map = [];
+  const keep = (idx) => { out.push(lines[idx]); map.push(idx + 1); };
+  const gen = (text) => { out.push(text); map.push(null); };
+  head.forEach(keep);
+  types.forEach(keep);
+  gen("Module Program");
+  members.forEach(keep);
+  gen("    Sub Main()");
+  body.forEach(keep);
+  gen("    End Sub");
+  gen("End Module");
   return { code: out.join("\n") + "\n", map, wrapped: true };
 }
 

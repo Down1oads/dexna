@@ -211,12 +211,13 @@ _HINTS = {
     "tkinter": "tkinter opens desktop windows, which Python in the browser does not have. For a user interface, try a web page project (HTML/CSS/JavaScript).",
     "_tkinter": "tkinter opens desktop windows, which Python in the browser does not have.",
     "pygame": "pygame needs a desktop window and sound device, which Python in the browser does not have.",
-    "curses": "curses needs a real text terminal, which the browser does not provide.",
     "readline": "readline is not available in the browser; input() works without it.",
 }
 
 if PROJECT not in sys.path:
     sys.path.insert(0, PROJECT)
+if "/home/pyodide/.dexna" not in sys.path:
+    sys.path.append("/home/pyodide/.dexna")  # Dexna's curses (a project file called curses.py still wins)
 
 
 def _rel(path):

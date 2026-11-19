@@ -40,17 +40,17 @@ These cannot run inside a browser, so Dexna sends **the file you run, and any in
 
 | Language | Service | Editor support |
 | --- | --- | --- |
-| C# (modern .NET) | [Compiler Explorer](https://godbolt.org), then [Judge0](https://ce.judge0.com) (old Mono compiler) | Completion for `Console`, `string`, `Math`, LINQ and more, hover docs, parameter hints, format (clang-format), snippets, outline |
-| Java 17, C and C++ (GCC 14) | Judge0, then Wandbox for C and C++ | Same, with `System.out`, `Arrays`, `Collections`, streams, `std::`, stdio and string functions |
-| Go 1.23, Rust 1.85, Kotlin 2.1 | Judge0, then Wandbox for Go and Rust | Completion for common packages, macros and methods, format (gofmt for Go), snippets, outline |
-| PHP, Ruby, Swift | Judge0, then Wandbox | Completion for common functions and methods, hover docs, snippets |
-| Perl, Dart, Scala, R, Haskell, Elixir, Pascal, Fortran, Groovy, Clojure, OCaml, F#, Visual Basic, Objective-C, D, Erlang, Common Lisp, Prolog, COBOL, Bash, Assembly (NASM), FreeBASIC, Octave | Judge0 (Wandbox as backup for many) | Highlighting, comment toggling, keyword completion and snippets |
+| C and C++ (GCC 16, C++23), Rust 1.100 | [Compiler Explorer](https://godbolt.org), then [Judge0](https://ce.judge0.com) | Completion for `std::`, stdio, string functions, macros and methods, hover docs, parameter hints, format (clang-format), snippets, outline |
+| C#, Java, Swift, Dart, Visual Basic | Judge0 first (quick, older compilers). Code that needs a newer version runs again on Compiler Explorer (.NET 10, JDK 25, Swift 6.4, Dart 3.14) automatically | Completion for `Console`, `string`, `Math`, LINQ, `System.out`, `Arrays`, `Collections`, streams and more, hover docs, snippets, outline |
+| Go 1.23, Kotlin 2.1, Scala, PHP 8.3 | Judge0 (Compiler Explorer as backup for Go) | Completion for common packages and functions, format (gofmt for Go), snippets, outline |
+| Ruby 3.4, Perl 5.44, Haskell (GHC 9.12), Pascal, Fortran, OCaml 5.5, F#, D, COBOL | Compiler Explorer, then Judge0 | Highlighting, comment toggling, keyword completion and snippets |
+| R, Elixir, Groovy, Clojure, Objective-C, Erlang, Common Lisp, Prolog, Bash, Assembly (NASM), FreeBASIC, Octave | Judge0 (Wandbox as backup for many) | Same |
 | Julia, Zig, Crystal, Ada, Odin, Raku, Vala, Mojo, Modula-2 | Compiler Explorer (Wandbox as backup for Julia and Zig) | Same |
-| Nim | Wandbox | Same |
+| Nim | Wandbox (slow: often 20 to 30 seconds) | Same |
 
 Octave and Objective-C both use `.m`: a `.m` file is Objective-C when it has `#import`, `@interface` or `int main(...)`, and Octave otherwise (the same rule GitHub uses).
 
-These services are free and shared, so they can be slow or rate limited. If the main service is down, Dexna tries the next one, and if they are all unreachable it tries once more after a moment. Online programs cannot read input while running, so Dexna shows an input box before the run when the code reads from standard input.
+Each language uses whichever service runs current code fastest (checked with a modern-syntax program for every language). When you open a project, Dexna warms up the connection to its service, once you have agreed to online runs. These services are free and shared, so they can be slow or rate limited. If the main service is down, Dexna tries the next one, and if they are all unreachable it tries once more after a moment. Online programs cannot read input while running, so Dexna shows an input box before the run when the code reads from standard input.
 
 ## Assistant (free, runs on your device)
 
@@ -184,6 +184,7 @@ Every result has Copy and Insert (into the editor at the cursor).
 - **Debugger** (Python): breakpoints, step over/into/out, call stack, locals and globals, watch expressions and a debug console.
 - Interactive Python console that shares your program's variables, a variable explorer, and `# %%` cells with "Run Cell" lenses.
 - matplotlib figures show inline and in a Plots tab. Files your program creates appear in the Explorer.
+- **curses** works: `import curses` (and `curses.wrapper`, windows, subwindows, pads, colours and attributes, line drawing, `getch`/`getkey`/`get_wch`/`getstr` with `nodelay`, `timeout` and `halfdelay`, `curses.textpad`, `curses.panel` and `curses.ascii`). The program's screen appears over the terminal and takes the keyboard; Shift+F5 still stops it, and the terminal comes back when the program ends, even if it crashes.
 - **Tests** (the Tests tab, or Run > Run All Tests, Ctrl+Shift+;): finds tests in `test_*.py` and `*_test.py` files: functions named `test_...` with plain `assert`, `Test...` classes, and `unittest.TestCase` classes. Run all of them, one file, one test, or only the ones that failed. Each test gets a check or a cross next to it in the editor, and a failure shows the failing line, the message and the values of the names on that line (`total  0.30000000000000004`). No need to install pytest; tests that need pytest fixtures are skipped with a note.
 - **Coverage** (Run > Run with Coverage): marks every line that ran in green and every line that did not in red, and prints the percentage for each file. Run > Clear Coverage removes the marks.
 - **Profiler** (Run > Run with Profiler): a table of every function with its calls, own time and total time, sortable, with only your code or everything. Click a row to jump to the function.
@@ -254,6 +255,7 @@ Multiple projects, upload files or import a ZIP, download a project as a ZIP, an
 | `js/minimal.js` | Minimal black backgrounds (dust, eclipse, dot grid, wave line, sonar, night, drift lines, orbits) |
 | `js/calm.js` | Calm backgrounds (graph paper, paper, vignette, clock, moon phase, zen garden, breathe, blueprint, terrazzo) |
 | `js/devtools.js` | The Tests and Profile tabs, coverage marks and run settings (the kernel side is in `py/kernel.py`) |
+| `js/cursesview.js`, `py/curses/` | The screen for Python curses programs, and Dexna's curses module |
 | `js/more.js` | Back and forward, symbols across the project, your own shortcuts and themes, colour swatches |
 | `js/power.js` | The split editor, your snippets, clipboard history, local history and run on save |
 | `js/scm.js`, `js/diff.js` | Source Control (commits in IndexedDB) and the line diff (Myers' algorithm) behind it |

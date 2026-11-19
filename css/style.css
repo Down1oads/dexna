@@ -1139,3 +1139,16 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .rs-env { font-family: var(--mono); font-size: 12.5px; resize: vertical; }
 .rs-hint { margin: 3px 0 0 110px; color: var(--fg-faint); font-size: 11.5px; }
 .modal-foot { gap: 8px; }
+
+/* ---------- the screen for Python curses programs ---------- */
+.cur-screen { position: absolute; inset: 0; z-index: 3; background: var(--term-bg); color: var(--fg); font: 13px/1.3 var(--mono); padding: 4px 6px; overflow: hidden; outline: none; cursor: default; }
+.cur-screen:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+.cur-grid { white-space: pre; }
+.cur-row { height: 1.3em; overflow: hidden; }
+.cur-probe { position: absolute; visibility: hidden; white-space: pre; }
+.cur-cursor { box-shadow: inset 0 -2px 0 var(--accent); animation: cur-blink 1s steps(1) infinite; }
+.cur-cursor-block { background: var(--fg); color: var(--term-bg); animation: cur-blink 1s steps(1) infinite; }
+.cur-blink { animation: cur-blink 1s steps(1) infinite; }
+@keyframes cur-blink { 50% { opacity: .35; } }
+.cur-flash { animation: cur-flash .25s ease-out; }
+@keyframes cur-flash { 0% { filter: brightness(1.8); } 100% { filter: none; } }

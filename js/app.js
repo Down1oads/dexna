@@ -3,7 +3,7 @@ import { PyClient } from "./pyclient.js";
 import { icon, iconSvg, fileIcon as fileBadge, fileIconSvg } from "./icons.js";
 import { registerLanguageTools, SNIPPETS } from "./langtools.js";
 import { starterFor, STARTER_FILES } from "./starters.js";
-import { ONLINE_LANGS, ONLINE_BY_ID, readsInput, runOnline, isObjC } from "./online.js";
+import { ONLINE_LANGS, ONLINE_BY_ID, ONLINE_BY_EXT, readsInput, runOnline, isObjC } from "./online.js";
 import { registerLanguageModes, loadEmmet, MODES } from "./langmodes.js";
 import { createAssistant } from "./assistant.js";
 import { createExtras } from "./extras.js";
@@ -17,6 +17,7 @@ import { createFx } from "./fx.js";
 import { createJoy } from "./joy.js";
 import { createPrefs, PROJECT_KEYS, makeMatcher, globToRegExp } from "./prefs.js";
 import { createDevtools } from "./devtools.js";
+import { createCursesView } from "./cursesview.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -101,6 +102,8 @@ let fx = null; // theme from a picture, chroma, glow, cursor trail, screen filte
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
 let devtools = null; // tests, coverage, profiler and run settings (devtools.js)
+// the screen for Python curses programs, over the terminal panel
+const cursesView = createCursesView({ reply: (t) => kernel?.reply(t), host: () => document.querySelector('.panel-view[data-panel="terminal"]') });
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
@@ -592,6 +595,7 @@ async function loadProject(id) {
   plus?.onProjectLoaded();
   more?.onProjectLoaded();
   devtools?.onProjectLoaded();
+  setTimeout(warmRuntimes, 1500); // after the project is on screen
   return true;
 }
 
@@ -1799,6 +1803,16 @@ function onKernelEvent(msg) {
     }
     case "plot": addPlot(msg.data); break;
     case "test-result": devtools?.onTestResult(JSON.parse(msg.data)); break;
+    case "curses": {
+      const d = JSON.parse(msg.data);
+      if (d.op === "open") { showPanel("terminal"); cursesView.open(); setKernelStatus("busy", "Running (keys go to the program)"); }
+      else if (d.op === "frame") cursesView.frame(d);
+      else if (d.op === "close") cursesView.close();
+      else cursesView.beep();
+      break;
+    }
+    case "curses-size": showPanel("terminal"); kernel.reply(JSON.stringify(cursesView.size())); break;
+    case "curses-key": cursesView.keyRequest(JSON.parse(msg.data || "{}").t ?? -1); break;
     case "clear": sink.clear(); break;
     case "paused": onPaused(JSON.parse(msg.data)); break;
     case "eval-result": onEvalResult(JSON.parse(msg.data)); break;
@@ -1905,6 +1919,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" 
     $("#sb-run").innerHTML = `${iconSvg("error")}<span>${esc(path)}</span>`;
   } finally {
     if (terminal.inputActive) terminal.resolveInput(null);
+    if (cursesView.active) cursesView.close(); // a program that crashed without endwin()
     setBusy(false);
     dbgEnd();
     refreshVariables();
@@ -1995,11 +2010,36 @@ async function stopExecution() {
   }
   if (kernel.isolated) {
     kernel.interrupt();
+    cursesView.cancel();
     const pending = sink.inputActive ? sink : terminal.inputActive ? terminal : consoleTerm.inputActive ? consoleTerm : null;
     if (pending) pending.resolveInput("");
     clearTimeout(state.stopTimer);
     state.stopTimer = setTimeout(() => { if (state.busy) restartKernel("The program did not respond to the interrupt"); }, 3000);
   } else restartKernel();
+}
+
+/**
+ * Make the first run of a project quick: fetch the language's engine into the browser cache in the
+ * background, start the TypeScript service, and open the connection to the online compilers
+ * (only once you have agreed to online runs, so nothing is contacted before that).
+ */
+const warmed = new Set();
+function warmRuntimes() {
+  if (!project) return;
+  const exts = new Set(Object.keys(project.files).map((p) => p.split(".").pop().toLowerCase()));
+  const fetchLow = (url) => { if (warmed.has(url)) return; warmed.add(url); fetch(url, { priority: "low" }).catch(() => warmed.delete(url)); };
+  if (exts.has("lua")) { fetchLow(cfg.libs.wasmoon + "index.js"); fetchLow(cfg.libs.wasmoon + "glue.wasm"); }
+  if (exts.has("sql")) { fetchLow(cfg.libs.sqlite + "sqlite3.mjs"); fetchLow(cfg.libs.sqlite + "sqlite3.wasm"); }
+  if (exts.has("ts") && monaco && !warmed.has("ts")) { warmed.add("ts"); monaco.languages.typescript.getTypeScriptWorker().then((get) => get()).catch(() => {}); }
+  if (settings.onlineRunners) {
+    const hosts = new Set();
+    for (const e of exts) { const l = ONLINE_BY_EXT[e]; if (!l) continue; const first = (l.order || ["ce", "judge0", "wandbox"]).find((n) => l[n]); hosts.add(first === "ce" ? "https://godbolt.org" : first === "judge0" ? "https://ce.judge0.com" : "https://wandbox.org"); }
+    for (const href of hosts) {
+      if (warmed.has(href)) continue;
+      warmed.add(href);
+      document.head.append(Object.assign(document.createElement("link"), { rel: "preconnect", href, crossOrigin: "anonymous" }));
+    }
+  }
 }
 
 /* ---------- other languages (JavaScript, TypeScript, Lua, SQL) ---------- */
@@ -2621,7 +2661,7 @@ async function runOnlineFile(path, lang) {
     finished = true;
     otherRun = null;
     if (res.stopped) terminal.system("Stopped", "sys");
-    else if (res.ok) terminal.system(`Process finished${res.time ? ` in ${res.time.toFixed(res.time < 10 ? 3 : 1)}s` : ""} on ${res.provider}${res.fallback ? " (backup compiler)" : ""}`, "ok");
+    else if (res.ok) terminal.system(`Process finished${res.time ? ` in ${res.time.toFixed(res.time < 10 ? 3 : 1)}s` : ""} on ${res.provider}${res.fallback ? " (backup compiler)" : res.upgraded ? " (newer compiler: the code needed it)" : ""}`, "ok");
     else terminal.system(`Process exited with an error${res.provider ? ` on ${res.provider}` : ""}`, "stderr");
     $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)}</span>`;
     setBusy(false);
@@ -3866,6 +3906,8 @@ window.addEventListener("keydown", (e) => {
   if (closeOverlay) return;
   const combo = comboOf(e);
   if (!combo) return;
+  // a curses program has the keyboard: only Stop (Shift+F5) still goes to Dexna
+  if (e.target.closest?.(".cur-screen") && combo !== "shift+f5") return;
   const cmd = keymap.get(combo);
   if (!cmd || (cmd.when && !cmd.when(e))) return;
   // let text fields keep their own editing shortcuts

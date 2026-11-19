@@ -3,6 +3,8 @@ let ANSI16 = ["#1e1e1e", "#e5534b", "#57ab5a", "#c69026", "#539bf5", "#b083f0", 
   "#636e7b", "#ff938a", "#6bc46d", "#daaa3f", "#6cb6ff", "#dcbdfb", "#56d4dd", "#ffffff"];
 /** Use the current theme's colours for ANSI escape codes. */
 export function setAnsiPalette(colors) { ANSI16 = colors; }
+/** The theme's 16 terminal colours (used by the curses screen). */
+export function ansiPalette16() { return ANSI16; }
 
 function xterm256(n) {
   if (n < 16) return ANSI16[n];
