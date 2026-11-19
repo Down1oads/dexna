@@ -6,6 +6,7 @@ import { makeCozy, COZY } from "./cozy.js";
 import { makeFlow, FLOW } from "./flow.js";
 import { makeFlow2, FLOW2 } from "./flow2.js";
 import { makeMinimal, MINIMAL } from "./minimal.js";
+import { makeCalm, CALM } from "./calm.js";
 
 /* =====================================================================
  * Choices
@@ -18,9 +19,15 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL,
+  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL, ...CALM,
   ["image", "Your image"], ["video", "Your video"],
 ];
+// alphabetical by name, with None first and your own image and video last
+{
+  const ends = ["none", "image", "video"];
+  const rest = EFFECTS.filter(([v]) => !ends.includes(v)).sort((a, b) => a[1].localeCompare(b[1]));
+  EFFECTS.splice(0, EFFECTS.length, ...EFFECTS.filter(([v]) => v === "none"), ...rest, ...EFFECTS.filter(([v]) => v === "image" || v === "video"));
+}
 // [value, label, Google Fonts family or null when bundled / built in]
 export const UI_FONTS = [
   ["plex", "IBM Plex Sans (built in)", null], ["system", "System font", null], ["inter", "Inter", "Inter"], ["outfit", "Outfit", "Outfit"],
@@ -119,8 +126,19 @@ export const LOOKS = [
   { id: "ministars", name: "Night", desc: "Sparse stars and the odd shooting star", theme: "mono-black", set: { bgEffect: "ministars", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "driftlines", name: "Drift lines", desc: "Faint lines drifting, with light running down them", theme: "mono-black", set: { bgEffect: "driftlines", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "orbits2", name: "Orbits", desc: "Small dots on thin orbits", theme: "mono-black", set: { bgEffect: "orbits2", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
+  { id: "graphpaper", name: "Graph paper", desc: "Faint squared paper, sliding very slowly", theme: null, set: { bgEffect: "graphpaper", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "paper", name: "Paper", desc: "A fine paper grain with a slow passing light", theme: null, set: { bgEffect: "paper", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "vignette", name: "Vignette", desc: "Darker edges and a soft glow in the middle", theme: null, set: { bgEffect: "vignette", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "clock", name: "Clock", desc: "A large, faint clock showing the time", theme: null, set: { bgEffect: "clock", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "moonphase", name: "Moon phase", desc: "Today's moon, with its phase", theme: null, set: { bgEffect: "moonphase", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "zen", name: "Zen garden", desc: "Raked sand around a few stones. Nothing moves", theme: null, set: { bgEffect: "zen", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "breathe", name: "Breathe", desc: "A circle to breathe with: in, hold, out, hold", theme: null, set: { bgEffect: "breathe", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "blueprint", name: "Blueprint", desc: "A faint technical drawing. Nothing moves", theme: null, set: { bgEffect: "blueprint", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "terrazzo", name: "Terrazzo", desc: "Speckled stone in your theme's colours. Nothing moves", theme: null, set: { bgEffect: "terrazzo", bgIntensity: 100, bgSpeed: 30, glass: 72, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "dawn", name: "Soft light", desc: "A slowly shifting light gradient", theme: "rose-pine-dawn", set: { bgEffect: "gradient", bgIntensity: 90, bgSpeed: 30, glass: 62, glassBlur: true, corners: "round", cursorEffect: "none", accentColor: "" } },
 ];
+// alphabetical by name, with Classic (no effects) first
+LOOKS.sort((a, b) => (a.id === "classic" ? -1 : b.id === "classic" ? 1 : a.name.localeCompare(b.name)));
 
 /* =====================================================================
  * Background image storage (IndexedDB, in memory if that is blocked)
@@ -169,6 +187,7 @@ function makeEffects() {
     ...makeFlow(),
     ...makeFlow2(),
     ...makeMinimal(),
+    ...makeCalm(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1219,6 +1238,15 @@ export function createLook(A) {
       ministars: `radial-gradient(1px 1px at 20% 30%, #fff, transparent), radial-gradient(1px 1px at 60% 20%, #fff, transparent), radial-gradient(1px 1px at 80% 60%, #ffffffaa, transparent), radial-gradient(1px 1px at 35% 75%, #fff, transparent), linear-gradient(150deg, transparent 30%, #ffffff66 31%, transparent 33%) 60% 30% / 30% 20% no-repeat, #000`,
       driftlines: `repeating-linear-gradient(90deg, transparent 0 14px, #ffffff22 14px 15px), #000`,
       orbits2: `radial-gradient(ellipse 30px 12px at 50% 50%, transparent 90%, #ffffff33 95%, transparent), radial-gradient(ellipse 50px 20px at 50% 50%, transparent 92%, #ffffff33 96%, transparent), radial-gradient(circle at 50% 50%, #fff 0 2px, transparent 3px), #000`,
+      graphpaper: `linear-gradient(${c.fg}14 1px, transparent 1px) 0 0 / 8px 8px, linear-gradient(90deg, ${c.fg}14 1px, transparent 1px) 0 0 / 8px 8px`,
+      paper: `repeating-linear-gradient(45deg, ${c.fg}08 0 1px, transparent 1px 3px)`,
+      vignette: `radial-gradient(circle at 50% 45%, ${c.accent}22, transparent 45%, #00000055 100%)`,
+      clock: `radial-gradient(circle at 50% 50%, transparent 0 22px, ${c.fg}33 23px 24px, transparent 25px), linear-gradient(${c.fg}44, ${c.fg}44) 50% 38% / 2px 14px no-repeat, linear-gradient(${c.fg}44, ${c.fg}44) 55% 50% / 12px 2px no-repeat`,
+      moonphase: `radial-gradient(circle at 63% 45%, ${c.bg} 0 16px, transparent 17px), radial-gradient(circle at 70% 45%, ${c.fg}44 0 18px, transparent 19px)`,
+      zen: `radial-gradient(circle at 30% 40%, ${c.fg}33 0 6px, transparent 7px), repeating-radial-gradient(circle at 30% 40%, transparent 0 4px, ${c.fg}14 4px 5px) 0 0 / 100% 100%, repeating-linear-gradient(${c.fg}10 0 1px, transparent 1px 6px)`,
+      breathe: `radial-gradient(circle at 50% 50%, transparent 0 16px, ${c.accent}55 17px 18px, transparent 19px), radial-gradient(circle at 50% 50%, ${c.accent}22, transparent 40%)`,
+      blueprint: `radial-gradient(circle at 60% 50%, transparent 0 18px, ${c.accent}44 19px 20px, transparent 21px), linear-gradient(${c.accent}12 1px, transparent 1px) 0 0 / 10px 10px, linear-gradient(90deg, ${c.accent}12 1px, transparent 1px) 0 0 / 10px 10px`,
+      terrazzo: `radial-gradient(3px 2px at 20% 30%, ${c.accent}66, transparent), radial-gradient(5px 4px at 60% 50%, ${c.keyword}55, transparent), radial-gradient(2px 2px at 80% 20%, ${c.func}66, transparent), radial-gradient(4px 3px at 40% 75%, ${c.fg}44, transparent), radial-gradient(2px 2px at 75% 80%, ${c.accent}66, transparent)`,
       planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;

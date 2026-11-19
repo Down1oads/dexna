@@ -83,6 +83,7 @@ export const THEMES = [
   T("high-contrast-light", "High Contrast Light", "light", { bg: "#ffffff", fg: "#000000", accent: "#0050c8", comment: "#4d6b3a", keyword: "#0000c0", string: "#a31515", number: "#116644", type: "#267f99", func: "#795e26", operator: "#000000", constant: "#0070c1", err: "#c00000", warn: "#7a5900", ok: "#0a7a28", info: "#0050c8" }),
 ];
 
+THEMES.sort((a, b) => a.name.localeCompare(b.name)); // alphabetical everywhere they are listed
 export const THEME_BY_ID = Object.fromEntries(THEMES.map((t) => [t.id, t]));
 export const DEFAULT_DARK = "dexna-dark";
 export const DEFAULT_LIGHT = "dexna-light";
