@@ -272,6 +272,15 @@ async function handle(msg) {
       if (interruptBuffer) interruptBuffer[0] = 0;
       return reply({ ...JSON.parse(res), changes: collectChanges() });
     }
+    case "cell": {
+      post("status", { state: "busy", msg: "Running cell" });
+      await prepareImports([msg.code], msg.autoInstall);
+      pyodide.globals.set("_dexna_src", msg.code);
+      const res = await pyodide.runPythonAsync("await _dexna_cell(_dexna_src)");
+      flushAll();
+      if (interruptBuffer) interruptBuffer[0] = 0;
+      return reply({ ...JSON.parse(res), changes: collectChanges() });
+    }
     case "complete-check":
       return reply(pyodide.globals.get("_dexna_is_complete")(msg.code));
     case "vars":

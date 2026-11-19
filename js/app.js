@@ -18,6 +18,8 @@ import { createJoy } from "./joy.js";
 import { createPrefs, PROJECT_KEYS, makeMatcher, globToRegExp } from "./prefs.js";
 import { createDevtools } from "./devtools.js";
 import { createCursesView } from "./cursesview.js";
+import { createNotebook } from "./notebook.js";
+import { createPro } from "./pro.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -66,7 +68,7 @@ const DEFAULT_SETTINGS = {
   bgEffect: "none", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
   accentColor: "", uiFont: "plex", editorFont: "jetbrains", lineHeight: 0,
   sidebarSide: "left", panelSide: "bottom", showActivityBar: true, showStatusBar: true, density: "normal", uiFontSize: 13, fileIcons: "color", activityHidden: [],
-  rulers: "none", cursorBlinking: "smooth", cursorWidth: 2, lineHighlight: "all", guides: "both", folding: true, minimapSide: "right", scrollbarSize: "normal",
+  errorLens: "off", rulers: "none", cursorBlinking: "smooth", cursorWidth: 2, lineHighlight: "all", guides: "both", folding: true, minimapSide: "right", scrollbarSize: "normal",
   autoClose: "languageDefined", multiCursorKey: "alt", fontWeight: "400", letterSpacing: 0, useTabs: false, trimOnSave: false, finalNewline: false,
   hoverDelay: 300, suggestWhileTyping: true, acceptOnEnter: true, terminalFontSize: 13, typingSound: "off", typingVolume: 50, customCss: "",
   tabStyle: "classic", tabClose: "hover", tabIcons: true, tabWrap: false, showTabs: true, showBreadcrumbs: true, runButtons: "text", statusHidden: [], clock: "off",
@@ -102,6 +104,9 @@ let fx = null; // theme from a picture, chroma, glow, cursor trail, screen filte
 let tweaks = null; // layout, spacing, file icons, your CSS, typing sounds, settings export (tweaks.js)
 let pkgs = null; // Lua libraries, web page libraries, SQL sample databases (pkgs.js)
 let devtools = null; // tests, coverage, profiler and run settings (devtools.js)
+let notebook = null; // Jupyter notebooks (notebook.js)
+let pro = null; // Error Lens and the REST client (pro.js)
+let nbTextMode = null; // a notebook opened as plain JSON instead
 // the screen for Python curses programs, over the terminal panel
 const cursesView = createCursesView({ reply: (t) => kernel?.reply(t), host: () => document.querySelector('.panel-view[data-panel="terminal"]') });
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
@@ -298,7 +303,7 @@ function openLocation(file, line) {
 /* =====================================================================
  * Languages
  * ===================================================================== */
-const LANGS = { py: "python", pyi: "python", json: "json", md: "markdown", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", html: "html", css: "css",
+const LANGS = { http: "http", rest: "http", ipynb: "json", py: "python", pyi: "python", json: "json", md: "markdown", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", html: "html", css: "css",
   yml: "yaml", yaml: "yaml", toml: "ini", ini: "ini", cfg: "ini", sql: "sql", sh: "shell", xml: "xml", csv: "plaintext", txt: "plaintext" };
 // Languages Dexna can run. Python uses the main kernel; the rest run in a throwaway runner worker.
 const RUN_LANG = { py: "python", js: "javascript", mjs: "javascript", ts: "typescript", lua: "lua", sql: "sql", html: "web", htm: "web" };
@@ -1216,6 +1221,8 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
     if (vs) editor.restoreViewState(vs);
   }
   project.active = key;
+  if (nbTextMode && nbTextMode !== key) nbTextMode = null;
+  notebook?.onOpen(key.startsWith("ext:") ? null : key);
   if (!key.startsWith("ext:")) persistProject();
   if (key.startsWith("ext:") && !extTabs.includes(key)) extTabs.push(key);
   editor.updateOptions({ readOnly: key.startsWith("ext:") || autoTyping.has(key) });
@@ -1248,7 +1255,7 @@ function closeTab(key, { silent } = {}) {
     const rest = allTabs();
     const next = rest[Math.min(idx, rest.length - 1)];
     if (next) openFile(next, { focus: !silent });
-    else { project.active = null; editor.setModel(null); showWelcome(true); updateBreadcrumbs(); updateRunTarget(); scheduleOutline(); }
+    else { project.active = null; editor.setModel(null); notebook?.hide(); showWelcome(true); updateBreadcrumbs(); updateRunTarget(); scheduleOutline(); }
   }
   persistProject();
   renderTabs();
@@ -1801,7 +1808,8 @@ function onKernelEvent(msg) {
       });
       break;
     }
-    case "plot": addPlot(msg.data); break;
+    case "plot": if (sink.addPlot) sink.addPlot(msg.data); else addPlot(msg.data); break;
+    case "display": { const d = JSON.parse(msg.data); if (sink.display) sink.display(d); else sink.write(d.text + "\n", "stdout"); break; }
     case "test-result": devtools?.onTestResult(JSON.parse(msg.data)); break;
     case "curses": {
       const d = JSON.parse(msg.data);
@@ -1879,6 +1887,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" 
   if (state.busy) return toast("A program is already running. Press Shift+F5 to stop it.", "warn");
   path ||= getRunTarget();
   if (!path) return toast("Create a file to run first, or start a project from Home.", "warn");
+  if (path.endsWith(".ipynb")) return notebook?.active ? cmdById("nb-run-all").run() : openFile(path);
   const lang = runLangOf(path);
   if (!lang) return toast(`Dexna can't run ${basename(path)}. Help > Languages lists the languages it runs.`, "warn");
   if (lang !== "python") {
@@ -1950,6 +1959,30 @@ async function runTests(files, only = []) {
   } finally {
     if (terminal.inputActive) terminal.resolveInput(null);
     setBusy(false);
+  }
+}
+
+/** Run a notebook cell on the Python kernel, with its output going to `cellSink`. */
+async function runNotebookCell(code, cellSink) {
+  if (state.busy) { toast("Python is busy. Wait for it to finish or press Stop.", "warn"); return null; }
+  sink = cellSink;
+  setBusy(true, "repl");
+  try {
+    await kernelReady();
+    setBusy(true, "repl");
+    await ensurePackages();
+    await kernel.call("sync", { files: project.files, dirs: project.dirs });
+    const res = await kernel.call("cell", { code, autoInstall: settings.autoInstall });
+    applyFileChanges(res.changes);
+    return res;
+  } catch (e) {
+    cellSink.write(e.message + "\n", "stderr");
+    return { ok: false, time: 0 };
+  } finally {
+    if (cellSink.inputActive) cellSink.resolveInput(null);
+    sink = terminal;
+    setBusy(false);
+    refreshVariables();
   }
 }
 
@@ -3359,6 +3392,7 @@ const SETTINGS_SCHEMA = [
   { key: "inlayTypes", cat: "Editor", label: "Inlay hints: types", desc: "Show the types the compiler works out for variables, parameters and return values.", type: "bool" },
   { key: "useTabs", cat: "Editor", label: "Indent with tabs", desc: "Use tab characters instead of spaces when you indent.", type: "bool" },
   { key: "rulers", cat: "Editor", label: "Rulers", desc: "Thin vertical lines at a column, to keep lines short.", type: "select", options: [["none", "None"], ["80", "At 80"], ["100", "At 100"], ["120", "At 120"], ["80,120", "At 80 and 120"]] },
+  { key: "errorLens", cat: "Editor", label: "Error Lens", desc: "Show each problem's message at the end of its line, so you see it without hovering.", type: "select", options: [["off", "Off"], ["errors", "Errors"], ["all", "Errors and warnings"]] },
   { key: "cursorBlinking", cat: "Editor", label: "Cursor blinking", desc: "How the text cursor blinks.", type: "select", options: [["smooth", "Smooth"], ["blink", "Blink"], ["phase", "Fade"], ["expand", "Expand"], ["solid", "Do not blink"]] },
   { key: "cursorWidth", cat: "Editor", label: "Cursor width", desc: "Thickness of the line cursor, in pixels.", type: "select", options: [[1, "1"], [2, "2"], [3, "3"], [4, "4"]] },
   { key: "lineHighlight", cat: "Editor", label: "Current line highlight", desc: "How the line with the cursor stands out.", type: "select", options: [["all", "Line and number"], ["line", "Line"], ["gutter", "Number only"], ["none", "None"]] },
@@ -3430,6 +3464,7 @@ function applySettingChange(key, value, { save = true } = {}) {
   if (key === "autoLint") lintAll();
   extras?.onSetting(key, value);
   power?.onSetting(key, value);
+  pro?.onSetting(key);
   $("#sb-indent").textContent = `${settings.useTabs ? "Tab Size" : "Spaces"}: ${currentPath() ? tabSizeFor(currentPath()) : settings.tabSize}`;
   if (settingsOpen) renderSettingsPage();
 }
@@ -3859,6 +3894,16 @@ API.runTarget = () => getRunTarget();
 API.terminalSystem = (text, cls) => terminal.system(text, cls);
 devtools = createDevtools(API);
 COMMANDS.push(...devtools.commands);
+API.runCell = runNotebookCell;
+API.stop = () => stopExecution();
+API.restartKernel = async () => { if (!(await confirmDialog({ title: "Restart Python?", message: "Every variable is cleared, then all cells run again from the top.", okLabel: "Restart" }))) return false; await restartKernel(); return true; };
+API.showAsText = (path) => { nbTextMode = path; openFile(path); };
+API.textMode = (path) => nbTextMode === path;
+notebook = createNotebook(API);
+COMMANDS.push(...notebook.commands);
+API.pathOfModel = pathOfModel;
+pro = createPro(API);
+COMMANDS.push(...pro.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
@@ -3908,6 +3953,8 @@ window.addEventListener("keydown", (e) => {
   if (!combo) return;
   // a curses program has the keyboard: only Stop (Shift+F5) still goes to Dexna
   if (e.target.closest?.(".cur-screen") && combo !== "shift+f5") return;
+  // notebook cells run with Shift/Ctrl/Alt+Enter themselves
+  if (e.target.closest?.("#notebook") && ["shift+enter", "ctrl+enter", "alt+enter"].includes(combo)) return;
   const cmd = keymap.get(combo);
   if (!cmd || (cmd.when && !cmd.when(e))) return;
   // let text fields keep their own editing shortcuts
@@ -3966,11 +4013,11 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
-  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
+  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
+  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "about"],
 };
 function buildMenus() {
@@ -4174,6 +4221,7 @@ async function boot() {
   // Monaco cancels a pending suggestion or hover request when the text changes under it; like VS Code, ignore that
   window.addEventListener("unhandledrejection", (e) => { if (e.reason?.name === "Canceled" || e.reason?.message === "Canceled") e.preventDefault(); });
   registerLanguageModes(monaco);
+  pro.onEditorReady(); // registers .http before any file is opened
   setupAssistant();
   if (layout.view === "assistant" && layout.sidebar) assistant.show(); // it was the open view when the page was left
   extras.onEditorReady();

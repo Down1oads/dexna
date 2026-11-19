@@ -311,7 +311,7 @@ def _format_exc(e):
     tb = e.__traceback__
     while tb is not None:
         fn = tb.tb_frame.f_code.co_filename
-        if fn.startswith(PROJECT) or fn == "<console>":
+        if fn.startswith(PROJECT) or fn in ("<console>", "<cell>"):
             break
         tb = tb.tb_next
     frames = traceback.extract_tb(tb) if tb is not None else []
@@ -873,6 +873,59 @@ async def _dexna_repl(src):
     except BaseException as e:
         ok = False
         sys.stderr.write(_format_exc(e))
+    finally:
+        try:
+            _flush_plots()
+        except Exception:
+            pass
+        sys.stdout.flush()
+        sys.stderr.flush()
+    return json.dumps({"ok": ok, "time": time.perf_counter() - t0})
+
+
+def _rich(obj):
+    """Show a value the way a notebook does: as HTML when it has an HTML form (pandas tables), else its repr."""
+    html = None
+    try:
+        if hasattr(obj, "_repr_html_") and not isinstance(obj, type):
+            html = obj._repr_html_()
+    except Exception:
+        html = None
+    if html:
+        sys.stdout.flush()
+        post("display", json.dumps({"html": html, "text": repr(obj)}))
+    else:
+        print(repr(obj))
+
+
+def display(*objs, **kwargs):
+    """Show values in the notebook output (like Jupyter's display())."""
+    for o in objs:
+        _rich(o)
+
+
+builtins.display = display
+
+
+async def _dexna_cell(src):
+    """Run one notebook cell in the shared namespace; its last expression is displayed."""
+    from pyodide.code import eval_code_async
+    try:
+        _setup_mpl()
+    except Exception:
+        pass
+    ok = True
+    t0 = time.perf_counter()
+    try:
+        res = await eval_code_async(src, _ns, filename="<cell>")
+        if res is not None and not src.rstrip().endswith(";"):  # a trailing ; hides the value, as in Jupyter
+            _ns["_"] = res
+            _rich(res)
+    except SystemExit:
+        pass
+    except BaseException as e:
+        ok = False
+        sys.stderr.write(_format_exc(e).replace('File "<cell>", ', "Cell, "))
     finally:
         try:
             _flush_plots()

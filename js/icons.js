@@ -86,7 +86,7 @@ export function icon(name, cls = "") {
 
 // File-type badges: a page with a coloured tab carrying a short label.
 const TYPES = {
-  py: ["Py", "#3a7bd5"], pyi: ["Py", "#3a7bd5"], md: ["M", "#6b7a99"], json: ["{}", "#c98a1b"], csv: ["Cs", "#2f9e5b"],
+  py: ["Py", "#3a7bd5"], pyi: ["Py", "#3a7bd5"], ipynb: ["Nb", "#e46e2e"], http: ["Ht", "#2f9e8f"], rest: ["Ht", "#2f9e8f"], md: ["M", "#6b7a99"], json: ["{}", "#c98a1b"], csv: ["Cs", "#2f9e5b"],
   txt: ["Tx", "#7d8597"], toml: ["To", "#8a6d5a"], cfg: ["Cf", "#8a6d5a"], ini: ["In", "#8a6d5a"], html: ["<>", "#d1532c"],
   js: ["Js", "#c9a515"], ts: ["Ts", "#2f74c0"], css: ["#", "#3d6fd9"], yml: ["Y", "#b8424a"], yaml: ["Y", "#b8424a"],
   sql: ["Sq", "#4a7f9e"],
