@@ -207,6 +207,9 @@ function referenceTo(from, target) {
   return rel;
 }
 function setupEditorInserts(ed) {
+  // GitHub actions on the editor's right-click menu (they explain themselves when the project is not on GitHub)
+  ed.addAction({ id: "dexna.ghLink", label: "Copy GitHub Link to These Lines", contextMenuGroupId: "9_dexna", contextMenuOrder: 5, run: () => cmdById("gh-copy-link")?.run() });
+  ed.addAction({ id: "dexna.ghIssue", label: "Create GitHub Issue from Selection…", contextMenuGroupId: "9_dexna", contextMenuOrder: 6, run: () => cmdById("gh-issue-sel")?.run() });
   const node = ed.getContainerDomNode(); // (getDomNode is null until a file is open)
   const insertAt = (pos, text) => {
     const range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column);
@@ -1594,6 +1597,60 @@ function updateCursorStatus() {
   const m = editor.getModel();
   const n = sel && m ? m.getValueInRange(sel).length : 0;
   $("#sb-cursor").textContent = `Ln ${pos.lineNumber}, Col ${pos.column}` + (n ? ` (${n} selected)` : "");
+  updateWordCount();
+}
+/* ---------- words and reading time, for prose (Markdown and plain text) ---------- */
+const countWords = (t) => (t.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) || []).length;
+const updateWordCount = debounce(() => {
+  const el = $("#sb-words"), m = editor?.getModel(), path = currentPath();
+  if (!el) return;
+  if (!m || !path || !/^(markdown|plaintext)$/.test(m.getLanguageId())) { el.classList.add("hidden"); return; }
+  const sel = editor.getSelection(), part = sel && !sel.isEmpty() ? m.getValueInRange(sel) : null;
+  const n = countWords(part ?? m.getValue()), mins = Math.max(1, Math.round(n / 230));
+  el.textContent = part != null ? `${n} word${n === 1 ? "" : "s"} selected` : `${n} word${n === 1 ? "" : "s"} · ${mins} min read`;
+  el.classList.remove("hidden");
+}, 250);
+
+/* ---------- Markdown: a table of contents from the headings ---------- */
+/** GitHub's heading anchors: lower case, punctuation dropped, spaces to hyphens, numbered when repeated. */
+function headingSlugger() {
+  const seen = new Map();
+  return (text) => {
+    const base = text.toLowerCase().replace(/<[^>]+>/g, "").replace(/[`*_~]/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s/g, "-");
+    const n = seen.get(base) || 0; seen.set(base, n + 1);
+    return n ? `${base}-${n}` : base;
+  };
+}
+function markdownToc(text) {
+  const slug = headingSlugger(), rows = [];
+  let fence = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    if (fence) continue;
+    const m = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (m) rows.push([m[1].length, m[2], slug(m[2])]);
+  }
+  const body = rows.filter(([lvl]) => lvl > 1 || rows.filter(([l]) => l === 1).length > 1); // a single title heading is left out
+  if (!body.length) return null;
+  const top = Math.min(...body.map(([l]) => l));
+  return body.map(([lvl, t, s]) => `${"  ".repeat(lvl - top)}- [${t.replace(/\[|\]/g, "")}](#${s})`).join("\n");
+}
+function insertToc() {
+  const m = editor?.getModel(), path = currentPath();
+  if (!m || !path || m.getLanguageId() !== "markdown") return toast("Open a Markdown file first", "info");
+  const toc = markdownToc(m.getValue());
+  if (!toc) return toast("This file has no headings to list", "info");
+  const block = `<!-- toc -->\n${toc}\n<!-- /toc -->`;
+  const text = m.getValue(), start = text.indexOf("<!-- toc -->"), end = text.indexOf("<!-- /toc -->");
+  if (start >= 0 && end > start) { // update the one already there
+    const a = m.getPositionAt(start), b = m.getPositionAt(end + "<!-- /toc -->".length);
+    editor.executeEdits("dexna-toc", [{ range: new monaco.Range(a.lineNumber, a.column, b.lineNumber, b.column), text: block }]);
+    toast("Table of contents updated", "ok");
+  } else {
+    const pos = editor.getPosition();
+    editor.executeEdits("dexna-toc", [{ range: new monaco.Range(pos.lineNumber, 1, pos.lineNumber, 1), text: block + "\n\n", forceMoveMarkers: true }]);
+  }
+  editor.focus();
 }
 $("#sb-cursor").onclick = () => { editor.focus(); editor.getAction("editor.action.gotoLine")?.run(); };
 $("#sb-indent").onclick = () => quickPick({
@@ -4157,6 +4214,7 @@ const COMMANDS = [
   { id: "close-tab", label: "Close Editor", cat: "File", kb: "alt+w", run: () => project.active && closeTab(project.active) },
   { id: "upload", label: "Upload Files…", cat: "File", run: () => { uploadTarget = ""; $("#file-upload").click(); } },
   { id: "import-zip", label: "Import Project from ZIP…", cat: "File", run: () => $("#zip-upload").click() },
+  { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
   { id: "download-file", label: "Download Current File", cat: "File", run: () => currentPath() && downloadFile(currentPath()) },
@@ -4596,7 +4654,8 @@ async function boot() {
   plus.onReady();
   tweaks.apply(); // again, now that every status bar item exists
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
-  editor.onDidChangeModelContent(() => schedulePreview());
+  editor.onDidChangeModelContent(() => { schedulePreview(); updateWordCount(); });
+  editor.onDidChangeModel(() => updateWordCount());
   setupPreview();
   monaco.editor.onDidChangeMarkers(() => refreshProblems());
 
