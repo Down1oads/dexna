@@ -8,6 +8,7 @@ import { makeFlow2, FLOW2 } from "./flow2.js";
 import { makeMinimal, MINIMAL } from "./minimal.js";
 import { makeCalm, CALM } from "./calm.js";
 import { makeCalmPixel, CALMPIXEL } from "./calmpixel.js";
+import { makeFade, FADE } from "./fade.js";
 
 /* =====================================================================
  * Choices
@@ -20,7 +21,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL, ...CALM, ...CALMPIXEL,
+  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL, ...CALM, ...CALMPIXEL, ...FADE,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // alphabetical by name, with None first and your own image and video last
@@ -134,6 +135,16 @@ export const LOOKS = [
   { id: "pixelsavanna", name: "Pixel savanna", desc: "Acacias at sunset and a giraffe walking slowly by", theme: "gruvbox-dark", set: { bgEffect: "pixelsavanna", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelcastle", name: "Pixel castle", desc: "A castle on a rock above a slow sea of clouds", theme: "tokyo-night", set: { bgEffect: "pixelcastle", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelmoonbase", name: "Pixel moon base", desc: "A base on the moon with Earth in the sky", theme: "oled", set: { bgEffect: "pixelmoonbase", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fadesky", name: "Sky fade", desc: "Fades slowly through dawn, day, dusk and night", theme: "tokyo-night", set: { bgEffect: "fadesky", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fadeocean", name: "Ocean fade", desc: "Blues and teals fading into one another", theme: "nord", set: { bgEffect: "fadeocean", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fadeember", name: "Ember fade", desc: "Deep reds, plums and orange, fading slowly", theme: "gruvbox-dark", set: { bgEffect: "fadeember", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fadeneon", name: "Neon fade", desc: "Purple into pink into cyan", theme: "dracula", set: { bgEffect: "fadeneon", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fadeglow", name: "Glow fade", desc: "Two soft colored glows on black, changing color", theme: "mono-black", set: { bgEffect: "fadeglow", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "fadepastel", name: "Pastel fade", desc: "Soft pastels fading slowly", theme: "github-light", set: { bgEffect: "fadepastel", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelfadesky", name: "Pixel sky fade", desc: "A dithered sky fading through the day", theme: "tokyo-night", set: { bgEffect: "pixelfadesky", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelfadeneon", name: "Pixel neon fade", desc: "Dithered neon bands on a diagonal", theme: "dracula", set: { bgEffect: "pixelfadeneon", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelfadeember", name: "Pixel ember fade", desc: "A dithered glow rising from below", theme: "gruvbox-dark", set: { bgEffect: "pixelfadeember", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelfadeocean", name: "Pixel ocean fade", desc: "Dithered ocean bands on a slow swell", theme: "nord", set: { bgEffect: "pixelfadeocean", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelplanet", name: "Pixel planet", desc: "A turning pixel-art planet with its moon", theme: "tokyo-night", set: { bgEffect: "pixelplanet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "mono", name: "Black and white", desc: "Plain black and white, no effects", theme: "mono-black", set: { bgEffect: "none", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "dust", name: "Dust", desc: "Specks drifting through a faint shaft of light", theme: "mono-black", set: { bgEffect: "dust", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
@@ -207,6 +218,7 @@ function makeEffects() {
     ...makeMinimal(),
     ...makeCalm(),
     ...makeCalmPixel(),
+    ...makeFade(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1265,6 +1277,16 @@ export function createLook(A) {
       pixelsavanna: `radial-gradient(circle at 62% 72%, #ffb060 0 16px, transparent 17px), linear-gradient(#120810, #120810) 20% 58% / 22% 3% no-repeat, linear-gradient(#2e1240, #a83a48 50%, #e8703e 71%, #1e0c18 72%)`,
       pixelcastle: `linear-gradient(#3c3c58, #3c3c58) 50% 42% / 20% 16% no-repeat, linear-gradient(#3c3c58, #3c3c58) 50% 28% / 5% 30% no-repeat, linear-gradient(#0e1840, #2a3a6c 64%, #3a4a7a 65%)`,
       pixelmoonbase: `radial-gradient(circle at 24% 26%, #2a5ab0 0 10px, transparent 11px), radial-gradient(ellipse 8% 6% at 50% 66%, #8a8aa0 98%, transparent), linear-gradient(#04040c 62%, #3a3a48 63%, #2a2a36)`,
+      fadesky: `linear-gradient(#2b3a7a, #c86a9a, #ffb08a)`,
+      fadeocean: `linear-gradient(135deg, #022c43, #05668d, #00a896)`,
+      fadeember: `linear-gradient(225deg, #1a0610, #7a1a2a, #e8603a)`,
+      fadeneon: `linear-gradient(36deg, #12001f, #7a00a8, #ff2a8a)`,
+      fadeglow: `radial-gradient(circle at 10% 15%, #2a4c8c, transparent 60%), radial-gradient(circle at 90% 85%, #63488c, transparent 60%), #000`,
+      fadepastel: `linear-gradient(90deg, #ffd6e0, #e8dcff, #d6e8ff)`,
+      pixelfadesky: `repeating-linear-gradient(#0000 0 3px, #ffffff10 3px 4px), linear-gradient(#2b3a7a 0 20%, #6a4a8a 20% 40%, #a85a96 40% 60%, #e08a90 60% 80%, #ffb08a 80%)`,
+      pixelfadeneon: `repeating-linear-gradient(#0000 0 3px, #ffffff10 3px 4px), linear-gradient(36deg, #12001f 0 25%, #7a00a8 25% 50%, #c4158f 50% 75%, #ff2a8a 75%)`,
+      pixelfadeember: `repeating-linear-gradient(#0000 0 3px, #ffffff10 3px 4px), radial-gradient(circle at 50% 100%, #e8603a 0 20%, #a03a2e 20% 40%, #7a1a2a 40% 60%, #1a0610 60%)`,
+      pixelfadeocean: `repeating-linear-gradient(#0000 0 3px, #ffffff10 3px 4px), linear-gradient(#022c43 0 25%, #05668d 25% 50%, #038890 50% 75%, #00a896 75%)`,
       pixelplanet: `radial-gradient(circle at 58% 55%, #5a9a3a 0 6px, #2a5fc4 7px 20px, transparent 21px), radial-gradient(1px 1px at 20% 30%, #fff, transparent), #04030c`,
       dust: `linear-gradient(110deg, transparent 45%, #ffffff10 55%, transparent 65%), radial-gradient(1px 1px at 30% 40%, #fff, transparent), radial-gradient(1px 1px at 62% 55%, #fff, transparent), radial-gradient(1px 1px at 70% 30%, #ffffffaa, transparent), #000`,
       eclipse: `radial-gradient(circle at 50% 46%, #000 0 16px, #ffffffdd 17px, #ffffff44 19px, transparent 30px), #000`,
