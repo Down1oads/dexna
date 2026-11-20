@@ -685,6 +685,7 @@ function onModelChange(path, model, ev) {
   lspWriters.get(path)();
   if (path.endsWith(".py")) { scheduleLint(path); scheduleCells(path); }
   if (path === currentPath()) scheduleOutline();
+  if (path === "requirements.txt") { clearTimeout(reqTimer); reqTimer = setTimeout(() => syncRequirements(), 1500); }
 }
 
 /* =====================================================================
@@ -707,6 +708,7 @@ async function loadProject(id) {
   project = data;
   project.assets ||= {};
   loadAssets(project);
+  setTimeout(() => syncRequirements(), 0);
   project.dirs ||= []; project.breakpoints ||= {}; project.packages ||= []; project.npm ||= {}; project.watches ||= []; project.expanded ||= [];
   project.open = (project.open || []).filter((p) => project.files[p] != null);
   if (!project.files[project.active]) project.active = project.open[0] || null;
@@ -1055,6 +1057,7 @@ async function readUploads(fileList, dir = "") {
   }
   if (Object.keys(bins).length) await addAssets(bins);
   if (added) toast(`Added ${added} file${added > 1 ? "s" : ""}`, "ok");
+  syncRequirements();
   if (skipped) toast(`Skipped ${skipped} file${skipped > 1 ? "s" : ""}: over 25 MB, or a binary file with the name of a text file.`, "warn");
 }
 
@@ -2258,6 +2261,7 @@ function applyFileChanges(changes, { silent = false } = {}) {
   if (Object.keys(changes).length) { persistProject(); renderTree(); }
   if (added.length) { added.forEach(lspSyncFile); renderTabs(); }
   if (added.length && !silent) toast(`Your program created ${added.length === 1 ? added[0] : added.length + " files"}`, "ok");
+  if ("requirements.txt" in changes) setTimeout(() => syncRequirements(), 0);
 }
 
 async function stopExecution() {
@@ -3404,6 +3408,33 @@ let installedPkgs = [];
 const pkgUI = { lang: "python", npmQuery: "", npmResults: null, npmLoading: false, npmError: "", collapsed: {}, inputs: {} };
 const normPy = (n) => n.toLowerCase().replace(/[_.]+/g, "-");
 
+/* ---------- requirements.txt: its packages join the project's, and install like any other ---------- */
+/** The installable lines of a requirements file: "name", "name==1.2", "name[extra]>=2"... */
+function parseRequirements(text) {
+  const out = [];
+  for (let line of text.split("\n")) {
+    line = line.replace(/(^|\s)#.*$/, "").trim();
+    if (!line || line.startsWith("-") || /^[a-z][\w+.-]*:\/\//i.test(line) || line.includes(" @ ")) continue; // options, -r/-e, URLs and direct references
+    line = line.split(";")[0].trim(); // environment markers
+    if (/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^\]]*\])?\s*([<>=!~]=?.*)?$/.test(line)) out.push(line.replace(/\s+/g, ""));
+  }
+  return out;
+}
+const reqName = (spec) => normPy(spec.split(/[<>=!~[;\s]/)[0]);
+let reqTimer = 0;
+function syncRequirements({ announce = true } = {}) {
+  const text = project?.files["requirements.txt"];
+  if (text == null) return [];
+  const add = parseRequirements(text).filter((spec) => !project.packages.some((p) => reqName(p) === reqName(spec)));
+  if (!add.length) return [];
+  project.packages.push(...add);
+  persistProject();
+  renderPackagesView();
+  if (kernel?.info) ensurePackages().catch(() => {});
+  if (announce) toast(`From requirements.txt: ${add.join(", ")}. ${kernel?.info ? "Installing now." : "They install when Python starts."}`, "info", 5000);
+  return add;
+}
+
 async function installFromInput(names) {
   names = (Array.isArray(names) ? names : names.split(/[\s,]+/)).map((x) => x.trim()).filter(Boolean);
   if (!names.length) return;
@@ -4126,6 +4157,7 @@ const COMMANDS = [
   { id: "close-tab", label: "Close Editor", cat: "File", kb: "alt+w", run: () => project.active && closeTab(project.active) },
   { id: "upload", label: "Upload Files…", cat: "File", run: () => { uploadTarget = ""; $("#file-upload").click(); } },
   { id: "import-zip", label: "Import Project from ZIP…", cat: "File", run: () => $("#zip-upload").click() },
+  { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
   { id: "download-file", label: "Download Current File", cat: "File", run: () => currentPath() && downloadFile(currentPath()) },
   { id: "share", label: "Share Project Link…", cat: "File", run: shareProject },

@@ -199,7 +199,7 @@ Every result has Copy and Insert (into the editor at the cursor).
 
 ## Packages
 
-- **Python**: install and uninstall from Pyodide's package set or PyPI in the Packages view. Missing imports install automatically when you run.
+- **Python**: install and uninstall from Pyodide's package set or PyPI in the Packages view. A **requirements.txt** in the project is read too: its packages (with their version pins) join the project's and install like any other, when the project opens and whenever the file changes (options lines, URLs and comments are skipped). **Python: Install Packages from requirements.txt** does it on demand. Missing imports install automatically when you run.
 - **JavaScript and TypeScript**: import any npm package by name (`import dayjs from "dayjs"`). It loads from esm.sh, and the Packages view can search npm and pin versions.
 - **Lua**: 17 popular libraries (json, inspect, middleclass, classic, lume, luafun, serpent, tween, flux, semver, memoize, argparse, log, Moses, 30log, stateful, ansicolors). **Add** downloads the library's single `.lua` file into your project, pinned to an exact version, so `require("json")` just works; **Example** creates a file that shows how to use it.
 - **Web pages**: 28 popular libraries (Chart.js, D3, three.js, p5.js, Phaser, Kaboom, PixiJS, Matter.js, GSAP, Bootstrap, Pico CSS, Font Awesome, Alpine.js, Leaflet, Tone.js and more), or search the thousands on **cdnjs**. Adding one puts its `<script>` or `<link>` tag into your page; library stylesheets go before your own, so your CSS still wins. The view lists the libraries a page loads, with a button to remove each.
