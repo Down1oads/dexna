@@ -963,6 +963,7 @@ function movePath(from, to) {
     more?.onRename(a, b);
     if (project.entry === a) project.entry = b;
     project.open = project.open.map((o) => (o === a ? b : o));
+    if (project.pinned) project.pinned = project.pinned.map((o) => (o === a ? b : o));
     if (project.active === a) project.active = b;
     disposeModel(a);
     ensureModel(b);
@@ -1578,6 +1579,19 @@ function closeTab(key, { silent } = {}) {
 }
 function saveViewStateFor(key) { if (editor.getModel() && keyForUri(editor.getModel().uri) === key) saveViewState(); }
 const allTabs = () => [...project.open, ...extTabs];
+const isPinned = (key) => !!project.pinned?.includes(key);
+const unpinnedTabs = () => allTabs().filter((k) => !isPinned(k));
+/** Pinned tabs stay at the front, show a pin instead of a close button, and survive Close Others / Close All. */
+function togglePin(key) {
+  project.pinned ||= [];
+  if (isPinned(key)) project.pinned = project.pinned.filter((k) => k !== key);
+  else {
+    project.pinned.push(key);
+    const others = project.open.filter((k) => k !== key), at = others.filter((k) => isPinned(k)).length;
+    others.splice(at, 0, key); project.open = others;
+  }
+  persistProject(); renderTabs();
+}
 
 function renderTabs() {
   const tabsEl = $("#tabs");
@@ -1594,20 +1608,23 @@ function renderTabs() {
     const name = basename(p);
     const dup = names.filter((n) => n === name).length > 1;
     const c = counts[key];
-    const tab = h("div", { class: "tab" + (key === project.active && !pageOpen() ? " active" : "") + (ext ? " readonly" : "") + (dirty.has(key) ? " dirty" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
+    const pinned = isPinned(key);
+    const tab = h("div", { class: "tab" + (pinned ? " pinned" : "") + (key === project.active && !pageOpen() ? " active" : "") + (ext ? " readonly" : "") + (dirty.has(key) ? " dirty" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
       ext ? fi("book") : fileIcon(p),
       h("span", { class: "tname" }, name),
       dup || ext ? h("span", { class: "tdir" }, ext ? "read-only" : dirname(p) || "./") : null,
-      h("button", { class: "close", title: "Close (Alt+W)", onclick: (e) => { e.stopPropagation(); closeTab(key); } }, icon("close")));
-    tab.addEventListener("mousedown", (e) => { if (e.button === 1) { e.preventDefault(); closeTab(key); } });
+      pinned ? h("button", { class: "close pin", title: "Pinned: click to unpin", onclick: (e) => { e.stopPropagation(); togglePin(key); } }, icon("pin"))
+        : h("button", { class: "close", title: "Close (Alt+W)", onclick: (e) => { e.stopPropagation(); closeTab(key); } }, icon("close")));
+    tab.addEventListener("mousedown", (e) => { if (e.button === 1 && !pinned) { e.preventDefault(); closeTab(key); } });
     tab.addEventListener("click", () => openFile(key));
     tab.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       showMenu(e.clientX, e.clientY, [
         { label: "Close", kb: "alt+w", run: () => closeTab(key) },
-        { label: "Close Others", run: () => allTabs().filter((k) => k !== key).forEach((k) => closeTab(k, { silent: true })) },
-        { label: "Close to the Right", run: () => allTabs().slice(allTabs().indexOf(key) + 1).forEach((k) => closeTab(k, { silent: true })) },
-        { label: "Close All", run: () => allTabs().forEach((k) => closeTab(k, { silent: true })) },
+        { label: "Close Others", run: () => unpinnedTabs().filter((k) => k !== key).forEach((k) => closeTab(k, { silent: true })) },
+        { label: "Close to the Right", run: () => allTabs().slice(allTabs().indexOf(key) + 1).filter((k) => !isPinned(k)).forEach((k) => closeTab(k, { silent: true })) },
+        { label: "Close All", run: () => unpinnedTabs().forEach((k) => closeTab(k, { silent: true })) },
+        { label: pinned ? "Unpin Tab" : "Pin Tab", disabled: ext, run: () => togglePin(key) },
         { label: "Reopen Closed Tab", kb: "alt+shift+t", disabled: !closedTabs.some((t) => t.project === project.id), run: () => cmdById("tab-reopen").run() },
         "-",
         { label: "Reveal in Explorer", disabled: ext, run: () => { expandTo(key); renderTree(); setView("explorer"); selectTreeRow(key); } },

@@ -141,8 +141,8 @@ export function createTweaks(A) {
   }
   function onEditorReady() {
     A.editor.onKeyDown(keySound);
-    // middle-click closes a tab
-    document.getElementById("tabs")?.addEventListener("auxclick", (e) => { if (e.button !== 1) return; const c = e.target.closest(".tab")?.querySelector(".close"); if (c) { e.preventDefault(); c.click(); } });
+    // middle-click closes a tab (pinned tabs stay)
+    document.getElementById("tabs")?.addEventListener("auxclick", (e) => { if (e.button !== 1) return; const c = e.target.closest(".tab:not(.pinned)")?.querySelector(".close"); if (c) { e.preventDefault(); c.click(); } });
     document.getElementById("tabs")?.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
     window.addEventListener("resize", () => {}); // layout reacts through automaticLayout
   }

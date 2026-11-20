@@ -1320,3 +1320,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .tree-filter-wrap { padding: 4px 8px 6px; }
 #tree-filter { width: 100%; box-sizing: border-box; height: 24px; font-size: 12px; padding: 0 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); }
 #tree-filter:focus { outline: none; border-color: var(--accent); }
+.tab.pinned .tname { max-width: 120px; }
+.tab.pinned .close.pin { opacity: .75; }
+.tab.pinned .close.pin svg { transform: rotate(45deg); }

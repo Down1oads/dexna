@@ -131,6 +131,7 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Vim keys** (Settings > Editor): modes, motions, operators, registers, macros, `:w` to save. The mode shows in the status bar.
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
 - **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
+- **Pinned tabs** (a tab's right-click menu): they move to the front, show a pin (click it to unpin), and stay open through Close Others, Close All and a middle click.
 - **Reopen Closed Tab** (Alt+Shift+T, or a tab's right-click menu), **Format All Files in the Project** (Edit menu; Local History keeps the versions from before), and **Duplicate Project** (File menu; binary files included).
 - **Surround With…** (Ctrl+Alt+S, Edit menu): wrap the selection in a block of the file's language, indented properly: try/except, if, for, with, def and `# %%` in Python; try/catch, if, loops and functions in JavaScript, TypeScript, Java, C#, C, C++, Go, Rust and Lua; tags in HTML; code blocks, bold, links, quotes and `<details>` in Markdown.
 - **JSON: Sort Keys** (Text menu) sorts an object's keys at every level. **Add .gitignore…** and **Add License…** (File menu) use GitHub's templates; the .gitignore one suggests the template that fits the project, and the license gets the year and your GitHub name.
