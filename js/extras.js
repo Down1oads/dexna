@@ -745,6 +745,26 @@ export function createExtras(A) {
     const tokenCss = [...document.querySelectorAll("style.monaco-colors")].map((s) => s.textContent).join("\n").replace(/<\/style/gi, "");
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_self"><style>${markdownCss(mdColors())}\n${tokenCss}</style><script>${MD_SCRIPT({ katex: A.cfg.libs.katex, mermaid: A.cfg.libs.mermaid }, mdColors().type)}<\/script></head><body><main id="md">${await markdownBody(text, path)}</main></body></html>`;
   }
+  /** A stand-alone page for a Markdown file, always light (for sharing and printing). */
+  async function markdownExport(text, path) {
+    const light = { type: "light", bg: "#ffffff", fg: "#1f2328", muted: "#59636e", border: "#d1d9e0", accent: "#0969da", code: "#f6f8fa" };
+    const title = (text.match(/^#\s+(.+)$/m)?.[1] || path.split("/").pop()).replace(/[<&]/g, (c) => (c === "<" ? "&lt;" : "&amp;"));
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>${markdownCss(light)}\n@media print { body { margin: 0; } main { max-width: none; } pre, table, img { break-inside: avoid; } }</style><script>${MD_SCRIPT({ katex: A.cfg.libs.katex, mermaid: A.cfg.libs.mermaid }, "light")}<\/script></head><body><main id="md">${await markdownBody(text, path)}</main></body></html>`;
+  }
+  const mdOpen = () => { const p = A.currentPath?.(); return p && isMarkdown(p) ? p : null; };
+  async function exportMarkdownHtml() {
+    const p = mdOpen(); if (!p) return toast("Open a Markdown file first", "info");
+    const html = await markdownExport(A.textOf(p), p);
+    A.downloadBlob(new Blob([html], { type: "text/html" }), p.split("/").pop().replace(/\.[^.]+$/, "") + ".html");
+    toast("Exported as a web page, with its images inside", "ok");
+  }
+  async function printMarkdown() {
+    const p = mdOpen(); if (!p) return toast("Open a Markdown file first", "info");
+    const w = window.open("", "_blank"); // opened now, while the click still counts, then filled in
+    if (!w) return toast("The browser blocked the new window. Allow pop-ups for Dexna, or use Export as HTML and print that.", "warn", 7000);
+    w.document.write(await markdownExport(A.textOf(p), p)); w.document.close();
+    setTimeout(() => { try { w.focus(); w.print(); } catch (_) {} }, 900); // after math and diagrams have drawn
+  }
   const isMarkdown = (p) => /\.(md|markdown|mdx)$/i.test(p || "");
 
   /* =====================================================================
@@ -753,6 +773,8 @@ export function createExtras(A) {
   const toolbox = createToolbox(document.getElementById("tools-root"), { h, icon, toast, insertText, showDiff, LS: A.LS });
 
   const commands = [
+    { id: "md-export-html", label: "Markdown: Export as HTML", cat: "File", run: exportMarkdownHtml },
+    { id: "md-print", label: "Markdown: Print or Save as PDF", cat: "File", run: printMarkdown },
     { id: "scm-view", label: "Show Source Control", cat: "View", kb: "ctrl+shift+g", run: () => A.setView("scm") },
     { id: "scm-commit", label: "Commit All Changes", cat: "Source Control", run: async () => { await scm.commit(); } },
     { id: "scm-diff", label: "Compare with Last Commit", cat: "Source Control", run: () => { const p = A.currentPath(); if (!p) return toast("Open a file first.", "warn"); if (!scm.head) return toast("Commit once first: Source Control compares with the last commit.", "info"); scm.diffWithHead(p); } },
@@ -811,7 +833,7 @@ export function createExtras(A) {
   }
 
   return {
-    commands, textMenu: ["lines-sort", "lines-sort-desc", "lines-unique", "lines-reverse", "lines-empty", "-", "case-camel", "case-snake", "case-pascal", "case-kebab", "case-constant", "case-upper", "case-lower", "-", "enc-b64", "dec-b64", "calc-sel", "-", "ins-uuid", "ins-date", "-", "md-toc", "json-sort"],
+    commands, textMenu: ["lines-sort", "lines-sort-desc", "lines-unique", "lines-reverse", "lines-empty", "-", "case-camel", "case-snake", "case-pascal", "case-kebab", "case-constant", "case-upper", "case-lower", "-", "enc-b64", "dec-b64", "calc-sel", "-", "ins-uuid", "ins-date", "-", "md-toc", "md-export-html", "md-print", "json-sort"],
     onEditorReady, onProjectLoaded, onModelCreated, onModelContent, onFilesChanged, onView, onSetting,
     calcItems, helpItems, showDiff, scm, toolbox, markdownPage, markdownBody, isMarkdown, insertText, toggleZen, toggleBookmark,
   };

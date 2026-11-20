@@ -420,6 +420,11 @@ function setupEditorInserts(ed) {
   // listened for on the parent: Monaco handles pasted files itself on the editor element when it has focus
   (node.parentElement || node).addEventListener("paste", async (e) => {
     if (!node.contains(e.target)) return;
+    const pasted = e.clipboardData?.getData("text/plain")?.trim() || "", sel = ed.getSelection();
+    if (/^https?:\/\/\S+$/.test(pasted) && sel && !sel.isEmpty() && ed.getModel()?.getLanguageId() === "markdown") { // [selected text](url)
+      const text = ed.getModel().getValueInRange(sel);
+      if (!text.includes("\n")) { e.preventDefault(); e.stopPropagation(); ed.executeEdits("dexna-link", [{ range: sel, text: `[${text}](${pasted})` }]); return; }
+    }
     const from = currentPath();
     const item = [...(e.clipboardData?.items || [])].find((i) => i.kind === "file" && i.type.startsWith("image/"));
     if (!item || !from) return;
