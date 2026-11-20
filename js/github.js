@@ -676,6 +676,29 @@ export function createGitHub(API) {
     });
   }
 
+  /* ---------- your changes compared with GitHub ---------- */
+  async function githubText(g, rel) {
+    const sha = g.base[rel];
+    if (!sha) return null;
+    const key = `blob:${g.owner}/${g.repo}:${sha}`;
+    let hit = cache.get(key);
+    if (!hit) { hit = { t: Date.now(), v: gh(`/repos/${g.owner}/${g.repo}/git/blobs/${sha}`).then((b) => new TextDecoder().decode(b64text(b.content))) }; cache.set(key, hit); }
+    return hit.v;
+  }
+  async function compareWithGitHub(rel) {
+    const p = API.project, g = p?.github;
+    if (!g) return;
+    const mine = API.currentFiles()[rel];
+    if (mine == null && !g.base[rel]) return;
+    if ((API.assetFiles?.() || {})[rel]) return API.toast(`${rel} is a binary file: Dexna cannot show the difference`, "info");
+    let theirs;
+    try { theirs = await githubText(g, rel); } catch (e) { return API.toast(e.message, "error", 6000); }
+    API.showDiff({
+      original: theirs ?? "", modified: mine ?? "", path: rel, live: mine != null, title: `${rel}: GitHub ↔ yours`, originalLabel: theirs == null ? "Not on GitHub yet" : `GitHub (${g.branch})`, modifiedLabel: mine == null ? "Deleted here" : "Yours",
+      actions: theirs != null ? [{ label: "Take GitHub's version", run: () => { API.writeFiles({ [rel]: theirs }); API.closeModal(); API.toast(`${rel} matches GitHub again`, "ok"); changed(); } }] : [],
+    });
+  }
+
   /* ---------- issues ---------- */
   async function issues() {
     const g = API.project?.github;
@@ -774,7 +797,8 @@ export function createGitHub(API) {
     const p = API.project, g = p?.github, icon = API.icon;
     const btn = (label, ic, run, cls = "") => h("button", { class: "btn sm " + cls, onclick: run }, ic ? icon(ic) : null, label);
     const who = auth ? h("span", { class: "gh-who", title: "Signed in to GitHub. Click to sign out.", onclick: signOut }, icon("user"), auth.login) : null;
-    const head = h("div", { class: "gh-head" }, h("span", { class: "gh-title" }, "GitHub"), who);
+    const refresh = g ? h("button", { class: "btn icon sm", title: "Check GitHub again", onclick: () => { forget(`/repos/${g.owner}/${g.repo}/`); changed(); } }, icon("refresh")) : null;
+    const head = h("div", { class: "gh-head" }, h("span", { class: "gh-title" }, "GitHub"), who, refresh);
     if (!g) {
       return h("div", { class: "gh-box" }, head,
         h("div", { class: "muted small" }, auth ? "This project is not on GitHub yet." : "Sign in to open private repositories, and to pull, push and publish projects."),
@@ -797,9 +821,16 @@ export function createGitHub(API) {
     };
     for (const el of [summary, body]) el.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); send(); } });
     const pushBtn = btn("Commit and Push", "upload", send, "primary");
+    const changedList = h("div", { class: "gh-changed" });
+    const behind = h("div", { class: "gh-behind hidden" });
+    if (g.head) cached(`/repos/${g.owner}/${g.repo}/git/ref/heads/${encPath(g.branch)}`, 60_000).then((r) => {
+      if (r?.object?.sha && r.object.sha !== g.head) { behind.replaceChildren(icon("info"), h("span", {}, `GitHub has newer commits on ${g.branch}. `), h("button", { class: "link", onclick: () => pull() }, "Pull them")); behind.classList.remove("hidden"); }
+    });
     localState(p).then((st) => {
       const n = st.edited.length + st.removed.length;
-      status.textContent = (n ? `${n} file${n === 1 ? "" : "s"} changed since the last pull or push.` : "In step with GitHub as of the last pull or push.") + (g.synced ? ` Synced ${API.ago(g.synced)}.` : "");
+      status.textContent = (n ? `${n} file${n === 1 ? "" : "s"} changed since the last pull or push:` : "In step with GitHub as of the last pull or push.") + (g.synced && !n ? ` Synced ${API.ago(g.synced)}.` : "");
+      const rows = [...st.edited.map((f) => [f, g.base[f] ? "M" : "A"]), ...st.removed.map((f) => [f, "D"])].sort((a, b) => a[0].localeCompare(b[0]));
+      changedList.replaceChildren(...rows.slice(0, 30).map(([f, k]) => h("button", { class: "gh-chg", title: `Compare ${f} with GitHub`, onclick: () => compareWithGitHub(f) }, h("span", { class: "gh-k k-" + k }, k), h("span", { class: "gh-f" }, f))), rows.length > 30 ? h("div", { class: "muted small" }, `and ${rows.length - 30} more`) : "");
       suggested = n ? autoMessage(st) : "";
       summary.placeholder = suggested ? `Summary (empty uses "${suggested}")` : "Summary";
       pushBtn.disabled = !n;
@@ -808,7 +839,9 @@ export function createGitHub(API) {
     return h("div", { class: "gh-box" }, head,
       h("div", { class: "gh-repo" }, h("a", { href: url, target: "_blank", rel: "noopener", title: "Open on GitHub" }, `${g.owner}/${g.repo}${g.sub ? "/" + g.sub : ""}`), h("button", { class: "gh-branch", title: "Switch branch, or create one", onclick: chooseBranch }, icon("branch"), g.branch, icon("chevronDown")),
         h("button", { class: "btn icon sm", title: "Unlink from GitHub", onclick: unlink }, icon("close"))),
+      behind,
       status,
+      changedList,
       auth ? h("div", { class: "gh-commit" }, summary, body) : null,
       h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? pushBtn : btn("Sign in to push…", "user", signIn, "primary"), btn("Issues", "info", issues)),
       auth ? h("div", { class: "muted small" }, "Ctrl+Enter commits and pushes. The Commit button below only saves a snapshot in this browser.") : null,
@@ -824,7 +857,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
