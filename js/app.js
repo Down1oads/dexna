@@ -780,7 +780,7 @@ async function loadProject(id) {
   project = data;
   project.assets ||= {};
   loadAssets(project);
-  setTimeout(() => syncRequirements(), 0);
+  setTimeout(() => { syncRequirements(); github?.statusBranch(); }, 0);
   project.dirs ||= []; project.breakpoints ||= {}; project.packages ||= []; project.npm ||= {}; project.watches ||= []; project.expanded ||= [];
   project.open = (project.open || []).filter((p) => project.files[p] != null);
   if (!project.files[project.active]) project.active = project.open[0] || null;
@@ -1286,7 +1286,10 @@ treeEl.addEventListener("contextmenu", (e) => {
       items.push({ label: "Duplicate", run: () => duplicateFile(p) }, { label: "Download", run: () => downloadFile(p) });
       if (isAsset(p) && kindOf(p) === "image" && !/\.(svg|ico|cur)$/i.test(p)) items.push({ label: "Resize or Convert Image…", run: () => imageTool(p) });
     } else items.push({ label: "Download Folder as ZIP", run: () => downloadFolder(p) });
-    items.push({ label: "Copy Path", run: () => navigator.clipboard?.writeText(p) }, "-",
+    items.push({ label: "Copy Path", run: () => navigator.clipboard?.writeText(p) });
+    const curFile = currentPath();
+    if (curFile && curFile !== p) items.push({ label: `Copy Path Relative to ${basename(curFile)}`, run: () => navigator.clipboard?.writeText(relPath(curFile, p)) });
+    items.push("-",
       { label: "Rename…", kb: "f2", run: () => renameDialog(p) }, { label: "Delete", kb: "delete", run: () => deletePath(p) });
   }
   showMenu(e.clientX, e.clientY, items);

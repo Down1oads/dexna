@@ -63,7 +63,18 @@ export function createGitHub(API) {
   const conflictCopies = {}; // project id -> { path: GitHub's text } for files kept as yours when pulling
   const cache = new Map(); // short-lived answers (recent commits, build status, pull requests) keyed by URL
   try { auth = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null"); } catch (_) { auth = null; }
-  const changed = () => { document.dispatchEvent(new Event("dexna:github")); };
+  const changed = () => { document.dispatchEvent(new Event("dexna:github")); statusBranch(); };
+  /** The linked repository's branch in the status bar (click: switch or create a branch). */
+  function statusBranch() {
+    const el = document.getElementById("sb-gh"), g = API.project?.github;
+    if (!el) return;
+    el.classList.toggle("hidden", !g);
+    if (!g) return;
+    el.innerHTML = `${API.iconSvg("branch")}<span></span>`;
+    el.querySelector("span").textContent = g.branch;
+    el.title = `${g.owner}/${g.repo} on GitHub, branch ${g.branch}: click to switch or create a branch`;
+    el.onclick = () => chooseBranch();
+  }
 
   /* ---------- talking to GitHub ---------- */
   async function gh(path, { method = "GET", body, token = auth?.token } = {}) {
@@ -978,7 +989,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, openGist, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, openGist, statusBranch, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
