@@ -7,6 +7,7 @@ import { makeFlow, FLOW } from "./flow.js";
 import { makeFlow2, FLOW2 } from "./flow2.js";
 import { makeMinimal, MINIMAL } from "./minimal.js";
 import { makeCalm, CALM } from "./calm.js";
+import { makeCalmPixel, CALMPIXEL } from "./calmpixel.js";
 
 /* =====================================================================
  * Choices
@@ -19,7 +20,7 @@ export const EFFECTS = [
   ["warp", "Hyperspace"], ["galaxy", "Spiral galaxy"], ["meteors", "Meteor shower"], ["topo", "Topographic map"], ["circuit", "Circuit board"], ["hexgrid", "Hex grid pulses"],
   ["shards", "Glass shards"], ["beams", "Light beams"], ["clouds", "Drifting clouds"], ["rainglass", "Rain on glass"], ["lightning", "Thunderstorm"], ["dna", "DNA helix"],
   ["orbits", "Orbits"], ["mesh", "Gradient mesh"], ["bokeh", "Bokeh lights"], ["equalizer", "Equalizer"],
-  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL, ...CALM,
+  ...SCENES, ...SCENES2, ...COZY, ...FLOW, ...FLOW2, ...MINIMAL, ...CALM, ...CALMPIXEL,
   ["image", "Your image"], ["video", "Your video"],
 ];
 // alphabetical by name, with None first and your own image and video last
@@ -116,6 +117,11 @@ export const LOOKS = [
   { id: "pixellayers", name: "Pixel waves", desc: "Stacked waves as pixel art", theme: "rose-pine", set: { bgEffect: "pixellayers", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelholo", name: "Pixel holo", desc: "Iridescent ribbons as chunky pixels", theme: "catppuccin-mocha", set: { bgEffect: "pixelholo", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelfire", name: "Pixel fire", desc: "The classic retro fire effect", theme: "oled", set: { bgEffect: "pixelfire", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelshrine", name: "Pixel shrine", desc: "A torii gate in a still lake, with drifting petals", theme: "rose-pine", set: { bgEffect: "pixelshrine", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelsnow", name: "Pixel snow", desc: "A lit cabin in the snow, with smoke from the chimney", theme: "nord", set: { bgEffect: "pixelsnow", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelmeadow", name: "Pixel meadow", desc: "A lone tree on a hill, with slow clouds or fireflies", theme: "everforest-dark", set: { bgEffect: "pixelmeadow", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelforest", name: "Pixel forest", desc: "Layers of pines with fog sliding slowly through", theme: "nord", set: { bgEffect: "pixelforest", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "pixelaquarium", name: "Pixel aquarium", desc: "A few fish drifting past a little castle", theme: "tokyo-night", set: { bgEffect: "pixelaquarium", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelplanet", name: "Pixel planet", desc: "A turning pixel-art planet with its moon", theme: "tokyo-night", set: { bgEffect: "pixelplanet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "mono", name: "Black and white", desc: "Plain black and white, no effects", theme: "mono-black", set: { bgEffect: "none", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "dust", name: "Dust", desc: "Specks drifting through a faint shaft of light", theme: "mono-black", set: { bgEffect: "dust", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
@@ -188,6 +194,7 @@ function makeEffects() {
     ...makeFlow2(),
     ...makeMinimal(),
     ...makeCalm(),
+    ...makeCalmPixel(),
     aurora: {
       lowRes: 0.2,
       init(s) { s.blobs = s.colors.slice(0, 5).map((c, i) => ({ c, ph: rand(0, 6.3), wx: rand(0.05, 0.12), wy: rand(0.04, 0.1), r: rand(0.38, 0.62), x0: (i + 0.5) / 5, y0: rand(0.2, 0.8) })); },
@@ -1229,6 +1236,11 @@ export function createLook(A) {
       pixellayers: `linear-gradient(#1d1f4a 0 22%, #323a86 22% 38%, #4a44a8 38% 55%, #5c48b4 55% 70%, #7550bd 70% 85%, #934fbf 85%)`,
       pixelholo: `repeating-linear-gradient(90deg, transparent 0 4px, #00000022 4px 5px), radial-gradient(60% 30% at 45% 50%, #ff8ad8, #5a4bff 50%, transparent 70%), #1c1840`,
       pixelfire: `linear-gradient(transparent 45%, #af3f07 60%, #df5707 72%, #bfa727 86%, #ffffff 100%)`,
+      pixelshrine: `linear-gradient(90deg, transparent 22%, #c43a2a 22% 25%, transparent 25% 39%, #c43a2a 39% 42%, transparent 42%) 0 0 / 100% 66% no-repeat, linear-gradient(#c43a2a, #c43a2a) 16% 18% / 32% 6% no-repeat, radial-gradient(circle at 70% 25%, #f6ecd0 0 7px, transparent 8px), linear-gradient(#141638, #3a2c62 60%, #1c1a3c 66%, #141638)`,
+      pixelsnow: `linear-gradient(#d8e0f8, #d8e0f8) 55% 58% / 22% 6% no-repeat, linear-gradient(#4a2e24, #4a2e24) 56% 72% / 20% 14% no-repeat, linear-gradient(#ffc864, #ffc864) 58% 70% / 5% 6% no-repeat, linear-gradient(#0c1430, #24345e 65%, #a8b6e0 72%, #c8d4f0)`,
+      pixelmeadow: `radial-gradient(circle at 66% 40%, #1e3640 0 14px, transparent 15px), radial-gradient(ellipse 80% 45% at 66% 100%, #1e3636 98%, transparent), linear-gradient(#1a1844, #6a3e6a 55%, #b0606a 62%, #2a2a50 63%)`,
+      pixelforest: `repeating-linear-gradient(90deg, #0a1420 0 6px, #122030 6px 12px) 0 75% / 100% 25% no-repeat, linear-gradient(#24384c, #24384c) 0 55% / 100% 20% no-repeat, radial-gradient(circle at 24% 22%, #e8ecf0 0 6px, transparent 7px), linear-gradient(#0a1020, #2a4258)`,
+      pixelaquarium: `linear-gradient(#d8c08a, #d8c08a) 0 100% / 100% 16% no-repeat, radial-gradient(3px 2px at 40% 40%, #ff8a3d, transparent), radial-gradient(3px 2px at 65% 55%, #3de8ff, transparent), linear-gradient(#123c5a, #04142a)`,
       pixelplanet: `radial-gradient(circle at 58% 55%, #5a9a3a 0 6px, #2a5fc4 7px 20px, transparent 21px), radial-gradient(1px 1px at 20% 30%, #fff, transparent), #04030c`,
       dust: `linear-gradient(110deg, transparent 45%, #ffffff10 55%, transparent 65%), radial-gradient(1px 1px at 30% 40%, #fff, transparent), radial-gradient(1px 1px at 62% 55%, #fff, transparent), radial-gradient(1px 1px at 70% 30%, #ffffffaa, transparent), #000`,
       eclipse: `radial-gradient(circle at 50% 46%, #000 0 16px, #ffffffdd 17px, #ffffff44 19px, transparent 30px), #000`,
