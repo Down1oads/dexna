@@ -1317,3 +1317,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .img-row select { flex: 1; min-width: 0; }
 .img-row input[type=range] { flex: 1; }
 .img-grid .si-check input { width: auto; }
+.tree-filter-wrap { padding: 4px 8px 6px; }
+#tree-filter { width: 100%; box-sizing: border-box; height: 24px; font-size: 12px; padding: 0 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); }
+#tree-filter:focus { outline: none; border-color: var(--accent); }

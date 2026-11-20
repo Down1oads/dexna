@@ -279,6 +279,25 @@ export function createNotebook(A) {
         A.openFile(path);
       } },
       { id: "nb-run-all", label: "Notebook: Run All Cells", cat: "Run", run: () => (nb ? runAll() : toast("Open a notebook first.", "info")) },
+      { id: "nb-export-py", label: "Notebook: Export as Python Script", cat: "File", run: () => {
+        const path = nb?.path || (A.currentPath?.()?.endsWith(".ipynb") ? A.currentPath() : null);
+        if (!path) return toast("Open a notebook first.", "info");
+        let data; try { data = JSON.parse(A.textOf(path) || "{}"); } catch (_) { return toast("This notebook could not be read", "error"); }
+        const src = (c) => (Array.isArray(c.source) ? c.source.join("") : c.source || "").replace(/\s+$/, "");
+        // "# %%" marks cells, so Dexna (and other editors) can still run the script cell by cell
+        const parts = [`# ${path.split("/").pop()}, exported from a Jupyter notebook by Dexna`];
+        for (const c of data.cells || []) {
+          if (c.cell_type === "code") parts.push("# %%\n" + src(c));
+          else if (c.cell_type === "markdown") parts.push("# %% [markdown]\n" + src(c).split("\n").map((l) => (l ? "# " + l : "#")).join("\n"));
+        }
+        const base = path.replace(/\.ipynb$/, "");
+        let out = base + ".py";
+        for (let n = 2; A.currentFiles()[out] != null; n++) out = `${base}_${n}.py`;
+        A.writeFiles({ [out]: parts.join("\n\n") + "\n" });
+        A.rerenderFiles?.();
+        A.openFile(out);
+        toast(`Exported ${out}. Each "# %%" is a cell you can run on its own.`, "ok", 5000);
+      } },
     ],
   };
 }

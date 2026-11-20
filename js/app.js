@@ -1092,6 +1092,7 @@ const treeCompare = (a, b) => {
 };
 const treeEl = $("#file-tree");
 
+let treeFilter = "";
 function buildTree() {
   const root = { path: "", dirs: new Map(), files: [] };
   const dirNode = (p) => {
@@ -1105,6 +1106,12 @@ function buildTree() {
     return node;
   };
   const hidden = isExcluded();
+  const words = treeFilter.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length) { // only the files that match, inside their folders
+    const match = (f) => { const l = f.toLowerCase(); return words.every((w) => l.includes(w)); };
+    for (const f of [...Object.keys(project.files), ...assetPaths()]) if (!hidden(f) && match(f)) dirNode(dirname(f)).files.push(f);
+    return root;
+  }
   for (const d of project.dirs) if (!hidden(d)) dirNode(d);
   for (const f of Object.keys(project.files)) if (!hidden(f)) dirNode(dirname(f)).files.push(f);
   for (const f of assetPaths()) if (!hidden(f)) dirNode(dirname(f)).files.push(f);
@@ -1137,7 +1144,7 @@ function renderTree() {
   const walk = (node, depth) => {
     const dirs = [...node.dirs.values()].sort((a, b) => a.path.localeCompare(b.path));
     for (const d of dirs) {
-      const open = project.expanded.includes(d.path);
+      const open = !!treeFilter.trim() || project.expanded.includes(d.path);
       const errs = Object.entries(counts).filter(([k]) => k.startsWith(d.path + "/")).reduce((s, [, c]) => s + c.e, 0);
       const row = h("div", { class: "row" + (treeSelection === d.path ? " selected" : ""), style: { paddingLeft: 8 + depth * 14 + "px" }, "data-path": d.path, "data-dir": "1", draggable: "true" },
         h("span", { class: "twisty" }, icon(open ? "chevronDown" : "chevronRight")), fi(open ? "folderOpen" : "folder"),
@@ -1155,7 +1162,7 @@ function renderTree() {
     }
   };
   walk(root, 0);
-  if (!treeEl.children.length) treeEl.append(h("div", { class: "empty" }, "No files yet. ", h("button", { class: "link", onclick: () => newFileDialog("") }, "Create one")));
+  if (!treeEl.children.length) treeEl.append(treeFilter.trim() ? h("div", { class: "empty" }, `No files match "${treeFilter.trim()}"`) : h("div", { class: "empty" }, "No files yet. ", h("button", { class: "link", onclick: () => newFileDialog("") }, "Create one")));
 }
 
 function selectTreeRow(path) {
@@ -1166,6 +1173,11 @@ function selectTreeRow(path) {
   row?.scrollIntoView({ block: "nearest" });
 }
 
+$("#tree-filter").addEventListener("input", (e) => { treeFilter = e.target.value; renderTree(); });
+$("#tree-filter").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.stopPropagation(); e.target.value = ""; treeFilter = ""; renderTree(); treeEl.focus(); }
+  else if (e.key === "Enter" || e.key === "ArrowDown") { const first = treeEl.querySelector(".row:not([data-dir])"); if (first) { e.preventDefault(); if (e.key === "Enter") { const p = first.dataset.path; isAsset(p) ? openAsset(p) : openFile(p); } else { selectTreeRow(first.dataset.path); treeEl.focus(); } } }
+});
 treeEl.addEventListener("click", (e) => {
   const row = e.target.closest(".row");
   if (!row) { treeSelection = null; $$(".row.selected", treeEl).forEach((r) => r.classList.remove("selected")); return; }
@@ -1598,7 +1610,22 @@ function updateCursorStatus() {
   const n = sel && m ? m.getValueInRange(sel).length : 0;
   $("#sb-cursor").textContent = `Ln ${pos.lineNumber}, Col ${pos.column}` + (n ? ` (${n} selected)` : "");
   updateWordCount();
+  updateEol();
 }
+function updateEol() {
+  const m = editor?.getModel(), el = $("#sb-eol");
+  if (!el) return;
+  el.textContent = m ? (m.getEOL() === "\r\n" ? "CRLF" : "LF") : "";
+}
+function chooseEol() {
+  const m = editor?.getModel();
+  if (!m || !currentPath()) return;
+  quickPick({ placeholder: "Line endings for this file", source: () => [
+    { label: "LF", detail: "Linux, macOS, and most projects", desc: m.getEOL() === "\n" ? "current" : "", run: () => setEol(m, 0) },
+    { label: "CRLF", detail: "Windows", desc: m.getEOL() === "\r\n" ? "current" : "", run: () => setEol(m, 1) },
+  ] });
+}
+function setEol(m, crlf) { m.pushEOL(crlf ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF); updateEol(); toast(`Line endings are now ${crlf ? "CRLF" : "LF"}`, "ok"); }
 /* ---------- words and reading time, for prose (Markdown and plain text) ---------- */
 const countWords = (t) => (t.replace(/```[\s\S]*?```/g, " ").replace(/<!--[\s\S]*?-->/g, " ").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu) || []).length;
 const updateWordCount = debounce(() => {
@@ -1653,6 +1680,7 @@ function insertToc() {
   editor.focus();
 }
 $("#sb-cursor").onclick = () => { editor.focus(); editor.getAction("editor.action.gotoLine")?.run(); };
+$("#sb-eol").onclick = () => chooseEol();
 $("#sb-indent").onclick = () => quickPick({
   placeholder: "Tab size",
   source: () => [2, 4, 8].map((n) => ({ label: `Spaces: ${n}`, run: () => setSetting("tabSize", n) })),
@@ -4655,7 +4683,7 @@ async function boot() {
   tweaks.apply(); // again, now that every status bar item exists
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
   editor.onDidChangeModelContent(() => { schedulePreview(); updateWordCount(); });
-  editor.onDidChangeModel(() => updateWordCount());
+  editor.onDidChangeModel(() => { updateWordCount(); updateEol(); });
   setupPreview();
   monaco.editor.onDidChangeMarkers(() => refreshProblems());
 
