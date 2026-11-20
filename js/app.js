@@ -275,7 +275,43 @@ function sortJsonKeys() {
   toast("Keys sorted, at every level", "ok");
 }
 
+/* ---------- a file from the web, into the project ---------- */
+async function importFromUrl(dir = "") {
+  const url = await promptDialog({ title: "Import a file from a URL", message: "Any address that allows it: raw GitHub files (raw.githubusercontent.com), CDNs like jsDelivr, many datasets. It is downloaded into the project.", placeholder: "https://raw.githubusercontent.com/owner/repo/main/data.csv", okLabel: "Import" });
+  if (!url) return;
+  let u; try { u = new URL(url.trim()); } catch (_) { return toast("That is not a URL", "warn"); }
+  // a github.com/…/blob/… page means its raw file
+  const m = u.href.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/(.+)$/);
+  if (m) u = new URL(`https://raw.githubusercontent.com/${m[1]}/${m[2]}/${m[3]}`);
+  setStatusFlash?.(`Downloading ${u.pathname.split("/").pop() || u.host}…`);
+  try {
+    const res = await fetch(u.href);
+    if (!res.ok) throw new Error(`the server answered ${res.status}`);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length > 25_000_000) throw new Error("it is over 25 MB");
+    let name = decodeURIComponent(u.pathname.split("/").pop() || "") || "download";
+    if (!/\.[a-z0-9]+$/i.test(name)) { const t = res.headers.get("content-type") || ""; name += t.includes("json") ? ".json" : t.includes("html") ? ".html" : t.includes("csv") ? ".csv" : t.startsWith("image/") ? "." + t.split("/")[1].split(";")[0].replace("jpeg", "jpg").replace("svg+xml", "svg") : ".txt"; }
+    const full = (dir ? dir + "/" : "") + name, dot = full.lastIndexOf("."), hasExt = dot > full.lastIndexOf("/");
+    const stem = hasExt ? full.slice(0, dot) : full, ext = hasExt ? full.slice(dot) : "";
+    let path = validPath(full);
+    for (let n = 2; exists(path); n++) path = validPath(`${stem}-${n}${ext}`); // data.csv, data-2.csv…
+    if (isBinary(bytes)) await addAssets({ [path]: bytes });
+    else createFile(path, new TextDecoder().decode(bytes), { open: true });
+    toast(`Imported ${path} (${sizeLabel(bytes.length)})`, "ok");
+  } catch (e) {
+    toast(e instanceof TypeError ? "The download was blocked: that site does not let other pages fetch its files. Try its raw or CDN address." : `Could not import it: ${e.message}`, "error", 7000);
+  }
+}
+function copyAsMarkdown() {
+  const m = editor?.getModel(), path = currentPath();
+  if (!m || !path) return;
+  const sel = editor.getSelection(), code = sel && !sel.isEmpty() ? m.getValueInRange(sel) : m.getValue();
+  const fence = code.includes("```") ? "~~~" : "```", lang = m.getLanguageId() === "plaintext" ? "" : m.getLanguageId();
+  navigator.clipboard?.writeText(`${fence}${lang}\n${code.replace(/\s+$/, "")}\n${fence}\n`).then(() => toast("Copied as a Markdown code block", "ok"), () => toast("The browser did not allow copying", "warn"));
+}
+
 function setupEditorInserts(ed) {
+  ed.addAction({ id: "dexna.copyMd", label: "Copy as Markdown Code Block", contextMenuGroupId: "9_cutcopypaste", contextMenuOrder: 9, run: () => copyAsMarkdown() });
   // GitHub actions on the editor's right-click menu (they explain themselves when the project is not on GitHub)
   ed.addAction({ id: "dexna.ghLink", label: "Copy GitHub Link to These Lines", contextMenuGroupId: "9_dexna", contextMenuOrder: 5, run: () => cmdById("gh-copy-link")?.run() });
   ed.addAction({ id: "dexna.ghIssue", label: "Create GitHub Issue from Selection…", contextMenuGroupId: "9_dexna", contextMenuOrder: 6, run: () => cmdById("gh-issue-sel")?.run() });
@@ -1331,6 +1367,7 @@ treeEl.addEventListener("contextmenu", (e) => {
     { label: "New File…", kb: "ctrl+alt+n", run: () => newFileDialog(dir) },
     { label: "New Folder…", run: () => newFolderDialog(dir) },
     { label: "Upload Files…", run: () => { uploadTarget = dir; $("#file-upload").click(); } },
+    { label: "Import File from URL…", run: () => importFromUrl(dir) },
   ];
   if (p) {
     items.push("-");
@@ -4465,6 +4502,8 @@ const COMMANDS = [
   { id: "recent-files", label: "Recent Files…", cat: "File", kb: "ctrl+e", run: recentFiles },
   { id: "change-language", label: "Change Language Mode…", cat: "View", run: changeLanguage },
   { id: "save-output", label: "Save Terminal Output…", cat: "Run", run: savePanelOutput },
+  { id: "import-url", label: "Import File from URL…", cat: "File", run: () => importFromUrl() },
+  { id: "copy-md", label: "Copy as Markdown Code Block", cat: "Edit", run: copyAsMarkdown },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
@@ -4690,7 +4729,7 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],

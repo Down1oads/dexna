@@ -131,6 +131,7 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Vim keys** (Settings > Editor): modes, motions, operators, registers, macros, `:w` to save. The mode shows in the status bar.
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
 - **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
+- **Import File from URL** (File menu, or right-click a folder): downloads a file into the project from any address that allows it (a github.com file page is turned into its raw file); images and other binaries become binary files. **Copy as Markdown Code Block** (editor right-click menu) copies the selection, or the file, inside a fence with its language.
 - **The command palette** lists the commands you used last first when nothing is typed. Two files selected in the Explorer can be compared side by side (right-click > Compare the Two Files).
 - **Recent Files** (Ctrl+E): the files you opened lately, newest first. **Change Language Mode**: click the language in the status bar to show the file as another language, now or always for its kind of file. **Save Terminal Output** (the save button above the terminal): as a project file, a download, or to the clipboard.
 - **Pinned tabs** (a tab's right-click menu): they move to the front, show a pin (click it to unpin), and stay open through Close Others, Close All and a middle click.
