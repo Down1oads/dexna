@@ -132,6 +132,8 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
 - **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
 - **Reopen Closed Tab** (Alt+Shift+T, or a tab's right-click menu), **Format All Files in the Project** (Edit menu; Local History keeps the versions from before), and **Duplicate Project** (File menu; binary files included).
+- **Surround With…** (Ctrl+Alt+S, Edit menu): wrap the selection in a block of the file's language, indented properly: try/except, if, for, with, def and `# %%` in Python; try/catch, if, loops and functions in JavaScript, TypeScript, Java, C#, C, C++, Go, Rust and Lua; tags in HTML; code blocks, bold, links, quotes and `<details>` in Markdown.
+- **JSON: Sort Keys** (Text menu) sorts an object's keys at every level. **Add .gitignore…** and **Add License…** (File menu) use GitHub's templates; the .gitignore one suggests the template that fits the project, and the license gets the year and your GitHub name.
 - **Explorer filter**: type in the box above the files to see only those whose path matches (all words, any order), with their folders opened; Enter opens the first, Escape clears it.
 - **Line endings**: the status bar shows LF or CRLF for the open file; click it to convert.
 - **Text menu**: sort lines (numbers in order), remove duplicates, reverse, shuffle, change case (camelCase, snake_case, PascalCase, kebab-case, CONSTANT_CASE and more), Base64 and URL encode/decode, evaluate math in the selection, insert a UUID or a date.

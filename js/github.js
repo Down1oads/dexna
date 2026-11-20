@@ -404,6 +404,42 @@ export function createGitHub(API) {
     return "";
   }
 
+  /** A .gitignore from GitHub's templates, for any project (merged into one already there). */
+  async function addGitignore() {
+    const { gitignore } = await loadTemplates();
+    if (!gitignore.length) return API.toast("Could not load GitHub's templates. Check your connection.", "error");
+    const files = API.currentFiles(), suggested = suggestIgnore(Object.keys(files));
+    API.quickPick({ placeholder: "A .gitignore template" + (suggested ? ` (${suggested} fits this project)` : ""), source: (q) => gitignore.filter((t) => t.toLowerCase().includes(q.trim().toLowerCase())).sort((a, b) => (b === suggested) - (a === suggested)).map((t) => ({ label: t, desc: t === suggested ? "suggested" : "", run: async () => {
+      try {
+        const tpl = (await gh(`/gitignore/templates/${encodeURIComponent(t)}`)).source;
+        const cur = files[".gitignore"];
+        const text = cur == null ? tpl : cur.replace(/\s*$/, "\n\n") + `# ${t} (from GitHub's template)\n` + tpl;
+        API.writeFiles({ ".gitignore": text.endsWith("\n") ? text : text + "\n" });
+        API.rerenderFiles?.(); API.openFile(".gitignore");
+        API.toast(cur == null ? `Added a ${t} .gitignore` : `Added the ${t} template to your .gitignore`, "ok");
+      } catch (e) { API.toast(e.message, "error"); }
+    } })) });
+  }
+  /** A LICENSE file from GitHub's list, with the year and your name filled in. */
+  async function addLicense() {
+    const { licenses } = await loadTemplates();
+    if (!licenses.length) return API.toast("Could not load GitHub's licenses. Check your connection.", "error");
+    API.quickPick({ placeholder: "A license for this project (MIT and Apache 2.0 let others do almost anything)", source: (q) => licenses.filter((l) => l.name.toLowerCase().includes(q.trim().toLowerCase())).map((l) => ({ label: l.name, detail: l.spdx_id || "", run: async () => {
+      try {
+        const lic = await gh(`/licenses/${l.key}`);
+        let who = auth?.login || "";
+        if (auth) { try { const me = await cached("/user", 3600_000); who = me?.name || me?.login || who; } catch (_) {} }
+        const year = String(new Date().getFullYear());
+        const text = lic.body.replace(/\[year\]|\[yyyy\]|<year>/gi, year).replace(/\[fullname\]|\[name of copyright owner\]|<name of author>/gi, who || "[your name]");
+        const name = "LICENSE";
+        if (API.currentFiles()[name] != null && !(await API.confirmDialog({ title: "Replace the license", message: "This project already has a LICENSE file. Replace it?", okLabel: "Replace" }))) return;
+        API.writeFiles({ [name]: text });
+        API.rerenderFiles?.(); API.openFile(name);
+        API.toast(`Added the ${l.name}` + (who ? "" : ". Put your name where it says [your name]."), "ok", 5000);
+      } catch (e) { API.toast(e.message, "error"); }
+    } })) });
+  }
+
   async function publish() {
     const p = API.project;
     if (!p) return;
@@ -942,7 +978,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, openGist, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, openGist, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -958,6 +994,8 @@ export function createGitHub(API) {
       { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },
       { id: "gh-gist", label: "GitHub: Share as Gist…", cat: "File", run: shareGist },
       { id: "gh-gist-open", label: "Open GitHub Gist…", cat: "File", run: askGist },
+      { id: "add-gitignore", label: "Add .gitignore…", cat: "File", run: addGitignore },
+      { id: "add-license", label: "Add License…", cat: "File", run: addLicense },
       { id: "gh-issues", label: "GitHub: Issues…", cat: "Source Control", run: issues },
       { id: "sync-up", label: "Settings Sync: Upload to GitHub", cat: "Preferences", run: syncUpload },
       { id: "sync-down", label: "Settings Sync: Download from GitHub", cat: "Preferences", run: syncDownload },

@@ -227,6 +227,54 @@ async function formatAllFiles() {
   if (failed.length) toast(`Could not format ${failed.join(", ")}`, "warn");
 }
 
+/* ---------- Surround With: wrap the selection in a block of the file's language ---------- */
+const SURROUND = {
+  python: [["try / except", "try:\n$", "except Exception as e:\n    print(e)"], ["if", "if condition:\n$", ""], ["for", "for item in items:\n$", ""], ["while", "while condition:\n$", ""], ["with", "with open(path) as f:\n$", ""], ["def", "def name():\n$", ""], ["# %% cell", "# %%\n", "", true]],
+  javascript: [["try / catch", "try {\n$", "} catch (e) {\n  console.error(e);\n}"], ["if", "if (condition) {\n$", "}"], ["for … of", "for (const item of items) {\n$", "}"], ["function", "function name() {\n$", "}"], ["async IIFE", "(async () => {\n$", "})();"]],
+  typescript: null, java: [["try / catch", "try {\n$", "} catch (Exception e) {\n    e.printStackTrace();\n}"], ["if", "if (condition) {\n$", "}"], ["for", "for (var item : items) {\n$", "}"]],
+  c: [["if", "if (condition) {\n$", "}"], ["for", "for (int i = 0; i < n; i++) {\n$", "}"], ["while", "while (condition) {\n$", "}"], ["#if 0", "#if 0\n", "#endif", true]],
+  go: [["if", "if condition {\n$", "}"], ["for", "for _, item := range items {\n$", "}"], ["func", "func name() {\n$", "}"]],
+  rust: [["if", "if condition {\n$", "}"], ["for", "for item in items {\n$", "}"], ["fn", "fn name() {\n$", "}"]],
+  lua: [["if", "if condition then\n$", "end"], ["for", "for i, v in ipairs(t) do\n$", "end"], ["function", "local function name()\n$", "end"], ["pcall", "local ok, err = pcall(function()\n$", "end)"]],
+  html: [["<div>", "<div>\n$", "</div>"], ["<section>", "<section>\n$", "</section>"], ["<a>", '<a href="">', "</a>", true], ["<strong>", "<strong>", "</strong>", true], ["<!-- comment -->", "<!--\n", "-->", true]],
+  css: [["@media", "@media (max-width: 600px) {\n$", "}"], ["selector", ".class {\n$", "}"]],
+  markdown: [["code block", "```\n", "```", true], ["bold", "**", "**", true], ["italic", "_", "_", true], ["link", "[", "](https://)", true], ["quote", "> ", "", true], ["details", "<details>\n<summary>Details</summary>\n\n", "\n</details>", true]],
+};
+SURROUND.typescript = SURROUND.javascript; SURROUND.cpp = SURROUND.c; SURROUND.csharp = SURROUND.java; SURROUND.scss = SURROUND.css;
+function surroundWith() {
+  const m = editor?.getModel();
+  if (!m || !currentPath()) return;
+  const lang = m.getLanguageId(), list = SURROUND[lang];
+  if (!list) return toast(`Surround With has no blocks for ${langName?.(currentPath()) || lang} yet`, "info");
+  let sel = editor.getSelection();
+  if (sel.isEmpty()) sel = new monaco.Selection(sel.startLineNumber, 1, sel.startLineNumber, m.getLineMaxColumn(sel.startLineNumber));
+  quickPick({ placeholder: "Surround the selection with…", source: (q) => list.filter(([n]) => n.toLowerCase().includes(q.trim().toLowerCase())).map(([name, before, after, raw]) => ({ label: name, run: () => {
+    const whole = !raw && before.endsWith("\n$"); // a block: whole lines, indented one level
+    let range = sel;
+    if (whole) range = new monaco.Range(sel.startLineNumber, 1, sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber, m.getLineMaxColumn(sel.endColumn === 1 && sel.endLineNumber > sel.startLineNumber ? sel.endLineNumber - 1 : sel.endLineNumber));
+    const text = m.getValueInRange(range);
+    let out;
+    if (whole) {
+      const ind = (text.match(/^[ \t]*/) || [""])[0], unit = m.getOptions().insertSpaces ? " ".repeat(m.getOptions().tabSize) : "\t";
+      const body = text.split("\n").map((l) => (l.trim() ? unit + l : l)).join("\n");
+      const head = before.replace(/\n\$$/, "").split("\n").map((l) => ind + l).join("\n");
+      const tail = after ? "\n" + after.split("\n").map((l) => ind + l).join("\n") : "";
+      out = `${head}\n${body}${tail}`;
+    } else out = before + text + after;
+    editor.executeEdits("dexna-surround", [{ range, text: out }]);
+    editor.focus();
+  } })) });
+}
+function sortJsonKeys() {
+  const m = editor?.getModel();
+  if (!m || m.getLanguageId() !== "json") return toast("Open a JSON file first", "info");
+  let data; try { data = JSON.parse(m.getValue()); } catch (e) { return toast("This JSON has an error: " + e.message, "error"); }
+  const sort = (v) => (Array.isArray(v) ? v.map(sort) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort((a, b) => a.localeCompare(b)).map((k) => [k, sort(v[k])])) : v);
+  const indent = m.getOptions().insertSpaces ? m.getOptions().tabSize : "\t";
+  editor.executeEdits("dexna-sort-json", [{ range: m.getFullModelRange(), text: JSON.stringify(sort(data), null, indent) + "\n" }]);
+  toast("Keys sorted, at every level", "ok");
+}
+
 function setupEditorInserts(ed) {
   // GitHub actions on the editor's right-click menu (they explain themselves when the project is not on GitHub)
   ed.addAction({ id: "dexna.ghLink", label: "Copy GitHub Link to These Lines", contextMenuGroupId: "9_dexna", contextMenuOrder: 5, run: () => cmdById("gh-copy-link")?.run() });
@@ -4286,6 +4334,8 @@ const COMMANDS = [
     toast(`Made "${name}", a copy of "${src.name}"`, "ok");
   } },
   { id: "format-all", label: "Format All Files in the Project", cat: "Edit", run: formatAllFiles },
+  { id: "surround", label: "Surround With…", cat: "Edit", kb: "ctrl+alt+s", run: surroundWith },
+  { id: "json-sort", label: "JSON: Sort Keys", cat: "Text", run: sortJsonKeys },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
@@ -4503,8 +4553,8 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "gh-gist-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
-  Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
+  Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],

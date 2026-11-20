@@ -811,7 +811,7 @@ export function createExtras(A) {
   }
 
   return {
-    commands, textMenu: ["lines-sort", "lines-sort-desc", "lines-unique", "lines-reverse", "lines-empty", "-", "case-camel", "case-snake", "case-pascal", "case-kebab", "case-constant", "case-upper", "case-lower", "-", "enc-b64", "dec-b64", "calc-sel", "-", "ins-uuid", "ins-date", "-", "md-toc"],
+    commands, textMenu: ["lines-sort", "lines-sort-desc", "lines-unique", "lines-reverse", "lines-empty", "-", "case-camel", "case-snake", "case-pascal", "case-kebab", "case-constant", "case-upper", "case-lower", "-", "enc-b64", "dec-b64", "calc-sel", "-", "ins-uuid", "ins-date", "-", "md-toc", "json-sort"],
     onEditorReady, onProjectLoaded, onModelCreated, onModelContent, onFilesChanged, onView, onSetting,
     calcItems, helpItems, showDiff, scm, toolbox, markdownPage, markdownBody, isMarkdown, insertText, toggleZen, toggleBookmark,
   };
