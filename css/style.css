@@ -1309,3 +1309,11 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .gh-behind { display: flex; align-items: center; gap: 4px; font-size: 12px; padding: 4px 6px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .gh-behind.hidden { display: none; }
 .gh-behind svg { width: 13px; height: 13px; flex: none; }
+.img-tool .asset-view { max-height: 40vh; }
+.img-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-items: center; }
+.img-row { display: flex; align-items: center; gap: 8px; }
+.img-row > span:first-child { width: 56px; color: var(--fg-dim); font-size: 12px; }
+.img-row input[type=number] { width: 90px; }
+.img-row select { flex: 1; min-width: 0; }
+.img-row input[type=range] { flex: 1; }
+.img-grid .si-check input { width: auto; }

@@ -962,6 +962,80 @@ function downloadBlob(blob, name) {
 }
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
 function downloadProject() { downloadBlob(createZip({ ...project.files, ...Object.fromEntries(assetBytes) }, slug(project.name)), slug(project.name) + ".zip"); }
+/** A folder (and everything in it) as a ZIP, named after the folder. */
+function downloadFolder(dir) {
+  const inside = (f) => f.startsWith(dir + "/");
+  const files = {};
+  for (const [f, t] of Object.entries(project.files)) if (inside(f)) files[f.slice(dir.length + 1)] = t;
+  for (const [f, b] of assetBytes) if (inside(f)) files[f.slice(dir.length + 1)] = b;
+  if (!Object.keys(files).length) return toast("That folder is empty", "info");
+  downloadBlob(createZip(files, basename(dir)), slug(basename(dir)) + ".zip");
+}
+
+/** Resize an image, or convert it between PNG, JPEG and WebP (drawn on a canvas, in the browser). */
+async function imageTool(path) {
+  const bytes = assetBytes.get(path);
+  if (!bytes) return toast("The image is still loading. Try again in a moment.", "info");
+  let bmp;
+  try { bmp = await createImageBitmap(new Blob([bytes], { type: mimeOf(path) })); } catch (_) { return toast("The browser could not read this image", "error"); }
+  const W = bmp.width, H = bmp.height, ext0 = extOf(path);
+  const width = h("input", { type: "number", min: 1, max: 16384, value: W }), height = h("input", { type: "number", min: 1, max: 16384, value: H });
+  const keep = h("input", { type: "checkbox", checked: true });
+  const format = h("select", {}, [["png", "PNG (lossless, transparency)"], ["jpg", "JPEG (photos, smaller)"], ["webp", "WebP (smallest, for the web)"]].map(([v, l]) => h("option", { value: v, selected: v === (ext0 === "jpeg" ? "jpg" : ext0) }, l)));
+  const quality = h("input", { type: "range", min: 30, max: 100, value: 85 }), qv = h("span", { class: "muted small" }, "85%");
+  const asNew = h("input", { type: "checkbox", checked: true });
+  const info = h("p", { class: "muted small" });
+  const preview = h("img", { class: "asset-img" });
+  const fit = (src) => { if (!keep.checked) return; if (src === width) height.value = Math.max(1, Math.round((+width.value / W) * H)); else width.value = Math.max(1, Math.round((+height.value / H) * W)); };
+  const render = async () => {
+    const w = Math.max(1, Math.min(16384, +width.value || W)), hh = Math.max(1, Math.min(16384, +height.value || H)), fmt = format.value;
+    const c = new OffscreenCanvas(w, hh), g = c.getContext("2d");
+    if (fmt === "jpg") { g.fillStyle = "#ffffff"; g.fillRect(0, 0, w, hh); } // JPEG has no transparency
+    g.imageSmoothingQuality = "high"; g.drawImage(bmp, 0, 0, w, hh);
+    const blob = await c.convertToBlob({ type: fmt === "jpg" ? "image/jpeg" : "image/" + fmt, quality: +quality.value / 100 });
+    return { blob, w, hh, fmt };
+  };
+  const update = debounce(async () => {
+    qv.textContent = quality.value + "%";
+    quality.disabled = format.value === "png";
+    const { blob, w, hh } = await render();
+    if (preview.src) URL.revokeObjectURL(preview.src);
+    preview.src = URL.createObjectURL(blob);
+    info.textContent = `${W} × ${H}, ${sizeLabel(bytes.length)}  →  ${w} × ${hh}, ${sizeLabel(blob.size)}` + (blob.type.endsWith(format.value === "jpg" ? "jpeg" : format.value) ? "" : " (this browser could not make that format, so PNG)");
+  }, 150);
+  width.addEventListener("input", () => { fit(width); update(); }); height.addEventListener("input", () => { fit(height); update(); });
+  for (const el of [keep, format, quality]) el.addEventListener("input", update);
+  const save = async () => {
+    const { blob } = await render();
+    const real = blob.type === "image/jpeg" ? "jpg" : blob.type.split("/")[1], stem = path.replace(/\.[^./]+$/, "");
+    let target;
+    if (asNew.checked) { // photo.png -> photo-200x100.webp (numbered if taken)
+      target = `${stem}-${+width.value}x${+height.value}.${real}`;
+      for (let n = 2; exists(target); n++) target = `${stem}-${+width.value}x${+height.value}-${n}.${real}`;
+    } else { // replace: same file, or the same name with the new format's extension
+      target = `${stem}.${real}`;
+      if (target !== path) removeAssets([path]);
+    }
+    const out = new Uint8Array(await blob.arrayBuffer());
+    await addAssets({ [target]: out });
+    closeOverlay?.();
+    toast(`Saved ${target} (${sizeLabel(out.length)})`, "ok");
+  };
+  const row = (label, ...els) => h("label", { class: "img-row" }, h("span", {}, label), ...els);
+  openModal(h("div", { class: "modal asset-modal" },
+    h("div", { class: "modal-head" }, `Resize or convert ${basename(path)}`),
+    h("div", { class: "modal-body img-tool" },
+      h("div", { class: "asset-view checker" }, preview),
+      info,
+      h("div", { class: "img-grid" },
+        row("Width", width, h("span", { class: "muted small" }, "px")), row("Height", height, h("span", { class: "muted small" }, "px")),
+        h("label", { class: "si-check" }, keep, h("span", {}, "Keep the proportions")),
+        row("Format", format), row("Quality", quality, qv),
+        h("label", { class: "si-check" }, asNew, h("span", {}, "Save as a new file (otherwise replace this one)")))),
+    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => closeOverlay?.() }, "Cancel"), h("button", { class: "btn primary", onclick: save }, "Save"))));
+  update();
+}
+
 function downloadFile(path) { downloadBlob(isAsset(path) ? new Blob([assetBytes.get(path) || new Uint8Array()], { type: mimeOf(path) }) : new Blob([project.files[path]], { type: "text/plain" }), basename(path)); }
 
 async function readUploads(fileList, dir = "") {
@@ -1122,7 +1196,8 @@ treeEl.addEventListener("contextmenu", (e) => {
         items.push({ label: project.entry === p && project.pinEntry ? "Unset as Main File" : "Set as Main File", run: () => togglePinEntry(p) });
       }
       items.push({ label: "Duplicate", run: () => duplicateFile(p) }, { label: "Download", run: () => downloadFile(p) });
-    }
+      if (isAsset(p) && kindOf(p) === "image" && !/\.(svg|ico|cur)$/i.test(p)) items.push({ label: "Resize or Convert Image…", run: () => imageTool(p) });
+    } else items.push({ label: "Download Folder as ZIP", run: () => downloadFolder(p) });
     items.push({ label: "Copy Path", run: () => navigator.clipboard?.writeText(p) }, "-",
       { label: "Rename…", kb: "f2", run: () => renameDialog(p) }, { label: "Delete", kb: "delete", run: () => deletePath(p) });
   }
