@@ -182,7 +182,8 @@ export function createGitHub(API) {
       placeholder: title || "Pick a repository, type owner/name, paste a github.com link, or type a username",
       source: (q) => {
         const t = q.trim(), lc = t.toLowerCase(), items = [];
-        if (t && parseRepo(t)) items.push({ label: `Open ${t}`, detail: "from GitHub", run: () => open(t) });
+        if (t && parseGist(t) && /gist|^[0-9a-f]{20,}$/i.test(t)) items.push({ label: `Open gist ${parseGist(t).slice(0, 12)}…`, detail: "its files as a new project", run: () => openGist(t) });
+        else if (t && parseRepo(t)) items.push({ label: `Open ${t}`, detail: "from GitHub", run: () => open(t) });
         const words = lc.split(/\s+/).filter(Boolean);
         for (const r of repos) { // your matching repositories come first
           const hay = (r.full_name + " " + (r.description || "") + " " + (r.language || "")).toLowerCase();
@@ -212,7 +213,14 @@ export function createGitHub(API) {
 
   // Links like https://…/dexna/?github=owner/repo open that repository (after asking)
   async function fromUrl() {
-    const q = new URLSearchParams(location.search), v = q.get("github");
+    const q = new URLSearchParams(location.search), gistId = q.get("gist");
+    if (gistId) {
+      q.delete("gist");
+      history.replaceState(null, "", location.pathname + (q.size ? "?" + q : "") + location.hash);
+      if (await API.confirmDialog({ title: "Open a GitHub Gist", message: `This link opens the gist ${gistId.slice(0, 12)}… as a new project. Open it?`, okLabel: "Open" })) openGist(gistId);
+      return;
+    }
+    const v = q.get("github");
     if (!v) return;
     q.delete("github");
     history.replaceState(null, "", location.pathname + (q.size ? "?" + q : "") + location.hash);
@@ -748,6 +756,34 @@ export function createGitHub(API) {
     } catch (e) { API.toast(syncError(e), "error", 7000); return null; }
   }
 
+  /* ---------- gists as projects ---------- */
+  /** A gist link (gist.github.com/user/ID) or just its ID. */
+  const parseGist = (text) => { const m = String(text || "").trim().match(/^(?:https?:\/\/gist\.github(?:usercontent)?\.com\/(?:[\w-]+\/)?)?([0-9a-f]{20,40})(?:[/#?].*)?$/i); return m ? m[1] : null; };
+  async function openGist(text) {
+    const id = parseGist(text);
+    if (!id) { API.toast("Paste a gist link (gist.github.com/…) or its ID", "warn", 5000); return null; }
+    API.setStatusFlash?.("Opening the gist…");
+    try {
+      const gist = await gh(`/gists/${id}`);
+      const files = {}, bins = {};
+      for (const f of Object.values(gist.files || {})) {
+        let c = f.content;
+        if (f.truncated || c == null) { const r = await fetch(f.raw_url); const b = new Uint8Array(await r.arrayBuffer()); if (isBinary(b)) { bins[f.filename] = b; continue; } c = new TextDecoder().decode(b); }
+        files[f.filename] = c;
+      }
+      if (!Object.keys(files).length && !Object.keys(bins).length) throw new Error("That gist has no files.");
+      const name = (gist.description || Object.keys(files)[0] || "gist").split("\n")[0].slice(0, 60);
+      API.createProject({ files, entry: Object.keys(files).find((f) => /\.(py|js|ts|html|lua|go|rs|c|cpp|java|cs|rb)$/i.test(f)) }, name);
+      if (Object.keys(bins).length) await API.addAssets(bins);
+      API.toast(`Opened the gist "${name}" by ${gist.owner?.login || "someone"}: ${Object.keys(files).length + Object.keys(bins).length} file(s). It is a copy: share it back with GitHub: Share as Gist.`, "ok", 6000);
+      return id;
+    } catch (e) { API.toast(e.status === 404 ? "That gist was not found. It may have been deleted, or the link is wrong." : e.message, "error", 6000); return null; }
+  }
+  async function askGist() {
+    const v = await API.promptDialog({ title: "Open a GitHub Gist", message: "Paste a gist link or its ID. Its files open as a new project.", placeholder: "https://gist.github.com/user/0123456789abcdef…", okLabel: "Open" });
+    if (v) return openGist(v);
+  }
+
   /* ---------- issues ---------- */
   async function issues() {
     const g = API.project?.github;
@@ -906,7 +942,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, openGist, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -921,6 +957,7 @@ export function createGitHub(API) {
       { id: "gh-open-file", label: "GitHub: Open This File on GitHub", cat: "Source Control", run: openOnGitHub },
       { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },
       { id: "gh-gist", label: "GitHub: Share as Gist…", cat: "File", run: shareGist },
+      { id: "gh-gist-open", label: "Open GitHub Gist…", cat: "File", run: askGist },
       { id: "gh-issues", label: "GitHub: Issues…", cat: "Source Control", run: issues },
       { id: "sync-up", label: "Settings Sync: Upload to GitHub", cat: "Preferences", run: syncUpload },
       { id: "sync-down", label: "Settings Sync: Download from GitHub", cat: "Preferences", run: syncDownload },
