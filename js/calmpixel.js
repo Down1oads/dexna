@@ -1,7 +1,7 @@
 // Quiet pixel-art scenes: almost everything is drawn once, and only a few small things move, so they
 // stay out of the way while you work. A shrine by a lake, a snowed-in cabin, a tree on a hill,
-// a misty pine forest, an aquarium, a canyon, a harbor, a windmill, a bamboo grove, a cave mouth
-// and rooftops.
+// a misty pine forest, an aquarium, a canyon, a harbor, a windmill, a bamboo grove, a cave mouth,
+// rooftops, a stone bridge, jungle ruins, icebergs, a savanna, a castle above the clouds and a moon base.
 import { rand, TAU, offscreen } from "./scenes.js";
 
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
@@ -24,6 +24,8 @@ function pixmap(w, h, draw) {
           for (let x = 0; x < W; x++) d[y * W + x] = col(k > dither(x, y) ? cols[i + 1] : cols[i]);
         }
       },
+      ellipse(cx, cy, rx, ry, hex) { for (let y = -ry; y <= ry; y++) for (let x = -rx; x <= rx; x++) if ((x / rx) ** 2 + (y / ry) ** 2 <= 1.02) P.set(cx + x, cy + y, hex); },
+      line(x0, y0, x1, y1, hex, wd = 1) { const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1); for (let i = 0; i <= n; i++) P.rect(Math.round(x0 + (x1 - x0) * i / n), Math.round(y0 + (y1 - y0) * i / n), wd, wd, hex); },
       disc(cx, cy, r, hex) { for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r * 0.6) P.set(cx + x, cy + y, hex); },
       // a ridge of hills or mountains, filled down to the bottom
       ridge(base, amp, hex, freq, jag, cap) {
@@ -64,6 +66,17 @@ function drawTwinklers(ctx, list, t, col) {
     if (a > 0.85) { ctx.globalAlpha = (a - 0.85) * 4; ctx.fillRect(s.x - 1, s.y, 3, 1); ctx.fillRect(s.x, s.y - 1, 1, 3); }
   }
   ctx.globalAlpha = 1;
+}
+
+/** Mirror the picture above the waterline into the water, nudging a few rows a pixel sideways. */
+function reflect(ctx, above, hz, w, h, t) {
+  const step = Math.floor(t * 1.5);
+  for (let y = hz; y < h; y++) {
+    const src = hz - (y - hz) - 1;
+    if (src < 0) break;
+    const n = Math.sin(y * 12.9898 + step * 78.233) * 43758.5453, wob = (y - hz) > 2 && (n - Math.floor(n)) < 0.35 ? ((n * 10) & 1 ? 1 : -1) : 0;
+    ctx.drawImage(above, 0, src, w, 1, wob, y, w, 1);
+  }
 }
 
 /** A small pixel cloud: two rows of puffs over a flat base. */
@@ -704,10 +717,345 @@ export function makeCalmPixel() {
         ctx.globalAlpha = 1;
       },
     },
+
+    /* ---------------------------------------------------------- stone bridge */
+    pixelbridge: {
+      lowRes: 0.2, pixel: true,
+      init(s) {
+        const { w, h } = s, hz = Math.round(h * 0.64), u = h / 216;
+        s.hz = hz;
+        const p = s.dark
+          ? { sky: ["#0a0c26", "#161a44", "#2a2a5a", "#463a68"], trees: ["#161c34", "#10162a"], stone: "#4a4660", stoneDk: "#34304a", stoneHi: "#625e7c", bank: "#141c2a", willow: ["#16302a", "#1e4034"], trunk: "#1a1418", lamp: "#ffcf70", water: "rgba(8, 10, 30, 0.45)", orb: "#f2ecd8", stars: ["#ffffff", "#b4bce8"] }
+          : { sky: ["#5a9ae0", "#8ab8ea", "#c0d8f0", "#ece6d6"], trees: ["#6a9a7a", "#548a64"], stone: "#b8aa98", stoneDk: "#968874", stoneHi: "#d6cab8", bank: "#4a8a3e", willow: ["#4a8a3a", "#6aaa4a"], trunk: "#5a4030", lamp: "#d0462e", water: "rgba(40, 80, 130, 0.22)", orb: "#fff6d8", stars: [] };
+        s.p = p;
+        const cx = Math.round(w * 0.56), span = Math.round(w * 0.3), deckY = hz - Math.round(h * 0.2), rx = span * 0.55, ry = (hz - deckY) * 0.78;
+        s.lamps = [-0.62, 0.62].map((f) => ({ x: Math.round(cx + span * f), y: deckY - Math.round(9 * u) }));
+        s.above = pixmap(w, hz, (P) => {
+          P.sky(0, hz, p.sky);
+          if (s.dark) starfield(P, Math.round(w * hz / 140), hz * 0.6, p.stars);
+          P.disc(Math.round(w * 0.82), Math.round(hz * 0.25), Math.max(4, Math.round(5 * u)), p.orb);
+          for (let x = 0; x < w; x += 2) { const r = Math.round(rand(2, 5) * u); P.disc(x, hz - Math.round(rand(2, 7) * u), r, p.trees[0]); }
+          P.rect(0, hz - Math.round(4 * u), w, Math.round(4 * u), p.trees[1]);
+          // the bridge: a humped deck over one round arch, laid in courses of stone
+          for (let x = cx - span; x <= cx + span; x++) {
+            const k = (x - cx) / span, top = deckY + Math.round(k * k * h * 0.05);
+            for (let y = top; y < hz; y++) {
+              const e = ((x - cx) / rx) ** 2 + ((y - hz) / ry) ** 2;
+              if (e < 1) continue;
+              const row = Math.floor((y - top) / 3);
+              let col = (y - top) % 3 === 0 || (x + (row % 2) * 3) % 6 === 0 ? p.stoneDk : p.stone;
+              if (e < 1.18) col = (Math.round(Math.atan2(y - hz, x - cx) * 12) % 2) ? p.stoneHi : p.stoneDk;
+              if (y === top) col = p.stoneHi;
+              P.set(x, y, col);
+            }
+            if ((x - cx + span) % Math.round(6 * u) === 0) P.rect(x, top - Math.round(3 * u), 1, Math.round(3 * u), p.stoneDk);
+            P.set(x, top - Math.round(3 * u), p.stoneDk);
+          }
+          for (const l of s.lamps) { P.rect(l.x, l.y, 1, deckY - l.y, p.trunk); P.rect(l.x - 1, l.y - Math.round(3 * u), 3, Math.round(3 * u), p.lamp); }
+          P.rect(0, hz - 3, cx - span + 2, 3, p.bank); P.rect(cx + span - 2, hz - 3, w, 3, p.bank);
+          // a willow on the near bank
+          const tx = Math.round(w * 0.12), top = hz - Math.round(h * 0.36), cr = Math.round(h * 0.1);
+          P.rect(tx - 1, top + cr, Math.max(2, Math.round(3 * u)), hz - top - cr, p.trunk);
+          P.disc(tx, top + cr, cr, p.willow[0]); P.disc(tx - Math.round(cr * 0.3), top + Math.round(cr * 0.7), Math.round(cr * 0.6), p.willow[1]);
+          for (let x = tx - cr - 2; x <= tx + cr + 2; x += 2) {
+            const len = Math.round(rand(0.5, 1) * (hz - top - cr * 1.2)), x0 = x + (Math.random() < 0.5 ? 1 : 0);
+            P.rect(x0, top + cr, 1, len, (x / 2) % 2 ? p.willow[0] : p.willow[1]);
+          }
+        });
+        s.leafs = Array.from({ length: 2 }, () => ({ x: rand(0, w), y: Math.round(rand(hz + 4, h - 4)), v: rand(0.6, 1.2) }));
+        s.tw = s.dark ? twinklers(6, w, hz * 0.5) : [];
+      },
+      draw(ctx, s, t, dt) {
+        const { w, h, hz, p } = s;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(s.above, 0, 0);
+        drawTwinklers(ctx, s.tw, t, "#ffffff");
+        reflect(ctx, s.above, hz, w, h, t);
+        ctx.fillStyle = p.water; ctx.fillRect(0, hz, w, h - hz);
+        if (s.dark) for (const l of s.lamps) { ctx.fillStyle = "#ffcf70"; ctx.globalAlpha = 0.12 + 0.04 * Math.sin(t * 2 + l.x); ctx.fillRect(l.x - 3, l.y - 6, 7, 7); ctx.globalAlpha = 1; }
+        ctx.fillStyle = p.willow[1];
+        for (const f of s.leafs) { f.x += f.v * dt; if (f.x > w) f.x = -3; ctx.fillRect(Math.round(f.x), f.y, 2, 1); }
+      },
+    },
+
+    /* ---------------------------------------------------------- jungle ruins */
+    pixelruins: {
+      lowRes: 0.2, pixel: true,
+      init(s) {
+        const { w, h } = s, u = h / 216;
+        const p = s.dark
+          ? { sky: ["#06120e", "#0c1e18", "#14302a", "#1e3e34"], far: "#12261e", pyr: "#24443a", pyrDk: "#1a342c", canopy: ["#0e2018", "#143026"], col: "#3a5448", colDk: "#26382e", colHi: "#4e6a5c", vine: "#1a4426", fern: "#10301a", mist: "#2c4c42", orb: "#e8f0e0", stars: ["#ffffff", "#a8c8b8"], mote: "#d8ff9a" }
+          : { sky: ["#9ac8b0", "#b4d8c0", "#cfe8d0", "#e6f2de"], far: "#88b494", pyr: "#9aa890", pyrDk: "#7a8a72", canopy: ["#4e8450", "#3e7042"], col: "#b4ac94", colDk: "#8a826c", colHi: "#d2caae", vine: "#3a7a3a", fern: "#2e6a2e", mist: "#f2f8ee", orb: "#fffbe8", stars: [], mote: "#fffbe0" };
+        s.p = p;
+        s.bg = pixmap(w, h, (P) => {
+          P.sky(0, h, p.sky);
+          if (s.dark) starfield(P, Math.round(w * h / 220), h * 0.35, p.stars);
+          P.disc(Math.round(w * 0.3), Math.round(h * 0.18), Math.max(4, Math.round(6 * u)), p.orb);
+          for (let x = 0; x < w; x += 3) P.disc(x, Math.round(h * 0.56 - rand(0, 8) * u), Math.round(rand(3, 7) * u), p.far);
+          P.rect(0, Math.round(h * 0.56), w, h, p.far);
+          // a stepped pyramid with a shrine on top
+          const px = Math.round(w * 0.62), base = Math.round(h * 0.64), tiers = 5, th = Math.round(h * 0.05);
+          for (let k = 0; k < tiers; k++) {
+            const half = Math.round(w * (0.18 - k * 0.028)), y1 = base - k * th;
+            for (let y = y1 - th; y < y1; y++) for (let x = px - half; x <= px + half; x++) P.set(x, y, y === y1 - th ? p.col : x > px + half * 0.25 ? p.pyrDk : p.pyr);
+          }
+          P.rect(px - Math.round(2 * u), base - tiers * th, Math.round(4 * u) + 1, tiers * th, p.pyrDk); // the stair
+          const sw = Math.round(w * 0.05), sh = Math.round(th * 1.6), sy = base - tiers * th - sh;
+          P.rect(px - sw, sy, sw * 2, sh, p.pyr); P.rect(px - Math.round(sw * 0.3), sy + Math.round(sh * 0.35), Math.round(sw * 0.6), sh - Math.round(sh * 0.35), p.canopy[0]);
+          for (let y = base - th * 3; y < base + 4; y++) for (let x = 0; x < w; x++) if (dither(x, y) < (y - (base - th * 3)) / (th * 3 + 4) * 0.6) P.set(x, y, p.mist);
+          for (let x = 0; x < w; x += 3) P.disc(x, Math.round(h * 0.74 - rand(0, 10) * u), Math.round(rand(4, 9) * u), p.canopy[x % 2]);
+          P.rect(0, Math.round(h * 0.74), w, h, p.canopy[0]);
+          // stone columns in front, one broken
+          for (const [fx, top, cw] of [[0.08, 0.12, 14], [0.24, 0.5, 12], [0.9, 0.2, 16]]) {
+            const x0 = Math.round(w * fx), cww = Math.round(cw * u), y0 = Math.round(h * top);
+            for (let y = y0; y < h; y++) for (let x = 0; x < cww; x++) P.set(x0 + x, y, x === 1 ? p.colHi : x > cww * 0.65 ? p.colDk : x % 4 === 3 ? p.colDk : p.col);
+            if (top < 0.3) { P.rect(x0 - 2, y0 - Math.round(3 * u), cww + 4, Math.round(3 * u), p.col); P.rect(x0 - 2, y0 - 1, cww + 4, 1, p.colDk); }
+            else for (let x = 0; x < cww; x++) { const d = Math.round(Math.abs(Math.sin(x * 1.7)) * 4 * u); P.rect(x0 + x, y0, 1, d, p.sky[2]); }
+            for (let v = 0; v < 2; v++) { let vx = x0 + Math.round(rand(0, cww)); for (let y = y0; y < y0 + h * 0.4; y++) { vx += Math.round(Math.sin(y * 0.3 + v) * 0.6); P.set(vx, y, p.vine); if (y % 4 === 0) P.set(vx + 1, y, p.vine); } }
+          }
+          // vines from above and ferns below
+          for (let k = 0; k < Math.round(w / 18); k++) { let vx = rand(0, w); const len = rand(0.1, 0.35) * h; for (let y = 0; y < len; y++) { vx += Math.sin(y * 0.2 + k) * 0.4; P.set(vx, y, p.vine); if (y % 5 === 0) { P.set(vx - 1, y + 1, p.vine); P.set(vx + 1, y + 2, p.vine); } } }
+          for (let k = 0; k < Math.round(w / 10); k++) { const fx = rand(0, w), fy = h - rand(0, 4 * u), n = Math.round(rand(5, 12) * u); for (let a = -2; a <= 2; a++) P.line(fx, fy, fx + a * n * 0.5, fy - n * (1 - Math.abs(a) * 0.25), p.fern); }
+        });
+        s.motes = Array.from({ length: 12 }, () => ({ x: rand(0, w), y: rand(h * 0.3, h), ph: rand(0, TAU), sp: rand(0.3, 0.7) }));
+        s.tw = s.dark ? twinklers(4, w, h * 0.3) : [];
+      },
+      draw(ctx, s, t) {
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(s.bg, 0, 0);
+        drawTwinklers(ctx, s.tw, t, "#ffffff");
+        // fireflies at night, specks of dust drifting in the light by day
+        ctx.fillStyle = s.p.mote;
+        for (const m of s.motes) {
+          const a = s.dark ? Math.sin(t * m.sp + m.ph) : 0.6 + 0.4 * Math.sin(t * m.sp + m.ph);
+          if (a < 0.3) continue;
+          ctx.globalAlpha = a * (s.dark ? 1 : 0.7);
+          ctx.fillRect(Math.round(m.x + Math.sin(t * 0.2 + m.ph) * 8), Math.round(m.y + Math.cos(t * 0.15 + m.ph) * 4), 1, 1);
+        }
+        ctx.globalAlpha = 1;
+      },
+    },
+
+    /* ---------------------------------------------------------- icebergs */
+    pixelicebergs: {
+      lowRes: 0.2, pixel: true,
+      init(s) {
+        const { w, h } = s, hz = Math.round(h * 0.58), u = h / 216;
+        s.hz = hz;
+        const p = s.dark
+          ? { sky: ["#04081a", "#0a1430", "#142450", "#22386a"], sea: "rgba(6, 14, 40, 0.55)", ice: "#c8d8f0", iceSh: "#8aa0c8", iceDk: "#5a7098", under: "#1e4a6a", orb: "#eef2f8", stars: ["#ffffff", "#a8b8e8"] }
+          : { sky: ["#6a86c8", "#a4b0de", "#ecbcc8", "#ffd6c0"], sea: "rgba(40, 70, 140, 0.4)", ice: "#ffffff", iceSh: "#c8dcf4", iceDk: "#90b0d8", under: "#7ab4d4", orb: "#fff2d8", stars: [] };
+        s.p = p;
+        const berg = (P, cx, wd, ht) => {
+          const pts = Array.from({ length: 6 }, (_, i) => [i / 5, i === 0 || i === 5 ? 0 : rand(0.4, 1)]);
+          for (let x = 0; x < wd; x++) {
+            const f = x / wd, i = Math.min(4, Math.floor(f * 5)), k = f * 5 - i, top = Math.round(hz - ht * (pts[i][1] + (pts[i + 1][1] - pts[i][1]) * k));
+            for (let y = top; y < hz; y++) P.set(cx - wd / 2 + x, y, f > 0.55 + Math.sin(y * 0.3) * 0.05 ? p.iceSh : (x % 13 === 6 && y > top + 2 && y < top + 7) ? p.iceDk : p.ice);
+          }
+        };
+        s.above = pixmap(w, hz, (P) => {
+          P.sky(0, hz, p.sky);
+          if (s.dark) starfield(P, Math.round(w * hz / 130), hz * 0.7, p.stars);
+          P.disc(Math.round(w * 0.7), s.dark ? Math.round(hz * 0.3) : hz - Math.round(4 * u), Math.max(4, Math.round(7 * u)), p.orb);
+          berg(P, w * 0.22, w * 0.3, h * 0.2); berg(P, w * 0.5, w * 0.1, h * 0.07); berg(P, w * 0.84, w * 0.2, h * 0.13);
+        });
+        s.under = pixmap(w, h - hz, (P) => { for (const [cx, rw] of [[0.22, 0.2], [0.84, 0.13]]) for (let y = 2; y < (h - hz) * 0.6; y++) for (let x = -w * rw; x <= w * rw; x++) if (((x / (w * rw)) ** 2 + (y / ((h - hz) * 0.6)) ** 2) < 1 && dither(x + 64, y) < 0.35) P.set(w * cx + x, y, p.under); });
+        s.floes = Array.from({ length: 5 }, () => ({ x: rand(0, w), y: Math.round(rand(hz + 6, h - 4)), len: Math.round(rand(4, 12) * u), v: rand(0.3, 0.8) }));
+        s.tw = s.dark ? twinklers(6, w, hz * 0.6) : [];
+      },
+      draw(ctx, s, t, dt) {
+        const { w, h, hz, p } = s;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(s.above, 0, 0);
+        drawTwinklers(ctx, s.tw, t, "#ffffff");
+        reflect(ctx, s.above, hz, w, h, t);
+        ctx.fillStyle = p.sea; ctx.fillRect(0, hz, w, h - hz);
+        ctx.drawImage(s.under, 0, hz);
+        for (const f of s.floes) {
+          f.x += f.v * dt; if (f.x > w) f.x = -f.len;
+          const x = Math.round(f.x);
+          ctx.fillStyle = p.ice; ctx.fillRect(x, f.y, f.len, 1); ctx.fillRect(x + 1, f.y - 1, f.len - 3, 1);
+          ctx.fillStyle = p.iceDk; ctx.fillRect(x, f.y + 1, f.len, 1);
+        }
+      },
+    },
+
+    /* ---------------------------------------------------------- savanna */
+    pixelsavanna: {
+      lowRes: 0.2, pixel: true,
+      init(s) {
+        const { w, h } = s, hz = Math.round(h * 0.72), u = h / 216;
+        s.hz = hz; s.sc = Math.max(2, Math.round(u * 1.5));
+        const p = s.dark
+          ? { sky: ["#140a26", "#2e1240", "#5e1e4a", "#a83a48", "#e8703e"], sun: "#ffb060", sil: "#120810", far: "#3a1430", grass: "#1e0c18", stars: ["#ffffff", "#e8c8e8"] }
+          : { sky: ["#e86a3a", "#f08a42", "#f8aa50", "#ffcc6a", "#ffe49a"], sun: "#fff4c8", sil: "#3a1e14", far: "#c86a3a", grass: "#5a2e18", stars: [] };
+        s.p = p;
+        s.bg = pixmap(w, h, (P) => {
+          P.sky(0, hz + 2, p.sky);
+          if (s.dark) starfield(P, Math.round(w * h / 260), h * 0.3, p.stars);
+          P.disc(Math.round(w * 0.62), hz, Math.round(h * 0.16), p.sun);
+          P.ridge(hz, h * 0.04, p.far, 3, 0.4);
+          P.rect(0, hz, w, h - hz, p.grass);
+          for (let x = 0; x < w; x += 2) P.rect(x, hz - Math.round(rand(0, 2)), 1, 2, p.grass);
+          // flat-topped acacias
+          for (const [fx, sz] of [[0.2, 1.2], [0.36, 0.5], [0.82, 0.9], [0.95, 0.4]]) {
+            const x = Math.round(w * fx), base = hz + Math.round(2 * u), th = Math.round(h * 0.16 * sz), cw = Math.round(h * 0.17 * sz);
+            P.line(x, base, x + Math.round(th * 0.1), base - th, p.sil, Math.max(1, Math.round(sz * 2 * u)));
+            P.line(x + Math.round(th * 0.05), base - th * 0.5, x - Math.round(cw * 0.35), base - th * 0.95, p.sil, Math.max(1, Math.round(sz * u)));
+            P.line(x + Math.round(th * 0.08), base - th * 0.7, x + Math.round(cw * 0.4), base - th, p.sil, Math.max(1, Math.round(sz * u)));
+            P.ellipse(x, base - th - Math.round(2 * sz * u), cw / 2, Math.max(1.5, 3 * sz * u), p.sil);
+            P.ellipse(x - cw * 0.2, base - th - Math.round(4 * sz * u), cw / 3, Math.max(1, 2 * sz * u), p.sil);
+          }
+          for (let k = 0; k < w / 4; k++) { const x = rand(0, w), y = h - rand(0, (h - hz) * 0.6), n = rand(2, 6) * u; P.line(x, y, x - 1, y - n, p.sil); P.line(x, y, x + 2, y - n * 0.8, p.sil); }
+        });
+        s.giraffes = [{ x: w * 0.7, y: hz + Math.round(3 * u), sc: s.sc, v: -1.4 }, { x: w * 0.45, y: hz + 1, sc: Math.max(1, Math.round(s.sc * 0.5)), v: -0.8 }];
+        s.flock = { x: -20, y: h * 0.25, wait: rand(5, 15) };
+        s.tw = s.dark ? twinklers(4, w, h * 0.25) : [];
+      },
+      draw(ctx, s, t, dt) {
+        const { w, p } = s;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(s.bg, 0, 0);
+        drawTwinklers(ctx, s.tw, t, "#ffffff");
+        ctx.fillStyle = p.sil;
+        for (const g of s.giraffes) { // a giraffe walking slowly, legs swapping every second
+          g.x += g.v * dt; if (g.x < -30) g.x = w + 30;
+          const k = g.sc, step = Math.floor(t * 1.2) % 2, R = (x, y, ww, hh) => ctx.fillRect(Math.round(g.x + x * k), Math.round(g.y + (y - 22) * k), Math.max(1, Math.round(ww * k)), Math.max(1, Math.round(hh * k)));
+          R(5, 9, 9, 4); R(4, 8, 4, 2); R(13, 10, 1, 1); R(14, 10, 1, 4);
+          for (let i = 0; i < 9; i++) R(4.6 - i * 0.35, 9 - i, 2, 1.5);
+          R(-0.5, -1, 4, 2); R(-0.5, 0.5, 2, 1); R(1, -2, 1, 1); R(2.5, -2, 1, 1); R(3.5, -0.5, 1, 1);
+          const legs = step ? [4.5, 7, 11, 13.5] : [5.5, 6.5, 12, 12.8];
+          for (const lx of legs) R(lx, 13, 1, 9);
+        }
+        const f = s.flock; // a few birds cross now and then
+        if ((f.wait -= dt) < 0) {
+          f.x += 6 * dt;
+          for (let i = 0; i < 5; i++) { const bx = Math.round(f.x - Math.abs(i - 2) * 5), by = Math.round(f.y + (i - 2) * 3), up = Math.sin(t * 4 + i) > 0; ctx.fillRect(bx - 1, by - (up ? 1 : 0), 1, 1); ctx.fillRect(bx, by, 1, 1); ctx.fillRect(bx + 1, by - (up ? 1 : 0), 1, 1); }
+          if (f.x > w + 20) { f.x = -20; f.y = rand(0.15, 0.4) * s.h; f.wait = rand(20, 40); }
+        }
+      },
+    },
+
+    /* ---------------------------------------------------------- castle above the clouds */
+    pixelcastle: {
+      lowRes: 0.2, pixel: true,
+      init(s) {
+        const { w, h } = s, u = h / 216 * 1.4;
+        const p = s.dark
+          ? { sky: ["#060a20", "#0e1840", "#1a2858", "#2a3a6c"], cloud: ["#2a3866", "#3a4a7a", "#4c5c8c"], rock: "#1e2034", rockDk: "#14162a", wall: "#3c3c58", wallDk: "#2a2a44", roof: "#2c1e44", win: "#ffcf70", flag: "#d0504a", orb: "#f0eee0", stars: ["#ffffff", "#aab4e0"] }
+          : { sky: ["#3a7ad0", "#6a9ee0", "#a0c4ec", "#d4e6f6"], cloud: ["#d8e4f0", "#eef4fa", "#ffffff"], rock: "#7a6a62", rockDk: "#5a4c46", wall: "#dcd4c8", wallDk: "#b4aa9c", roof: "#3a5aa8", win: "#3a4a6a", flag: "#d84a3a", orb: "#fff8e0", stars: [] };
+        s.p = p;
+        const cx = Math.round(w * 0.5), peak = Math.round(h * 0.5);
+        s.flags = [];
+        const strip = (seed, col, top) => pixmap(w * 2, Math.round(h * 0.4), (P) => {
+          for (let x = 0; x < P.w; x++) {
+            const ty = Math.round(top + Math.sin(x * 0.07 + seed) * 3 * u + Math.abs(Math.sin(x * 0.023 + seed * 2)) * -8 * u + Math.sin(x * 0.18 + seed) * 1.5 * u);
+            for (let y = Math.max(0, ty); y < P.h; y++) P.set(x, y, y < ty + 2 ? col[2] : (y < ty + 5 && dither(x, y) < 0.5) ? col[2] : col[1]);
+          }
+        });
+        s.bg = pixmap(w, h, (P) => {
+          P.sky(0, h, p.sky);
+          if (s.dark) starfield(P, Math.round(w * h / 150), h * 0.5, p.stars);
+          P.disc(Math.round(w * 0.2), Math.round(h * 0.2), Math.max(4, Math.round(6 * u)), p.orb);
+          P.ridge(Math.round(h * 0.78), h * 0.05, p.cloud[0], 5, 0.3);
+          // the rock the castle stands on
+          for (let y = peak; y < h; y++) { const k = (y - peak) / (h - peak), half = Math.round(w * (0.1 + k * 0.25) + Math.sin(y * 0.4) * 2 * u); for (let x = -half; x <= half; x++) P.set(cx + x, y, x > half * 0.2 ? p.rockDk : p.rock); }
+          // walls with crenellations, three towers with cone roofs, lit windows
+          const wl = Math.round(w * 0.1), wh = Math.round(16 * u), wy = peak - wh;
+          P.rect(cx - wl, wy, wl * 2, wh, p.wall); P.rect(cx + Math.round(wl * 0.3), wy, Math.round(wl * 0.7), wh, p.wallDk);
+          for (let x = cx - wl; x < cx + wl; x += Math.round(4 * u)) P.rect(x, wy - Math.round(2 * u), Math.round(2 * u), Math.round(2 * u), p.wall);
+          P.rect(cx - Math.round(3 * u), peak - Math.round(7 * u), Math.round(6 * u), Math.round(7 * u), p.rockDk);
+          for (const [dx, tw, th] of [[-1, 8, 30], [0, 11, 46], [1, 8, 30]]) {
+            const tx = cx + Math.round(dx * wl), tww = Math.round(tw * u), thh = Math.round(th * u), ty = peak - thh;
+            P.rect(tx - (tww >> 1), ty, tww, thh, p.wall); P.rect(tx + Math.round(tww * 0.15), ty, Math.round(tww * 0.35), thh, p.wallDk);
+            const rh = Math.round(tww * 1.3);
+            for (let r = 0; r < rh; r++) { const half = Math.round((tww / 2 + 1) * (1 - r / rh)); P.rect(tx - half, ty - r, half * 2 + 1, 1, p.roof); }
+            for (let k = 0; k < th / 12; k++) P.rect(tx - 1, ty + Math.round((5 + k * 10) * u), Math.max(2, Math.round(2 * u)), Math.max(2, Math.round(3 * u)), p.win);
+            P.rect(tx, ty - rh - Math.round(6 * u), 1, Math.round(6 * u), p.wallDk);
+            s.flags.push({ x: tx + 1, y: ty - rh - Math.round(6 * u) });
+          }
+        });
+        s.clouds = [strip(1, p.cloud, h * 0.06), strip(4, p.cloud, h * 0.14)];
+        s.tw = s.dark ? twinklers(6, w, h * 0.45) : [];
+      },
+      draw(ctx, s, t) {
+        const { w, h, p } = s;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(s.bg, 0, 0);
+        drawTwinklers(ctx, s.tw, t, "#ffffff");
+        const wave = Math.floor(t * 1.5) % 2, u = Math.max(1, Math.round(h / 216));
+        ctx.fillStyle = p.flag;
+        for (const f of s.flags) { ctx.fillRect(f.x, f.y, 3 * u, u); ctx.fillRect(f.x, f.y + u, (wave ? 4 : 3) * u, u); ctx.fillRect(f.x + (wave ? u : 0), f.y + 2 * u, 2 * u, u); }
+        s.clouds.forEach((c, i) => { const off = Math.round((t * (0.6 + i * 0.5)) % w); ctx.drawImage(c, -off, Math.round(h * (0.62 + i * 0.1))); });
+      },
+    },
+
+    /* ---------------------------------------------------------- moon base */
+    pixelmoonbase: {
+      lowRes: 0.2, pixel: true,
+      init(s) {
+        const { w, h } = s, hz = Math.round(h * 0.62), u = h / 216 * 1.8;
+        const p = s.dark
+          ? { sky: ["#020208", "#04040c", "#06061a"], ground: ["#2a2a36", "#3a3a48", "#4c4c5c"], crater: "#1e1e28", rim: "#5e5e70", dome: "#8a8aa0", domeDk: "#5a5a70", win: "#ffcf70", panel: "#1e3a7a", panelHi: "#3a5aa8", metal: "#8a8a98", stars: ["#ffffff", "#c8d0ff", "#8890b8"] }
+          : { sky: ["#04040c", "#08081a", "#0c0c24"], ground: ["#8a8a96", "#a8a8b4", "#c4c4cc"], crater: "#70707c", rim: "#dcdce4", dome: "#e8e8f0", domeDk: "#b0b0c0", win: "#3a8ad8", panel: "#2a4a9a", panelHi: "#5a7ac8", metal: "#d0d0d8", stars: ["#ffffff", "#c8d0ff"] };
+        s.p = p;
+        s.ant = { x: Math.round(w * 0.74), y: hz - Math.round(36 * u) };
+        s.bg = pixmap(w, h, (P) => {
+          P.sky(0, hz + 2, p.sky);
+          starfield(P, Math.round(w * hz / 90), hz, p.stars);
+          // Earth: oceans, land and cloud, half in shadow
+          const ex = Math.round(w * 0.24), ey = Math.round(h * 0.24), er = Math.round(h * 0.12);
+          for (let y = -er; y <= er; y++) for (let x = -er; x <= er; x++) {
+            if (x * x + y * y > er * er) continue;
+            const fx = x / er, fy = y / er, n = Math.sin(fx * 4 + Math.sin(fy * 3) * 1.5) + Math.sin(fy * 5 - fx * 2 + 1.3) * 0.8;
+            let col = n > 0.7 ? "#4a8a4a" : "#2a5ab0";
+            if (n > 0.7 && fy < -0.6) col = "#e8eef8";
+            if (Math.sin(fx * 9 + Math.sin(fy * 6) * 2) * Math.sin(fy * 7 + fx * 3) > 0.7) col = "#e8eef8";
+            const lit = (x * 0.8 - y * 0.3) / er;
+            if (lit > 0.35 + dither(x + 64, y + 64) * 0.2) col = n > 1 ? "#1a301a" : "#0e1a3a";
+            P.set(ex + x, ey + y, col);
+          }
+          P.ridge(hz + Math.round(4 * u), h * 0.06, p.ground[1], 4, 0.6);
+          for (let y = hz; y < h; y++) for (let x = 0; x < w; x++) { const k = (y - hz) / (h - hz) * 2, i = Math.min(1, Math.floor(k)); if (dither(x, y) < 0.92) P.set(x, y + Math.round(4 * u), (k - i) > dither(x, y) ? p.ground[i + 1] : p.ground[i]); }
+          for (let k = 0; k < 9; k++) { const cx = rand(0, w), cy = rand(hz + 8 * u, h), r = Math.round(rand(3, 10) * u * (0.5 + (cy - hz) / (h - hz))); P.ellipse(cx, cy, r, r * 0.35, p.crater); P.ellipse(cx, cy + Math.max(1, r * 0.1), r * 0.85, r * 0.25, p.ground[0]); for (let x = -r; x <= r; x++) P.set(cx + x, cy + Math.round(r * 0.35), p.rim); }
+          // the base: two domes joined by a tube, solar panels, an antenna
+          const by = hz + Math.round(14 * u);
+          for (const [fx, r] of [[0.5, 14], [0.63, 10]]) {
+            const dx = Math.round(w * fx), dr = Math.round(r * u);
+            for (let y = -dr; y <= 0; y++) for (let x = -dr; x <= dr; x++) if (x * x + y * y <= dr * dr) P.set(dx + x, by + y, (x > dr * 0.3) ? p.domeDk : (y % Math.max(3, Math.round(4 * u)) === 0 || x % Math.max(3, Math.round(5 * u)) === 0) ? p.domeDk : p.dome);
+            for (let k = -1; k <= 1; k++) P.rect(dx + k * Math.round(dr * 0.4) - 1, by - Math.round(dr * 0.35), Math.max(2, Math.round(2 * u)), Math.max(1, Math.round(2 * u)), p.win);
+          }
+          P.rect(Math.round(w * 0.5), by - Math.round(4 * u), Math.round(w * 0.13), Math.round(3 * u), p.domeDk);
+          for (let k = 0; k < 3; k++) { const px = Math.round(w * 0.3) + k * Math.round(12 * u), py = by - Math.round(8 * u); P.rect(px + Math.round(4 * u), py + Math.round(4 * u), 1, Math.round(4 * u), p.metal); for (let y = 0; y < Math.round(5 * u); y++) for (let x = 0; x < Math.round(10 * u); x++) P.set(px + x - Math.round(y * 0.4), py + y, (x % 3 === 0 || y % 2 === 0) ? p.panelHi : p.panel); }
+          P.rect(s.ant.x, s.ant.y, 1, by - s.ant.y, p.metal); P.line(s.ant.x - Math.round(3 * u), by, s.ant.x, s.ant.y + Math.round(10 * u), p.metal); P.line(s.ant.x + Math.round(3 * u), by, s.ant.x, s.ant.y + Math.round(10 * u), p.metal);
+          // a parked rover
+          const rx = Math.round(w * 0.86), ry = by + Math.round(6 * u);
+          P.rect(rx, ry - Math.round(4 * u), Math.round(12 * u), Math.round(3 * u), p.metal); P.rect(rx + Math.round(2 * u), ry - Math.round(7 * u), Math.round(5 * u), Math.round(3 * u), p.domeDk);
+          for (const k of [1, 6, 11]) P.disc(rx + Math.round(k * u), ry, Math.max(1, Math.round(1.5 * u)), p.crater);
+        });
+        s.dish = { x: s.ant.x, y: s.ant.y + Math.round(4 * u), r: Math.max(2, Math.round(5 * u)) };
+        s.tw = twinklers(10, w, hz);
+        s.sat = { x: -5, wait: rand(10, 25), y: rand(0.1, 0.4) * h };
+      },
+      draw(ctx, s, t, dt) {
+        const { w, p, ant, dish } = s;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(s.bg, 0, 0);
+        drawTwinklers(ctx, s.tw, t, "#ffffff");
+        // the dish turns slowly; the beacon on top blinks
+        const sw = Math.round(Math.cos(t * 0.3) * dish.r);
+        ctx.fillStyle = p.metal; ctx.fillRect(dish.x + Math.min(0, sw), dish.y - dish.r, Math.max(1, Math.abs(sw)), dish.r * 2);
+        ctx.fillRect(dish.x, dish.y - 1, Math.max(2, dish.r), 1);
+        if ((t % 2) < 0.25) { ctx.fillStyle = "#ff4040"; ctx.fillRect(ant.x - 1, ant.y - 2, 3, 2); }
+        const st = s.sat; // a satellite crossing the sky now and then
+        if ((st.wait -= dt) < 0) { st.x += 5 * dt; ctx.fillStyle = "#ffffff"; ctx.fillRect(Math.round(st.x), Math.round(st.y), 1, 1); if (st.x > w + 5) { st.x = -5; st.y = rand(0.1, 0.4) * s.h; st.wait = rand(20, 45); } }
+      },
+    },
   };
 }
 
 export const CALMPIXEL = [
   ["pixelaquarium", "Pixel aquarium"], ["pixelforest", "Pixel forest"], ["pixelmeadow", "Pixel meadow"], ["pixelshrine", "Pixel shrine"], ["pixelsnow", "Pixel snow"],
   ["pixelbamboo", "Pixel bamboo"], ["pixelcanyon", "Pixel canyon"], ["pixelcave", "Pixel cave"], ["pixelharbor", "Pixel harbor"], ["pixelrooftops", "Pixel rooftops"], ["pixelwindmill", "Pixel windmill"],
+  ["pixelbridge", "Pixel bridge"], ["pixelcastle", "Pixel castle"], ["pixelicebergs", "Pixel icebergs"], ["pixelmoonbase", "Pixel moon base"], ["pixelruins", "Pixel ruins"], ["pixelsavanna", "Pixel savanna"],
 ];
