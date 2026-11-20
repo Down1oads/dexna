@@ -1150,6 +1150,43 @@ async function importZip(file) {
  * Explorer tree
  * ===================================================================== */
 let treeSelection = null;
+const treeMulti = new Set(); // Ctrl/Cmd+click and Shift+click select several files and folders
+let treeAnchor = null;
+function paintTreeSelection() { $$(".row", treeEl).forEach((r) => r.classList.toggle("multi", treeMulti.has(r.dataset.path))); }
+/** Files under these paths (folders included), and the folders themselves. */
+function expandSelection(paths) {
+  const all = [...Object.keys(project.files), ...assetPaths()], files = new Set(), dirs = [];
+  for (const p of paths) {
+    if (project.files[p] != null || isAsset(p)) files.add(p);
+    else { dirs.push(p); for (const f of all) if (f.startsWith(p + "/")) files.add(f); }
+  }
+  return { files: [...files], dirs };
+}
+async function deleteMany(paths) {
+  const { files, dirs } = expandSelection(paths);
+  if (!(await confirmDialog({ title: "Delete", message: `Delete ${paths.length} selected item${paths.length === 1 ? "" : "s"} (${files.length} file${files.length === 1 ? "" : "s"})? File > Local History can bring files back.`, okLabel: "Delete", danger: true }))) return;
+  project.dirs = project.dirs.filter((d) => !dirs.some((x) => d === x || d.startsWith(x + "/")));
+  treeMulti.clear();
+  removeFiles(files);
+  toast(`Deleted ${files.length} file${files.length === 1 ? "" : "s"}`, "ok");
+}
+async function moveMany(paths) {
+  const to = await promptDialog({ title: `Move ${paths.length} items`, message: "Into the folder (it is made if needed; leave empty for the top of the project)", value: "", placeholder: "folder/inside" });
+  if (to == null) return;
+  const dir = to.trim().replace(/^\/+|\/+$/g, "");
+  let moved = 0;
+  for (const p of paths.filter((p) => !paths.some((q) => q !== p && p.startsWith(q + "/")))) { // a folder moves with what is in it
+    const target = (dir ? dir + "/" : "") + basename(p);
+    if (target !== p && movePath(p, target)) moved++;
+  }
+  treeMulti.clear(); renderTree();
+  if (moved) toast(`Moved ${moved} item${moved === 1 ? "" : "s"}${dir ? " into " + dir : ""}`, "ok");
+}
+function downloadMany(paths) {
+  const { files } = expandSelection(paths), out = {};
+  for (const f of files) out[f] = isAsset(f) ? assetBytes.get(f) : project.files[f];
+  downloadBlob(createZip(out, slug(project.name) + "-selection"), slug(project.name) + "-selection.zip");
+}
 let excludeCache = { text: null, fn: () => false };
 /** A test for files hidden by Files > Hide files (from the Explorer, search and Go to File). */
 function isExcluded() {
@@ -1232,6 +1269,8 @@ function renderTree() {
     }
   };
   walk(root, 0);
+  for (const k of [...treeMulti]) if (project.files[k] == null && !isAsset(k) && !project.dirs.includes(k)) treeMulti.delete(k);
+  paintTreeSelection();
   if (!treeEl.children.length) treeEl.append(treeFilter.trim() ? h("div", { class: "empty" }, `No files match "${treeFilter.trim()}"`) : h("div", { class: "empty" }, "No files yet. ", h("button", { class: "link", onclick: () => newFileDialog("") }, "Create one")));
 }
 
@@ -1250,8 +1289,18 @@ $("#tree-filter").addEventListener("keydown", (e) => {
 });
 treeEl.addEventListener("click", (e) => {
   const row = e.target.closest(".row");
-  if (!row) { treeSelection = null; $$(".row.selected", treeEl).forEach((r) => r.classList.remove("selected")); return; }
+  if (!row) { treeSelection = null; treeMulti.clear(); paintTreeSelection(); $$(".row.selected", treeEl).forEach((r) => r.classList.remove("selected")); return; }
   const p = row.dataset.path;
+  if (e.ctrlKey || e.metaKey) { // add or remove one
+    if (!treeMulti.size && treeSelection && treeSelection !== p) treeMulti.add(treeSelection);
+    treeMulti.has(p) ? treeMulti.delete(p) : treeMulti.add(p);
+    treeAnchor = p; selectTreeRow(p); paintTreeSelection(); return;
+  }
+  if (e.shiftKey && (treeAnchor || treeSelection)) { // a range of visible rows
+    const rows = $$(".row", treeEl).map((r) => r.dataset.path), a = rows.indexOf(treeAnchor || treeSelection), b = rows.indexOf(p);
+    if (a >= 0 && b >= 0) { treeMulti.clear(); rows.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => treeMulti.add(x)); selectTreeRow(p); paintTreeSelection(); return; }
+  }
+  treeMulti.clear(); treeAnchor = p; paintTreeSelection();
   if (row.dataset.dir) {
     project.expanded = project.expanded.includes(p) ? project.expanded.filter((x) => x !== p) : [...project.expanded, p];
     treeSelection = p;
@@ -1264,6 +1313,16 @@ treeEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   const row = e.target.closest(".row");
   const p = row?.dataset.path;
+  if (p && treeMulti.size > 1 && treeMulti.has(p)) {
+    const sel = [...treeMulti];
+    return showMenu(e.clientX, e.clientY, [
+      { label: `Delete ${sel.length} Items`, kb: "delete", run: () => deleteMany(sel) },
+      { label: `Move ${sel.length} Items to Folder…`, run: () => moveMany(sel) },
+      { label: `Download ${sel.length} Items as ZIP`, run: () => downloadMany(sel) },
+      "-",
+      { label: "Clear Selection", run: () => { treeMulti.clear(); paintTreeSelection(); } },
+    ]);
+  }
   if (p) selectTreeRow(p);
   const isDir = row?.dataset.dir;
   const dir = !p ? "" : isDir ? p : dirname(p);
@@ -1297,7 +1356,8 @@ treeEl.addEventListener("contextmenu", (e) => {
 treeEl.addEventListener("keydown", (e) => {
   if (!treeSelection) return;
   if (e.key === "F2") { e.preventDefault(); renameDialog(treeSelection); }
-  else if (e.key === "Delete" || (isMac && e.key === "Backspace" && e.metaKey)) { e.preventDefault(); deletePath(treeSelection); }
+  else if (e.key === "Delete" || (isMac && e.key === "Backspace" && e.metaKey)) { e.preventDefault(); treeMulti.size > 1 ? deleteMany([...treeMulti]) : deletePath(treeSelection); }
+  else if (e.key === "Escape" && treeMulti.size) { treeMulti.clear(); paintTreeSelection(); }
   else if (e.key === "Enter" && project.files[treeSelection] != null) openFile(treeSelection);
   else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     e.preventDefault();

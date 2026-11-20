@@ -1323,3 +1323,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .tab.pinned .tname { max-width: 120px; }
 .tab.pinned .close.pin { opacity: .75; }
 .tab.pinned .close.pin svg { transform: rotate(45deg); }
+
+#file-tree .row.multi { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+#file-tree .row.multi .name { color: var(--fg); }
