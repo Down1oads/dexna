@@ -218,6 +218,12 @@ Source Control has a **GitHub** section, and every action is also in the command
 - **Open** from a list of your repositories (most recently pushed first; type to filter by name, description or language), or type `owner/name`, paste a link, or type a username to list that person's or organization's public repositories. Private repositories work when signed in. A project opened from a branch stays linked to it.
 - **Pull** brings in what changed on GitHub. Files you changed here are never overwritten: if a file changed on both sides, your version is kept and Dexna says which files; pushing then replaces GitHub's version.
 - **Commit and Push** sends your changes (edited, new and deleted files, images included) as one commit. Write the message in the GitHub section: a summary and an optional description (left empty, the summary Dexna suggests is used); Ctrl+Enter sends it. If GitHub has newer commits, Dexna asks you to pull first. (The **Commit** button further down is separate: it only saves a snapshot in this browser.)
+- **Branches**: click the branch name to switch to another branch or create a new one. Switching works like a checkout: files you have not changed follow the branch, and your own edits stay.
+- **Pull requests**: on a branch, **Pull request into main…** opens one (title, description, the branch to merge into, draft or not); the box then links to it and shows whether it is open, merged or closed.
+- **What is happening on GitHub**: the box shows the latest GitHub Actions run for the branch (passed, failed or running) and the branch's recent commits, each a link.
+- **Compare** files that changed both here and on GitHub: after a pull keeps your version, the box lists them; Compare shows GitHub's version beside yours, with **Use GitHub's version** or **Keep mine**.
+- **Links**: GitHub: Open This File on GitHub, and Copy Link to These Lines (the selected lines, as `#L3-L5`).
+- **Gists**: GitHub: Share as Gist shares any of your open files as a public or secret gist, and copies its link.
 - **Publish** creates a new repository from any project, like GitHub's own form: the owner (you or one of your organizations), name, description, public or private, a README (written right there, or the project's own), a `.gitignore` template (one that fits the project's languages is suggested) and a license. Dexna then pushes the project to it and links the two.
 
 ## Images and other binary files

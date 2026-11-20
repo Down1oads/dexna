@@ -1278,3 +1278,21 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .gh-commit { display: flex; flex-direction: column; gap: 6px; }
 .gh-commit .gh-msg, .gh-commit .gh-desc { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; }
 .gh-commit .gh-desc { resize: vertical; min-height: 38px; }
+.gh-repo button.gh-branch { background: none; border: 1px solid transparent; border-radius: 4px; padding: 1px 4px; cursor: pointer; color: var(--fg-dim); font: inherit; font-size: 12px; }
+.gh-repo button.gh-branch:hover { border-color: var(--border); color: var(--fg); }
+.gh-activity { display: flex; flex-direction: column; gap: 3px; font-size: 12px; min-width: 0; }
+.gh-activity:empty { display: none; }
+.gh-activity a { color: var(--fg); text-decoration: none; display: flex; gap: 4px; min-width: 0; }
+.gh-activity a:hover .gh-cmsg, .gh-activity a.gh-pr:hover, .gh-activity a.gh-run:hover { text-decoration: underline; }
+.gh-commit-row { flex-direction: column; gap: 0 !important; padding: 2px 0; }
+.gh-cmsg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-commit-row .muted { font-size: 11px; }
+.gh-run { align-items: center; }
+.gh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); flex: none; }
+.gh-run.s-success .gh-dot { background: #3fb950; } .gh-run.s-failure .gh-dot, .gh-run.s-timed_out .gh-dot { background: #f85149; } .gh-run.s-running .gh-dot { background: #d29922; animation: gh-pulse 1.2s infinite; }
+@keyframes gh-pulse { 50% { opacity: .35; } }
+.gh-conflicts { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.gh-conflict { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.gh-conflict span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-files { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-height: 180px; overflow: auto; }
+.gh-files input, .gh-modal .si-check input { width: auto; }

@@ -59,6 +59,8 @@ export function createGitHub(API) {
   const { h } = API;
   let auth = null; // { token, login }
   const drafts = {}; // project id -> the commit message being written
+  const conflictCopies = {}; // project id -> { path: GitHub's text } for files kept as yours when pulling
+  const cache = new Map(); // short-lived answers (recent commits, build status, pull requests) keyed by URL
   try { auth = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null"); } catch (_) { auth = null; }
   const changed = () => { document.dispatchEvent(new Event("dexna:github")); };
 
@@ -140,7 +142,7 @@ export function createGitHub(API) {
       if (head && p) {
         const base = {}, modes = {};
         for (const f of take) if (got[f.rel] != null) { base[f.rel] = f.sha; if (f.mode !== "100644") modes[f.rel] = f.mode; }
-        p.github = { owner: r.owner, repo: r.repo, branch, sub: r.sub, private: !!info.private, head, base, modes, synced: Date.now() };
+        p.github = { owner: r.owner, repo: r.repo, branch, defaultBranch: info.default_branch || branch, sub: r.sub, private: !!info.private, head, base, modes, synced: Date.now() };
         API.persist();
       }
       const left = skipped.large + skipped.limit, nb = Object.keys(bins).length;
@@ -285,7 +287,7 @@ export function createGitHub(API) {
       const { take } = pickFiles(tree, g.sub, false);
       const remote = new Map(take.map((f) => [f.rel, f]));
       const { files, shas } = await localState(p);
-      const get = [], conflicts = [], remove = [];
+      const get = [], conflicts = [], remove = [], conflictItems = [];
       let same = 0;
       for (const [rel, f] of remote) {
         const base = g.base[rel], mine = shas[rel];
@@ -293,7 +295,7 @@ export function createGitHub(API) {
         if (mine === f.sha) { g.base[rel] = f.sha; same++; continue; } // already the same here
         if (mine == null && base == null) get.push(f); // new on GitHub
         else if (mine === base) get.push(f); // changed on GitHub, not here
-        else { conflicts.push(rel); g.base[rel] = f.sha; } // changed on both sides: keep yours
+        else { conflicts.push(rel); conflictItems.push(f); g.base[rel] = f.sha; } // changed on both sides: keep yours
       }
       for (const rel of Object.keys(g.base)) {
         if (remote.has(rel)) continue;
@@ -307,7 +309,12 @@ export function createGitHub(API) {
       const added = Object.keys(writes).filter((f) => files[f] == null).length, updated = Object.keys(writes).length - added;
       if (Object.keys(writes).length) API.writeFiles(writes);
       if (remove.length) API.removeFiles(remove);
-      g.head = head; g.synced = Date.now();
+      if (conflictItems.length) { // GitHub's versions, to compare with yours
+        const theirs = await download({ owner: g.owner, repo: g.repo, private: g.private, at: head }, conflictItems);
+        const keep = (conflictCopies[p.id] ||= {});
+        for (const [rel, c] of Object.entries(theirs)) if (typeof c === "string") keep[rel] = c;
+      }
+      g.head = head; g.synced = Date.now(); forget(`/repos/${g.owner}/${g.repo}/`);
       API.persist(); changed();
       const parts = [updated && `${updated} updated`, added && `${added} added`, remove.length && `${remove.length} removed`].filter(Boolean);
       if (!silent) API.toast(`Pulled ${g.owner}/${g.repo}: ${parts.length ? parts.join(", ") : "nothing to change here"}.` + (conflicts.length ? ` Kept your version of ${conflicts.slice(0, 4).join(", ")}${conflicts.length > 4 ? ` and ${conflicts.length - 4} more` : ""}, also changed on GitHub; pushing will replace GitHub's.` : ""), conflicts.length ? "warn" : "ok", conflicts.length ? 10000 : 4000);
@@ -351,7 +358,7 @@ export function createGitHub(API) {
       await gh(`/repos/${g.owner}/${g.repo}/git/refs/heads/${encPath(g.branch)}`, { method: "PATCH", body: { sha: commit.sha } });
       for (const rel of st.edited) g.base[rel] = st.shas[rel];
       for (const rel of st.removed) { delete g.base[rel]; delete g.modes[rel]; }
-      g.head = commit.sha; g.synced = Date.now();
+      g.head = commit.sha; g.synced = Date.now(); forget(`/repos/${g.owner}/${g.repo}/`);
       API.persist(); changed();
       API.toast(`Pushed ${entries.length} file${entries.length === 1 ? "" : "s"} to ${g.owner}/${g.repo} (${g.branch}): "${message.split("\n")[0]}"`, "ok", 5000);
       return { pushed: entries.length, sha: commit.sha, url: commit.html_url };
@@ -441,7 +448,7 @@ export function createGitHub(API) {
           for (let i = 0; i < 8 && !head; i++) { try { head = await headOf(repo.owner.login, repo.name, branch); } catch (_) { await new Promise((r) => setTimeout(r, 700)); } } // a new repository takes a moment
           if (!head) throw new Error("The repository was created, but GitHub has not set it up yet. Try Push in a moment.");
           const proj = API.project;
-          proj.github = { owner: repo.owner.login, repo: repo.name, branch, sub: "", private: !!repo.private, head: null, base: {}, modes: {}, synced: Date.now() };
+          proj.github = { owner: repo.owner.login, repo: repo.name, branch, defaultBranch: branch, sub: "", private: !!repo.private, head: null, base: {}, modes: {}, synced: Date.now() };
           // bring in what GitHub made (README, LICENSE, .gitignore); the project's own files win
           await pull({ silent: true });
           if (!readme) {
@@ -485,6 +492,218 @@ export function createGitHub(API) {
   }
 
   /* ---------- the GitHub box at the top of Source Control ---------- */
+  /* ---------- cached reads for the panel (it redraws often) ---------- */
+  function cached(path, ttl = 60_000) {
+    const hit = cache.get(path);
+    if (hit && Date.now() - hit.t < ttl) return hit.v;
+    const v = gh(path).catch(() => null);
+    cache.set(path, { t: Date.now(), v });
+    return v;
+  }
+  const forget = (prefix) => { for (const k of cache.keys()) if (k.startsWith(prefix)) cache.delete(k); };
+  async function defaultBranchOf(g) {
+    if (!g.defaultBranch) { const info = await gh(`/repos/${g.owner}/${g.repo}`); g.defaultBranch = info.default_branch; API.persist(); }
+    return g.defaultBranch;
+  }
+
+  /* ---------- branches ---------- */
+  async function chooseBranch() {
+    const p = API.project, g = p?.github;
+    if (!g) return API.toast("This project is not linked to GitHub", "warn");
+    let list;
+    try { list = await listRepos(`/repos/${g.owner}/${g.repo}/branches`); } catch (e) { return API.toast(e.message, "error", 6000); }
+    const def = g.defaultBranch;
+    API.quickPick({
+      placeholder: `Branches of ${g.owner}/${g.repo}: pick one to switch to, or type a new name to create it`,
+      source: (q) => {
+        const t = q.trim(), items = [];
+        if (t && !list.some((b) => b.name === t)) items.push({ label: `Create branch "${t}"`, detail: `from ${g.branch} as you have it, and switch to it`, run: () => createBranch(t) });
+        for (const b of list) if (!t || b.name.toLowerCase().includes(t.toLowerCase())) items.push({ label: b.name, desc: [b.name === g.branch ? "current" : null, b.name === def ? "default" : null, b.protected ? "protected" : null].filter(Boolean).join(" · "), run: () => (b.name === g.branch ? null : switchBranch(b.name)) });
+        return items;
+      },
+    });
+  }
+  /** Switching is a pull from the other branch: files you have not changed follow it, your edits stay. */
+  async function switchBranch(name) {
+    const p = API.project, g = p?.github;
+    if (!g) return;
+    const before = { branch: g.branch, head: g.head };
+    g.branch = name; g.head = null; g.pr = null;
+    const r = await pull({ silent: true });
+    if (!r) { g.branch = before.branch; g.head = before.head; API.persist(); changed(); return null; }
+    const parts = [r.updated && `${r.updated} updated`, r.added && `${r.added} added`, r.removed && `${r.removed} removed`].filter(Boolean);
+    API.toast(`Switched to ${name}${parts.length ? ": " + parts.join(", ") : ""}.` + (r.conflicts?.length ? ` Kept your version of ${r.conflicts.join(", ")}.` : ""), r.conflicts?.length ? "warn" : "ok", 6000);
+    return r;
+  }
+  async function createBranch(name) {
+    const p = API.project, g = p?.github;
+    if (!g) return;
+    if (!/^(?!-)(?!.*\.\.)(?!.*\/\/)[A-Za-z0-9._/-]+(?<!\.lock)(?<![/.])$/.test(name)) return API.toast("A branch name can use letters, digits, - _ . and /, without spaces", "warn", 5000);
+    if (!(await needAuth())) return null;
+    try {
+      const from = g.head || (await headOf(g.owner, g.repo, g.branch));
+      await gh(`/repos/${g.owner}/${g.repo}/git/refs`, { method: "POST", body: { ref: "refs/heads/" + name, sha: from } });
+      g.branch = name; g.head = from; g.pr = null;
+      API.persist(); changed();
+      API.toast(`Created branch ${name}. Commit and Push now sends your changes there.`, "ok", 5000);
+      return name;
+    } catch (e) { API.toast(e.status === 422 ? `A branch called ${name} already exists. Pick it from the list instead.` : e.message, "error", 6000); return null; }
+  }
+
+  /* ---------- pull requests ---------- */
+  async function pullRequest() {
+    const p = API.project, g = p?.github;
+    if (!g) return API.toast("This project is not linked to GitHub", "warn");
+    if (!(await needAuth())) return null;
+    const def = await defaultBranchOf(g).catch(() => "main");
+    if (g.branch === def) return API.toast(`You are on ${def}, the default branch. Create a branch first (click the branch name), push to it, then open a pull request.`, "info", 7000);
+    const existing = await gh(`/repos/${g.owner}/${g.repo}/pulls?state=open&head=${encodeURIComponent(g.owner + ":" + g.branch)}`).catch(() => []);
+    if (existing.length) { g.pr = { number: existing[0].number, url: existing[0].html_url }; API.persist(); changed(); API.toast(`Pull request #${existing[0].number} is already open for ${g.branch}`, "info", 5000); return g.pr; }
+    const st = await localState(p);
+    if (st.edited.length || st.removed.length) {
+      if (!(await API.confirmDialog({ title: "Push first?", message: `${st.edited.length + st.removed.length} changed file(s) are not on GitHub yet, so they would not be part of the pull request. Push them now?`, okLabel: "Push, then continue" }))) return null;
+      if (!(await push())) return null;
+    }
+    const branches = await listRepos(`/repos/${g.owner}/${g.repo}/branches`).catch(() => [{ name: def }]);
+    const commits = await gh(`/repos/${g.owner}/${g.repo}/commits?sha=${encodeURIComponent(g.branch)}&per_page=1`).catch(() => []);
+    return new Promise((resolve) => {
+      const title = h("input", { value: (commits[0]?.commit.message || g.branch).split("\n")[0], spellcheck: "true" });
+      const body = h("textarea", { class: "gh-readme", rows: 6, placeholder: "What does this change, and why?", spellcheck: "true" });
+      const base = h("select", {}, branches.filter((b) => b.name !== g.branch).map((b) => h("option", { value: b.name, selected: b.name === def }, b.name)));
+      const draft = h("input", { type: "checkbox" });
+      const err = h("p", { class: "gh-err hidden" });
+      const btn = h("button", { class: "btn primary" }, "Create pull request");
+      const field = (label, input) => h("label", { class: "gh-field" }, h("span", {}, label), input);
+      btn.addEventListener("click", async () => {
+        btn.disabled = true; err.classList.add("hidden");
+        try {
+          const pr = await gh(`/repos/${g.owner}/${g.repo}/pulls`, { method: "POST", body: { title: title.value.trim() || g.branch, head: g.branch, base: base.value, body: body.value, draft: draft.checked } });
+          g.pr = { number: pr.number, url: pr.html_url }; API.persist(); API.closeModal(); changed(); forget(`/repos/${g.owner}/${g.repo}/pulls`);
+          API.toast(`Opened pull request #${pr.number}: ${pr.title}`, "ok", 6000);
+          resolve(g.pr);
+        } catch (e) {
+          err.textContent = /No commits between/i.test(e.message) ? `${g.branch} has no commits that ${base.value} lacks yet. Push a change to ${g.branch} first.` : e.message;
+          err.classList.remove("hidden"); btn.disabled = false;
+        }
+      });
+      API.openModal(h("div", { class: "modal gh-modal gh-publish" },
+        h("div", { class: "modal-head" }, `Pull request: ${g.branch} into…`),
+        h("div", { class: "modal-body" },
+          field("Into branch", base), field("Title", title), field("Description", body),
+          h("label", { class: "si-check" }, draft, h("span", {}, "Draft (not ready for review yet)")), err),
+        h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { API.closeModal(); resolve(null); } }, "Cancel"), btn)), () => resolve(null));
+      setTimeout(() => title.select(), 50);
+    });
+  }
+
+  /* ---------- comparing files that changed on both sides ---------- */
+  function compareConflict(rel) {
+    const p = API.project, theirs = conflictCopies[p?.id]?.[rel];
+    if (theirs == null) return API.toast("GitHub's version of that file is no longer kept. Pull again to compare.", "info");
+    const done = () => { delete conflictCopies[p.id][rel]; changed(); };
+    API.showDiff({
+      original: theirs, path: rel, live: true, title: `${rel}: GitHub ↔ yours`, originalLabel: "GitHub", modifiedLabel: "Yours (editable)",
+      actions: [
+        { label: "Use GitHub's version", run: () => { API.writeFiles({ [rel]: theirs }); done(); API.closeModal(); API.toast(`${rel} now matches GitHub`, "ok"); } },
+        { label: "Keep mine", primary: true, run: () => { done(); API.closeModal(); } },
+      ],
+    });
+  }
+
+  /* ---------- links to GitHub ---------- */
+  function fileUrl(path, line, endLine) {
+    const g = API.project?.github;
+    if (!g) return null;
+    const full = (g.sub ? g.sub + "/" : "") + path;
+    return `https://github.com/${g.owner}/${g.repo}/blob/${encPath(g.branch)}/${encPath(full)}` + (line ? `#L${line}` + (endLine && endLine !== line ? `-L${endLine}` : "") : "");
+  }
+  function currentLines() {
+    const ed = API.editor, path = API.currentPath?.();
+    if (!ed || !path) return null;
+    const sel = ed.getSelection();
+    return { path, line: sel.startLineNumber, end: sel.endLineNumber };
+  }
+  function openOnGitHub() {
+    const c = currentLines(); if (!c) return;
+    const u = fileUrl(c.path, c.line, c.end);
+    if (!u) return API.toast("This project is not linked to GitHub", "warn");
+    if (API.project.github.base[c.path] == null) API.toast("This file is not on GitHub yet: push it first", "info");
+    window.open(u, "_blank", "noopener");
+  }
+  function copyLink() {
+    const c = currentLines(); if (!c) return;
+    const u = fileUrl(c.path, c.line, c.end);
+    if (!u) return API.toast("This project is not linked to GitHub", "warn");
+    navigator.clipboard?.writeText(u).then(() => API.toast("Link to these lines on GitHub copied", "ok"), () => API.toast(u, "info", 8000));
+  }
+
+  /* ---------- gists ---------- */
+  async function shareGist() {
+    const path = API.currentPath?.();
+    if (!path || API.currentFiles()[path] == null) return API.toast("Open a text file to share it as a gist", "info");
+    if (!(await needAuth())) return null;
+    const files = API.currentFiles();
+    return new Promise((resolve) => {
+      const open = (API.project.open || []).filter((f) => files[f] != null);
+      const boxes = open.map((f) => h("label", { class: "si-check" }, h("input", { type: "checkbox", value: f, checked: f === path }), h("span", {}, f)));
+      const desc = h("input", { placeholder: "Optional", spellcheck: "true" });
+      const pub = h("input", { type: "checkbox" });
+      const err = h("p", { class: "gh-err hidden" });
+      const btn = h("button", { class: "btn primary" }, "Create gist");
+      btn.addEventListener("click", async () => {
+        const chosen = boxes.map((b) => b.querySelector("input")).filter((i) => i.checked).map((i) => i.value);
+        if (!chosen.length) return;
+        btn.disabled = true; err.classList.add("hidden");
+        try {
+          const gist = await gh("/gists", { method: "POST", body: { description: desc.value.trim(), public: pub.checked, files: Object.fromEntries(chosen.map((f) => [f.split("/").pop(), { content: files[f] || "\n" }])) } });
+          API.closeModal();
+          navigator.clipboard?.writeText(gist.html_url).catch(() => {});
+          API.toast(`Gist created and its link copied: ${gist.html_url}`, "ok", 8000);
+          resolve(gist.html_url);
+        } catch (e) {
+          err.textContent = e.status === 403 || e.status === 404 ? "Your token may not create gists. Give it the Gists: Read and write permission (fine-grained), or the gist scope (classic)." : e.message;
+          err.classList.remove("hidden"); btn.disabled = false;
+        }
+      });
+      API.openModal(h("div", { class: "modal gh-modal" },
+        h("div", { class: "modal-head" }, "Share as a GitHub Gist"),
+        h("div", { class: "modal-body" },
+          h("p", { class: "muted small" }, "A gist is a small, shareable set of files on GitHub. Pick the open files to include."),
+          h("div", { class: "gh-files" }, boxes),
+          h("label", { class: "gh-field" }, h("span", {}, "Description"), desc),
+          h("label", { class: "si-check" }, pub, h("span", {}, "Public (listed on your profile; otherwise only people with the link can see it)")), err),
+        h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { API.closeModal(); resolve(null); } }, "Cancel"), btn)), () => resolve(null));
+    });
+  }
+
+  /* ---------- what is happening on GitHub: recent commits, build status, the pull request ---------- */
+  function activity(g) {
+    const box = h("div", { class: "gh-activity" });
+    const base = `/repos/${g.owner}/${g.repo}`;
+    Promise.all([
+      cached(`${base}/commits?sha=${encodeURIComponent(g.branch)}&per_page=4`),
+      cached(`${base}/actions/runs?branch=${encodeURIComponent(g.branch)}&per_page=1`),
+      auth && g.pr ? cached(`${base}/pulls/${g.pr.number}`) : null,
+    ]).then(([commits, runs, pr]) => {
+      const rows = [];
+      const run = runs?.workflow_runs?.[0];
+      if (run) {
+        const state = run.status !== "completed" ? "running" : run.conclusion || "done";
+        const label = { success: "passed", failure: "failed", cancelled: "cancelled", running: "running", skipped: "skipped", timed_out: "timed out" }[state] || state;
+        rows.push(h("a", { class: "gh-run s-" + state, href: run.html_url, target: "_blank", rel: "noopener", title: run.display_title || run.name }, h("span", { class: "gh-dot" }), `${run.name}: ${label}`, h("span", { class: "muted" }, " · " + API.ago(Date.parse(run.updated_at)))));
+      }
+      if (pr) rows.push(h("a", { class: "gh-pr", href: pr.html_url, target: "_blank", rel: "noopener" }, `Pull request #${pr.number}: ${pr.title}`, h("span", { class: "muted" }, ` · ${pr.merged_at ? "merged" : pr.state === "closed" ? "closed" : pr.draft ? "draft" : "open"}`)));
+      if (commits?.length) {
+        rows.push(h("div", { class: "gh-sub" }, `Recent commits on ${g.branch}`));
+        for (const c of commits) rows.push(h("a", { class: "gh-commit-row", href: c.html_url, target: "_blank", rel: "noopener", title: c.commit.message },
+          h("span", { class: "gh-cmsg" }, c.commit.message.split("\n")[0]),
+          h("span", { class: "muted" }, `${c.author?.login || c.commit.author?.name || ""} · ${API.ago(Date.parse(c.commit.author?.date || c.commit.committer?.date))}`)));
+      }
+      box.replaceChildren(...rows);
+    });
+    return box;
+  }
+
   function panel() {
     const p = API.project, g = p?.github, icon = API.icon;
     const btn = (label, ic, run, cls = "") => h("button", { class: "btn sm " + cls, onclick: run }, ic ? icon(ic) : null, label);
@@ -521,16 +740,25 @@ export function createGitHub(API) {
     }).catch(() => { status.textContent = ""; });
     const url = `https://github.com/${g.owner}/${g.repo}` + (g.sub || g.branch ? `/tree/${encPath(g.branch)}${g.sub ? "/" + encPath(g.sub) : ""}` : "");
     return h("div", { class: "gh-box" }, head,
-      h("div", { class: "gh-repo" }, h("a", { href: url, target: "_blank", rel: "noopener", title: "Open on GitHub" }, `${g.owner}/${g.repo}${g.sub ? "/" + g.sub : ""}`), h("span", { class: "gh-branch" }, icon("branch"), g.branch),
+      h("div", { class: "gh-repo" }, h("a", { href: url, target: "_blank", rel: "noopener", title: "Open on GitHub" }, `${g.owner}/${g.repo}${g.sub ? "/" + g.sub : ""}`), h("button", { class: "gh-branch", title: "Switch branch, or create one", onclick: chooseBranch }, icon("branch"), g.branch, icon("chevronDown")),
         h("button", { class: "btn icon sm", title: "Unlink from GitHub", onclick: unlink }, icon("close"))),
       status,
       auth ? h("div", { class: "gh-commit" }, summary, body) : null,
       h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? pushBtn : btn("Sign in to push…", "user", signIn, "primary")),
-      auth ? h("div", { class: "muted small" }, "Ctrl+Enter commits and pushes. The Commit button below only saves a snapshot in this browser.") : null);
+      auth ? h("div", { class: "muted small" }, "Ctrl+Enter commits and pushes. The Commit button below only saves a snapshot in this browser.") : null,
+      conflictList(p),
+      auth && g.defaultBranch && g.branch !== g.defaultBranch ? h("div", { class: "gh-acts" }, g.pr ? h("a", { class: "btn sm", href: g.pr.url, target: "_blank", rel: "noopener" }, `Pull request #${g.pr.number}`) : btn(`Pull request into ${g.defaultBranch}…`, "branch", pullRequest)) : null,
+      activity(g));
+  }
+  function conflictList(p) {
+    const list = Object.keys(conflictCopies[p.id] || {});
+    if (!list.length) return null;
+    return h("div", { class: "gh-conflicts" }, h("div", { class: "gh-sub" }, "Changed here and on GitHub (yours kept)"),
+      list.map((rel) => h("div", { class: "gh-conflict" }, h("span", {}, rel), h("button", { class: "btn sm", onclick: () => compareConflict(rel) }, "Compare…"))));
   }
 
   return {
-    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel,
+    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -540,6 +768,11 @@ export function createGitHub(API) {
       { id: "gh-push", label: "GitHub: Commit and Push…", cat: "Source Control", run: () => push() },
       { id: "gh-publish", label: "GitHub: Publish Project to a New Repository…", cat: "Source Control", run: publish },
       { id: "gh-unlink", label: "GitHub: Unlink Project", cat: "Source Control", run: unlink },
+      { id: "gh-branch", label: "GitHub: Switch or Create Branch…", cat: "Source Control", run: chooseBranch },
+      { id: "gh-pr", label: "GitHub: Create Pull Request…", cat: "Source Control", run: pullRequest },
+      { id: "gh-open-file", label: "GitHub: Open This File on GitHub", cat: "Source Control", run: openOnGitHub },
+      { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },
+      { id: "gh-gist", label: "GitHub: Share as Gist…", cat: "File", run: shareGist },
     ],
   };
 }
