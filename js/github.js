@@ -676,6 +676,72 @@ export function createGitHub(API) {
     });
   }
 
+  /* ---------- issues ---------- */
+  async function issues() {
+    const g = API.project?.github;
+    if (!g) return API.toast("This project is not linked to GitHub", "warn");
+    let list;
+    try { list = (await gh(`/repos/${g.owner}/${g.repo}/issues?state=open&per_page=100&sort=updated`)).filter((i) => !i.pull_request); } catch (e) { return API.toast(e.message, "error", 6000); }
+    API.quickPick({
+      placeholder: `${list.length} open issue${list.length === 1 ? "" : "s"} in ${g.owner}/${g.repo}: type to filter, or pick New issue`,
+      source: (q) => {
+        const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const items = [{ label: "New issue…", detail: q.trim() ? `titled "${q.trim()}"` : "", run: () => newIssue({ title: q.trim() }) }];
+        for (const it of list) {
+          const hay = `#${it.number} ${it.title} ${(it.labels || []).map((l) => l.name).join(" ")} ${it.user?.login || ""}`.toLowerCase();
+          if (words.every((w) => hay.includes(w))) items.push({ label: `#${it.number} ${it.title}`, detail: (it.labels || []).map((l) => l.name).join(", "), desc: `${it.user?.login || ""} · ${API.ago(Date.parse(it.updated_at))}${it.comments ? ` · ${it.comments} comment${it.comments === 1 ? "" : "s"}` : ""}`, run: () => window.open(it.html_url, "_blank", "noopener") });
+        }
+        return items;
+      },
+    });
+  }
+  async function newIssue({ title = "", body = "" } = {}) {
+    const g = API.project?.github;
+    if (!g) return API.toast("This project is not linked to GitHub", "warn");
+    if (!(await needAuth())) return null;
+    const labels = await gh(`/repos/${g.owner}/${g.repo}/labels?per_page=100`).catch(() => []);
+    return new Promise((resolve) => {
+      const t = h("input", { value: title, placeholder: "What is wrong, or what should change?", spellcheck: "true" });
+      const b = h("textarea", { class: "gh-readme", rows: 8, placeholder: "Details, steps to reproduce, what you expected… (Markdown)", spellcheck: "true" });
+      b.value = body;
+      const picks = labels.map((l) => h("label", { class: "gh-label", style: { "--lc": "#" + l.color } }, h("input", { type: "checkbox", value: l.name }), h("span", {}, l.name)));
+      const err = h("p", { class: "gh-err hidden" });
+      const btn = h("button", { class: "btn primary" }, "Create issue");
+      btn.addEventListener("click", async () => {
+        if (!t.value.trim()) return t.focus();
+        btn.disabled = true; err.classList.add("hidden");
+        try {
+          const issue = await gh(`/repos/${g.owner}/${g.repo}/issues`, { method: "POST", body: { title: t.value.trim(), body: b.value, labels: picks.map((x) => x.querySelector("input")).filter((x) => x.checked).map((x) => x.value) } });
+          API.closeModal();
+          API.toast(`Created issue #${issue.number}: ${issue.title}`, "ok", 6000);
+          resolve(issue);
+        } catch (e) {
+          err.textContent = e.status === 410 ? "Issues are turned off for this repository." : e.status === 403 ? "Your token may not create issues here. Give it Issues: Read and write." : e.message;
+          err.classList.remove("hidden"); btn.disabled = false;
+        }
+      });
+      API.openModal(h("div", { class: "modal gh-modal gh-publish" },
+        h("div", { class: "modal-head" }, `New issue in ${g.owner}/${g.repo}`),
+        h("div", { class: "modal-body" },
+          h("label", { class: "gh-field" }, h("span", {}, "Title"), t),
+          h("label", { class: "gh-field" }, h("span", {}, "Description"), b),
+          picks.length ? h("div", { class: "gh-field" }, h("span", {}, "Labels"), h("div", { class: "gh-labels" }, picks)) : null, err),
+        h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { API.closeModal(); resolve(null); } }, "Cancel"), btn)), () => resolve(null));
+      setTimeout(() => (title ? b : t).focus(), 50);
+    });
+  }
+  /** An issue about the selected code: a link to the lines on GitHub, and the code itself. */
+  function issueFromSelection() {
+    const c = currentLines(), ed = API.editor;
+    if (!c || !ed) return;
+    const code = ed.getModel().getValueInRange(ed.getSelection()) || ed.getModel().getLineContent(c.line);
+    const first = code.split("\n").map((l) => l.replace(/^\s*(#|\/\/|--|\*|\/\*)\s*/, "").replace(/^(TODO|FIXME|BUG|HACK|NOTE)\b[:\s]*/i, "").trim()).find(Boolean) || "";
+    const url = fileUrl(c.path, c.line, c.end);
+    const lang = (c.path.split(".").pop() || "").toLowerCase();
+    const body = `${url ? `In [${c.path}, line${c.end !== c.line ? `s ${c.line}–${c.end}` : ` ${c.line}`}](${url}):` : `In ${c.path}:`}\n\n\`\`\`${lang}\n${code.replace(/\s+$/, "")}\n\`\`\`\n\n`;
+    return newIssue({ title: first.slice(0, 120), body });
+  }
+
   /* ---------- what is happening on GitHub: recent commits, build status, the pull request ---------- */
   function activity(g) {
     const box = h("div", { class: "gh-activity" });
@@ -744,7 +810,7 @@ export function createGitHub(API) {
         h("button", { class: "btn icon sm", title: "Unlink from GitHub", onclick: unlink }, icon("close"))),
       status,
       auth ? h("div", { class: "gh-commit" }, summary, body) : null,
-      h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? pushBtn : btn("Sign in to push…", "user", signIn, "primary")),
+      h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? pushBtn : btn("Sign in to push…", "user", signIn, "primary"), btn("Issues", "info", issues)),
       auth ? h("div", { class: "muted small" }, "Ctrl+Enter commits and pushes. The Commit button below only saves a snapshot in this browser.") : null,
       conflictList(p),
       auth && g.defaultBranch && g.branch !== g.defaultBranch ? h("div", { class: "gh-acts" }, g.pr ? h("a", { class: "btn sm", href: g.pr.url, target: "_blank", rel: "noopener" }, `Pull request #${g.pr.number}`) : btn(`Pull request into ${g.defaultBranch}…`, "branch", pullRequest)) : null,
@@ -758,7 +824,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -773,6 +839,9 @@ export function createGitHub(API) {
       { id: "gh-open-file", label: "GitHub: Open This File on GitHub", cat: "Source Control", run: openOnGitHub },
       { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },
       { id: "gh-gist", label: "GitHub: Share as Gist…", cat: "File", run: shareGist },
+      { id: "gh-issues", label: "GitHub: Issues…", cat: "Source Control", run: issues },
+      { id: "gh-issue-new", label: "GitHub: New Issue…", cat: "Source Control", run: () => newIssue() },
+      { id: "gh-issue-sel", label: "GitHub: Create Issue from Selection…", cat: "Source Control", run: issueFromSelection },
     ],
   };
 }

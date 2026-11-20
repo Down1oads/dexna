@@ -223,6 +223,7 @@ Source Control has a **GitHub** section, and every action is also in the command
 - **What is happening on GitHub**: the box shows the latest GitHub Actions run for the branch (passed, failed or running) and the branch's recent commits, each a link.
 - **Compare** files that changed both here and on GitHub: after a pull keeps your version, the box lists them; Compare shows GitHub's version beside yours, with **Use GitHub's version** or **Keep mine**.
 - **Links**: GitHub: Open This File on GitHub, and Copy Link to These Lines (the selected lines, as `#L3-L5`).
+- **Issues**: the **Issues** button lists the repository's open issues (type to filter by title, label or author; pick one to open it) and creates new ones, with labels. **GitHub: Create Issue from Selection** starts an issue from the selected code: the title from its comment (a `TODO:` loses its prefix), and the description links to those lines on GitHub and quotes the code.
 - **Gists**: GitHub: Share as Gist shares any of your open files as a public or secret gist, and copies its link.
 - **Publish** creates a new repository from any project, like GitHub's own form: the owner (you or one of your organizations), name, description, public or private, a README (written right there, or the project's own), a `.gitignore` template (one that fits the project's languages is suggested) and a license. Dexna then pushes the project to it and links the two.
 

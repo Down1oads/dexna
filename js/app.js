@@ -4264,7 +4264,7 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],

@@ -1296,3 +1296,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .gh-conflict span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gh-files { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-height: 180px; overflow: auto; }
 .gh-files input, .gh-modal .si-check input { width: auto; }
+.gh-labels { display: flex; flex-wrap: wrap; gap: 6px; }
+.gh-label { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 4px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--lc) 60%, transparent); background: color-mix(in srgb, var(--lc) 18%, transparent); font-size: 12px; cursor: pointer; }
+.gh-label input { width: auto; margin: 0; }
