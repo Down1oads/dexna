@@ -731,11 +731,13 @@ export function createExtras(A) {
       try { return (await A.monaco.editor.colorize(code, id, { tabSize: A.settings.tabSize })).replace(/<br\/?>$/, ""); } catch (_) { return esc(code); }
     }));
     html = html.replace(/\u0001(\d+)\u0001/g, (_, i) => out[+i]);
-    // images that are SVG files in the project
+    // images in the project: SVG text files, and binary images
     html = html.replace(/<img src="([^"]+)"/g, (m, src) => {
       if (/^([a-z][\w+.-]*:|\/\/)/i.test(src)) return m;
-      const p = A.resolveRef(path, src);
-      return /\.svg$/i.test(p) && A.project.files[p] != null ? `<img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(A.textOf(p))}"` : m;
+      let p = A.resolveRef(path, src); try { p = decodeURIComponent(p); } catch (_) {}
+      if (/\.svg$/i.test(p) && A.project.files[p] != null) return `<img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(A.textOf(p))}"`;
+      const d = A.assetDataUrl?.(p);
+      return d ? `<img src="${d}"` : m;
     });
     return html || '<p class="empty">This file is empty. Start typing on the left.</p>';
   }

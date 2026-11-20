@@ -180,6 +180,70 @@ function openAsset(path) {
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => downloadFile(path) }, "Download"), h("button", { class: "btn primary", onclick: () => closeOverlay?.() }, "Close"))));
 }
 
+/* ---------- dropping files into the editor, and pasting images ---------- */
+/** A path from one project file to another (for references in pages, styles and Markdown). */
+function relPath(from, to) {
+  const a = dirname(from) ? dirname(from).split("/") : [], b = to.split("/");
+  let i = 0; while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  return [...a.slice(i).map(() => ".."), ...b.slice(i)].join("/") || basename(to);
+}
+/** What to insert for a file dropped (or pasted) into another, by the kind of file being edited. */
+function referenceTo(from, target) {
+  const rel = relPath(from, target), name = basename(target).replace(/\.[^.]+$/, ""), kind = kindOf(target), ext = extOf(target);
+  const lang = langOf(from);
+  const enc = rel.split("/").map(encodeURIComponent).join("/");
+  if (lang === "markdown") return kind === "image" ? `![${name}](${enc})` : `[${basename(target)}](${enc})`;
+  if (lang === "html") {
+    if (kind === "image") return `<img src="${rel}" alt="${name}">`;
+    if (kind === "audio") return `<audio src="${rel}" controls></audio>`;
+    if (kind === "video") return `<video src="${rel}" controls></video>`;
+    if (ext === "css") return `<link rel="stylesheet" href="${rel}">`;
+    if (ext === "js" || ext === "mjs") return `<script src="${rel}"></script>`;
+    return `<a href="${rel}">${basename(target)}</a>`;
+  }
+  if (lang === "css" || lang === "scss" || lang === "less") return kind === "font" ? `@font-face {\n  font-family: "${name}";\n  src: url("${rel}");\n}` : `url("${rel}")`;
+  if (lang === "python") return JSON.stringify(target); // programs run from the project folder
+  if (lang === "javascript" || lang === "typescript") return JSON.stringify(/\.(m?js|ts)$/.test(target) ? (rel.startsWith(".") ? rel : "./" + rel) : rel);
+  return rel;
+}
+function setupEditorInserts(ed) {
+  const node = ed.getContainerDomNode(); // (getDomNode is null until a file is open)
+  const insertAt = (pos, text) => {
+    const range = new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column);
+    ed.executeEdits("dexna-insert", [{ range, text, forceMoveMarkers: true }]);
+    ed.setPosition(ed.getModel().getPositionAt(ed.getModel().getOffsetAt(pos) + text.length));
+    ed.focus();
+  };
+  // a file dragged from the Explorer: insert a reference to it where it is dropped
+  node.addEventListener("dragover", (e) => { if (dragPath && e.dataTransfer.types.includes("text/plain")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }, true); // the Explorer starts its drags as "move"
+  node.addEventListener("drop", (e) => {
+    const target = dragPath, from = currentPath();
+    if (!target || !from || target === from || (project.files[target] == null && !isAsset(target))) return;
+    e.preventDefault(); e.stopPropagation();
+    const t = ed.getTargetAtClientPoint(e.clientX, e.clientY);
+    insertAt(t?.position || ed.getPosition(), referenceTo(from, target));
+    dragPath = null;
+  }, true);
+  // an image pasted from the clipboard: keep it as a file next to this one, and refer to it
+  // listened for on the parent: Monaco handles pasted files itself on the editor element when it has focus
+  (node.parentElement || node).addEventListener("paste", async (e) => {
+    if (!node.contains(e.target)) return;
+    const from = currentPath();
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.kind === "file" && i.type.startsWith("image/"));
+    if (!item || !from) return;
+    e.preventDefault(); e.stopPropagation();
+    const file = item.getAsFile(), ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg");
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+    const dir = (dirname(from) ? dirname(from) + "/" : "") + "images";
+    let path = `${dir}/pasted-${stamp}.${ext}`, n = 2;
+    while (exists(path)) path = `${dir}/pasted-${stamp}-${n++}.${ext}`;
+    await addAssets({ [path]: new Uint8Array(await file.arrayBuffer()) });
+    insertAt(ed.getPosition(), referenceTo(from, path));
+    toast(`Saved the image as ${path}`, "ok");
+  }, true);
+}
+const assetDataUrl = (p) => (isAsset(p) && assetBytes.has(p) ? `data:${mimeOf(p)};base64,${assetBase64(p)}` : null);
+
 function makeProject(tpl, name) {
   const files = { ...tpl.files };
   const entry = tpl.entry && files[tpl.entry] != null ? tpl.entry : Object.keys(files).find((f) => RUN_LANG[f.split(".").pop().toLowerCase()]) || null;
@@ -486,6 +550,7 @@ function createEditor() {
     inlineSuggest: { enabled: true }, linkedEditing: true, formatOnPaste: false, lightbulb: { enabled: "on" },
     "semanticHighlighting.enabled": true, quickSuggestionsDelay: 80, ...editorOptions(),
   });
+  setupEditorInserts(editor);
 
   editor.onDidChangeCursorPosition(() => { updateCursorStatus(); updateBreadcrumbs(); highlightOutline(); });
   editor.onDidChangeCursorSelection(updateCursorStatus);
@@ -1049,6 +1114,9 @@ treeEl.addEventListener("contextmenu", (e) => {
     items.push("-");
     if (!isDir) {
       items.push({ label: "Open", run: () => (isAsset(p) ? openAsset(p) : openFile(p)) });
+      const cur = currentPath();
+      if (cur && cur !== p && editor) items.push({ label: `Insert Reference in ${basename(cur)}`, run: () => { const pos = editor.getPosition(); const text = referenceTo(cur, p); editor.executeEdits("dexna-insert", [{ range: new monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column), text, forceMoveMarkers: true }]); editor.focus(); } });
+      if (isAsset(p)) items.push({ label: "Copy as Data URL", run: () => { const d = assetDataUrl(p); if (d) navigator.clipboard?.writeText(d).then(() => toast(`Copied ${basename(p)} as a data URL (${sizeLabel(d.length)})`, "ok"), () => toast("The browser did not allow copying", "warn")); } });
       if (isRunnable(p)) {
         items.push({ label: "Run This File", run: () => runFile({ path: p }) });
         items.push({ label: project.entry === p && project.pinEntry ? "Unset as Main File" : "Set as Main File", run: () => togglePinEntry(p) });
@@ -4027,7 +4095,7 @@ const API = {
   get monaco() { return monaco; }, get editor() { return editor; }, get project() { return project; }, models,
   openModal, closeModal: () => closeOverlay?.(), quickPick, confirmDialog, promptDialog, showMenu, quickOpen: (p) => quickOpen(p),
   openFile, textOf, langOf, langName, currentPath, modelFor: ensureModel, currentFiles: () => project?.files || {},
-  writeFiles: (changes) => applyFileChanges(changes, { silent: true }), removeFiles, assetFiles: () => Object.fromEntries(assetBytes), addAssets: (m) => addAssets(m), persist: () => persistProject(),
+  writeFiles: (changes) => applyFileChanges(changes, { silent: true }), removeFiles, assetDataUrl, assetFiles: () => Object.fromEntries(assetBytes), addAssets: (m) => addAssets(m), persist: () => persistProject(),
   setView, showPanel, setSetting, setStatusFlash, downloadBlob, resolveRef, save: () => saveCommand(), closeActive: () => project.active && closeTab(project.active),
   previewFile, previewPath: () => web.path, postToPreview,
   showPreview, editorOptions, isRunnable, run: () => cmdById("run").run(),
@@ -4453,6 +4521,7 @@ async function boot() {
 // Handy for power users and automated tests: window.dexna.lsp("complete", [...])
 window.dexna = {
   github,
+  referenceTo: (from, to) => referenceTo(from, to),
   removeFiles: (files) => removeFiles(files),
   fx: () => fx,
   lsp: (method, args) => lspCall(method, args),
