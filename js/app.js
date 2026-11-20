@@ -22,6 +22,7 @@ import { createNotebook } from "./notebook.js";
 import { createPro } from "./pro.js";
 import { createGitHub } from "./github.js";
 import { createPatch, applyPatch } from "./patch.js";
+import { planUpdates, brokenRefs } from "./refs.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
@@ -80,7 +81,7 @@ const DEFAULT_SETTINGS = {
   chroma: false, chromaSeconds: 20, codeGlow: "off", cursorTrail: false, screenFilter: "none", filterStrength: 50, ambient: "off", ambientVolume: 40,
   timeTheme: false, dayStarts: 7, nightStarts: 19,
   focusMode: "off", typewriter: false, indentRainbow: false, celebrate: false,
-  autoSave: "delay", autoSaveDelay: 400, filesExclude: "**/__pycache__\n**/.DS_Store\n*.pyc", explorerSort: "name", confirmDelete: true, fileAssociations: {},
+  updateRefs: "ask", testsOnSave: false, autoSave: "delay", autoSaveDelay: 400, filesExclude: "**/__pycache__\n**/.DS_Store\n*.pyc", explorerSort: "name", confirmDelete: true, fileAssociations: {},
   inlayHints: "off", inlayParams: "literals", inlayTypes: true, confirmClose: "always", fullscreenCtrlW: true,
   vimMode: false, changeMarkers: true, zenFullscreen: false, cursorStyle: "line", lineNumbers: "on", smoothCaret: true,
 };
@@ -150,7 +151,7 @@ async function addAssets(map) {
     assetBytes.set(path, bytes); assetB64.delete(path);
     addDirs(dirname(path));
   }
-  persistProject(); renderTree();
+  persistProject(); renderTree(); relintRefs();
   if (web.path) refreshPreview({ full: true });
   await Promise.all(list.map(([p, b]) => assetStore.put(id, p, b)));
 }
@@ -420,6 +421,45 @@ async function newFileFromClipboard(dir = "") {
   if (!path) return;
   if (exists(path)) return toast(`${path} already exists`, "warn");
   createFile(path, t.endsWith("\n") ? t : t + "\n", { open: true });
+}
+
+/* ---------- references to files that are not in the project, shown as problems ---------- */
+const REF_LANGS = /\.(html?|css|scss|less|md|markdown|mdx|m?jsx?|tsx?)$/i;
+function lintRefs(path) {
+  const m = models.get(path);
+  if (!m || !REF_LANGS.test(path)) return;
+  const there = (p) => project.files[p] != null || isAsset(p) || project.dirs.includes(p);
+  const text = m.getValue();
+  monaco.editor.setModelMarkers(m, "dexna-refs", brokenRefs(path, text, there).slice(0, 200).map((r) => {
+    const a = m.getPositionAt(r.start), b = m.getPositionAt(r.end);
+    return { startLineNumber: a.lineNumber, startColumn: a.column, endLineNumber: b.lineNumber, endColumn: b.column, severity: monaco.MarkerSeverity.Warning, message: `"${r.value.split(/[?#]/)[0]}" is not in this project`, source: "files" };
+  }));
+}
+const relintRefs = debounce(() => { for (const p of models.keys()) lintRefs(p); refreshProblems?.(); }, 300);
+const refLinters = new Map();
+
+/* ---------- Markdown: line up a table's columns ---------- */
+/** A Markdown table's lines, columns padded to the widest cell and the alignment row kept. */
+function formatMdTable(lines) {
+  const split = (l) => { const s = l.trim().replace(/^\|/, "").replace(/\|$/, ""); const cells = []; let cur = ""; for (let i = 0; i < s.length; i++) { if (s[i] === "\\" && s[i + 1] === "|") { cur += "\\|"; i++; } else if (s[i] === "|") { cells.push(cur.trim()); cur = ""; } else cur += s[i]; } cells.push(cur.trim()); return cells; };
+  const rows = lines.map(split), cols = Math.max(...rows.map((r) => r.length));
+  const isAlign = (r) => r.every((c) => /^:?-{1,}:?$/.test(c));
+  const ai = rows.findIndex(isAlign);
+  const align = ai >= 0 ? rows[ai].map((c) => (c.startsWith(":") && c.endsWith(":") ? "c" : c.endsWith(":") ? "r" : c.startsWith(":") ? "l" : "")) : [];
+  const width = (s) => [...s].length;
+  const w = Array.from({ length: cols }, (_, i) => Math.max(3, ...rows.filter((_, r) => r !== ai).map((r) => width(r[i] || ""))));
+  const pad = (s, i) => { const n = w[i] - width(s); if (align[i] === "r") return " ".repeat(n) + s; if (align[i] === "c") return " ".repeat(Math.floor(n / 2)) + s + " ".repeat(Math.ceil(n / 2)); return s + " ".repeat(n); };
+  return rows.map((r, ri) => "| " + Array.from({ length: cols }, (_, i) => (ri === ai ? (align[i] === "c" ? ":" + "-".repeat(w[i] - 2) + ":" : align[i] === "r" ? "-".repeat(w[i] - 1) + ":" : align[i] === "l" ? ":" + "-".repeat(w[i] - 1) : "-".repeat(w[i])) : pad(r[i] || "", i))).join(" | ") + " |");
+}
+function formatTableAtCursor() {
+  const m = editor?.getModel();
+  if (!m || m.getLanguageId() !== "markdown") return toast("Put the cursor in a Markdown table first", "info");
+  const ln = editor.getPosition().lineNumber, isRow = (n) => n >= 1 && n <= m.getLineCount() && /^\s*\|.*\|?\s*$/.test(m.getLineContent(n)) && m.getLineContent(n).includes("|");
+  if (!isRow(ln)) return toast("Put the cursor in a Markdown table first", "info");
+  let a = ln, b = ln; while (isRow(a - 1)) a--; while (isRow(b + 1)) b++;
+  const lines = []; for (let n = a; n <= b; n++) lines.push(m.getLineContent(n));
+  const out = formatMdTable(lines).join("\n");
+  editor.executeEdits("dexna-table", [{ range: new monaco.Range(a, 1, b, m.getLineMaxColumn(b)), text: out }]);
 }
 
 function setupEditorInserts(ed) {
@@ -870,6 +910,7 @@ function ensureModel(path) {
   m.updateOptions({ tabSize: tabSizeFor(path), insertSpaces: !settings.useTabs });
   models.set(path, m);
   m.onDidChangeContent((ev) => onModelChange(path, m, ev));
+  if (REF_LANGS.test(path)) setTimeout(() => lintRefs(path), 0);
   renderBreakpointDecos(path);
   updateCellDecos(path);
   extras?.onModelCreated(path);
@@ -923,6 +964,7 @@ function onModelChange(path, model, ev) {
   if (path.endsWith(".py")) { scheduleLint(path); scheduleCells(path); }
   if (path === currentPath()) scheduleOutline();
   if (path === "requirements.txt") { clearTimeout(reqTimer); reqTimer = setTimeout(() => syncRequirements(), 1500); }
+  if (REF_LANGS.test(path)) { if (!refLinters.has(path)) refLinters.set(path, debounce(() => lintRefs(path), 500)); refLinters.get(path)(); }
 }
 
 /* =====================================================================
@@ -1063,6 +1105,7 @@ function createFile(path, content = "", { open = true } = {}) {
   renderTree();
   if (open) openFile(path);
   if (path.endsWith(".py")) scheduleLint(path);
+  relintRefs(); // a new file can mend references to it
   return path;
 }
 
@@ -1098,11 +1141,29 @@ async function newFolderDialog(dir = selectedDir()) {
   renderTree();
 }
 
-function movePath(from, to) {
+/** A snapshot of the project's files, to work out reference updates once files have moved. */
+function refSnapshot() {
+  commitDirty();
+  const files = { ...project.files }, assets = new Set(assetPaths()), dirs = new Set(project.dirs);
+  return { files, exists: (p) => files[p] != null || assets.has(p) || dirs.has(p) };
+}
+/** After files moved: fix the references to them (and in them), as the setting says. */
+async function offerRefUpdates(snap, moves) {
+  if (settings.updateRefs === "never" || !moves.length) return;
+  const { changes, count } = planUpdates(snap.files, moves, snap.exists);
+  const list = Object.keys(changes).filter((p) => project.files[p] != null);
+  if (!count || !list.length) return;
+  if (settings.updateRefs !== "always" && !(await confirmDialog({ title: "Update references", message: `${count} reference${count === 1 ? "" : "s"} in ${list.length} file${list.length === 1 ? "" : "s"} (${list.slice(0, 4).join(", ")}${list.length > 4 ? "…" : ""}) point to what you moved. Update them? Settings > Files can do this without asking.`, okLabel: "Update" }))) return;
+  applyFileChanges(Object.fromEntries(list.map((p) => [p, changes[p]])), { silent: true });
+  toast(`Updated ${count} reference${count === 1 ? "" : "s"} in ${list.length} file${list.length === 1 ? "" : "s"}`, "ok");
+}
+let lastMoves = [];
+function movePath(from, to, { updateRefs = true } = {}) {
   to = validPath(to);
   if (!to || to === from) return false;
   if (to.startsWith(from + "/")) { toast("Can't move a folder into itself", "error"); return false; }
   if (exists(to)) { toast(`${to} already exists`, "error"); return false; }
+  const snap = updateRefs ? refSnapshot() : null;
   const isFile = project.files[from] != null || isAsset(from);
   const mapping = [];
   if (isFile) mapping.push([from, to]);
@@ -1148,6 +1209,9 @@ function movePath(from, to) {
   updateRunTarget();
   renderDebugView();
   mapping.forEach(([, b]) => b.endsWith(".py") && scheduleLint(b));
+  lastMoves = mapping;
+  if (snap) setTimeout(() => offerRefUpdates(snap, mapping), 0);
+  relintRefs();
   return true;
 }
 
@@ -1182,7 +1246,7 @@ function removeFiles(files) {
   }
   if (project.entry && project.files[project.entry] == null) project.entry = null;
   persistProject();
-  renderTree();
+  renderTree(); relintRefs();
   renderTabs();
   updateRunTarget();
   refreshProblems();
@@ -1341,10 +1405,12 @@ async function moveMany(paths) {
   if (to == null) return;
   const dir = to.trim().replace(/^\/+|\/+$/g, "");
   let moved = 0;
+  const snap = refSnapshot(), all = [];
   for (const p of paths.filter((p) => !paths.some((q) => q !== p && p.startsWith(q + "/")))) { // a folder moves with what is in it
     const target = (dir ? dir + "/" : "") + basename(p);
-    if (target !== p && movePath(p, target)) moved++;
+    if (target !== p && movePath(p, target, { updateRefs: false })) { moved++; all.push(...lastMoves); }
   }
+  offerRefUpdates(snap, all);
   treeMulti.clear(); renderTree();
   if (moved) toast(`Moved ${moved} item${moved === 1 ? "" : "s"}${dir ? " into " + dir : ""}`, "ok");
 }
@@ -2744,6 +2810,7 @@ function applyFileChanges(changes, { silent = false } = {}) {
   if (added.length) { added.forEach(lspSyncFile); renderTabs(); }
   if (added.length && !silent) toast(`Your program created ${added.length === 1 ? added[0] : added.length + " files"}`, "ok");
   if ("requirements.txt" in changes) setTimeout(() => syncRequirements(), 0);
+  relintRefs(); // silent changes skip the edit events that would recheck references
 }
 
 async function stopExecution() {
@@ -4268,6 +4335,8 @@ const SETTINGS_SCHEMA = [
   { key: "vimMode", cat: "Editor", label: "Vim keys", desc: "Edit with Vim key bindings: modes, motions, operators, registers, macros, and :w to save. The mode shows in the status bar.", type: "bool" },
   { key: "zenFullscreen", cat: "Editor", label: "Zen mode uses full screen", desc: "Also make the browser full screen in Zen mode (Ctrl+K Z).", type: "bool" },
   { key: "runOnSave", cat: "Editor", label: "Run on save", desc: "Run the file each time you press Ctrl+S.", type: "bool" },
+  { key: "testsOnSave", cat: "Editor", label: "Run tests on save", desc: "Run the project's Python tests each time you press Ctrl+S in a Python file.", type: "bool" },
+  { key: "updateRefs", cat: "Files", label: "Update references when moving files", desc: "When you rename or move a file, fix the places that point to it: <img src>, <link href>, CSS url(), Markdown links, JavaScript imports and Python imports.", type: "select", options: [["ask", "Ask each time"], ["always", "Always"], ["never", "Never"]] },
   { key: "localHistory", cat: "Editor", label: "Local history", desc: "Keep earlier versions of every file automatically: when you start editing it, every few minutes while you type, when you save and before you delete it. File > Local History shows them. Stored in this browser.", type: "bool" },
   { key: "clipboardHistory", cat: "Editor", label: "Clipboard history", desc: "Remember the last 40 things you copied or cut in Dexna, for Paste from Clipboard History (Ctrl+Shift+Alt+V). Stored in this browser.", type: "bool" },
   { key: "formatOnSave", cat: "Editor", label: "Format on save and run", desc: "Format the file when you press Ctrl+S and before running it. Python uses black, Lua uses StyLua, SQL uses sql-formatter.", type: "bool" },
@@ -4701,6 +4770,7 @@ const COMMANDS = [
   { id: "find-folder", label: "Find in Folder…", cat: "Edit", run: async () => { const dirs = [...new Set(Object.keys(project.files).map(dirname).filter(Boolean))].sort(); if (!dirs.length) return toast("This project has no folders", "info"); quickPick({ placeholder: "Search inside which folder?", source: (q) => dirs.filter((d) => d.toLowerCase().includes(q.toLowerCase())).map((d) => ({ label: d + "/", run: () => searchInFolder(d) })) }); } },
   { id: "bp-cond", label: "Add Conditional Breakpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "cond") },
   { id: "bp-log", label: "Add Logpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "log") },
+  { id: "md-table", label: "Markdown: Format Table", cat: "Text", kb: "shift+alt+t", run: formatTableAtCursor },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
   { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {
@@ -4887,6 +4957,7 @@ async function saveCommand() {
   setStatusFlash(settings.runOnSave ? "Saved, running" : "Saved locally");
   tweaks?.onSaved();
   power?.onSave();
+  if (settings.testsOnSave && currentPath()?.endsWith(".py") && !state.busy) cmdById("tests-run-all")?.run();
 }
 
 function quickOpen(prefix = "") {
