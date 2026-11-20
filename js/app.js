@@ -206,6 +206,27 @@ function referenceTo(from, target) {
   if (lang === "javascript" || lang === "typescript") return JSON.stringify(/\.(m?js|ts)$/.test(target) ? (rel.startsWith(".") ? rel : "./" + rel) : rel);
   return rel;
 }
+/** Run the formatter on every file that has one, a file at a time, then go back to where you were. */
+async function formatAllFiles() {
+  const FORMATTABLE = new Set(["python", "javascript", "typescript", "json", "css", "scss", "less", "html", "lua", "sql", "c", "cpp", "java", "csharp", "go"]);
+  const paths = Object.keys(project.files).filter((p) => FORMATTABLE.has(langOf(p)) && !isExcluded()(p));
+  if (!paths.length) return toast("No files here have a formatter", "info");
+  if (!(await confirmDialog({ title: "Format all files", message: `Format ${paths.length} file${paths.length === 1 ? "" : "s"} with their language's formatter? Local History keeps the versions from before.`, okLabel: "Format" }))) return;
+  const back = project.active, changed = [], failed = [];
+  for (const p of paths) {
+    const m = ensureModel(p), before = m.getValue();
+    editor.setModel(m);
+    try {
+      const act = editor.getAction("editor.action.formatDocument");
+      if (act?.isSupported()) await Promise.race([act.run(), new Promise((r) => setTimeout(r, 8000))]);
+    } catch (_) { failed.push(p); }
+    if (m.getValue() !== before) changed.push(p);
+  }
+  if (back) openFile(back); else editor.setModel(null);
+  toast(changed.length ? `Formatted ${changed.length} file${changed.length === 1 ? "" : "s"}: ${changed.slice(0, 5).join(", ")}${changed.length > 5 ? "…" : ""}` : "Every file was already formatted", "ok", 5000);
+  if (failed.length) toast(`Could not format ${failed.join(", ")}`, "warn");
+}
+
 function setupEditorInserts(ed) {
   // GitHub actions on the editor's right-click menu (they explain themselves when the project is not on GitHub)
   ed.addAction({ id: "dexna.ghLink", label: "Copy GitHub Link to These Lines", contextMenuGroupId: "9_dexna", contextMenuOrder: 5, run: () => cmdById("gh-copy-link")?.run() });
@@ -1491,7 +1512,9 @@ const LANG_NAMES = { python: "Python", plaintext: "Plain Text", javascript: "Jav
 const langName = (id) => LANG_NAMES[id] || MODES[id]?.name || (id ? id[0].toUpperCase() + id.slice(1) : "");
 
 const extTabs = [];
+const closedTabs = []; // most recent last, for Reopen Closed Tab
 function closeTab(key, { silent } = {}) {
+  if (!key.startsWith("ext:")) { closedTabs.push({ project: project.id, path: key }); if (closedTabs.length > 50) closedTabs.shift(); }
   const tabs = allTabs();
   const idx = tabs.indexOf(key);
   if (key.startsWith("ext:")) { extTabs.splice(extTabs.indexOf(key), 1); }
@@ -1537,6 +1560,7 @@ function renderTabs() {
         { label: "Close Others", run: () => allTabs().filter((k) => k !== key).forEach((k) => closeTab(k, { silent: true })) },
         { label: "Close to the Right", run: () => allTabs().slice(allTabs().indexOf(key) + 1).forEach((k) => closeTab(k, { silent: true })) },
         { label: "Close All", run: () => allTabs().forEach((k) => closeTab(k, { silent: true })) },
+        { label: "Reopen Closed Tab", kb: "alt+shift+t", disabled: !closedTabs.some((t) => t.project === project.id), run: () => cmdById("tab-reopen").run() },
         "-",
         { label: "Reveal in Explorer", disabled: ext, run: () => { expandTo(key); renderTree(); setView("explorer"); selectTreeRow(key); } },
         { label: "Copy Path", run: () => navigator.clipboard?.writeText(p) },
@@ -4242,6 +4266,26 @@ const COMMANDS = [
   { id: "close-tab", label: "Close Editor", cat: "File", kb: "alt+w", run: () => project.active && closeTab(project.active) },
   { id: "upload", label: "Upload Files…", cat: "File", run: () => { uploadTarget = ""; $("#file-upload").click(); } },
   { id: "import-zip", label: "Import Project from ZIP…", cat: "File", run: () => $("#zip-upload").click() },
+  { id: "tab-reopen", label: "Reopen Closed Tab", cat: "View", kb: "alt+shift+t", run: () => {
+    while (closedTabs.length) {
+      const t = closedTabs.pop();
+      if (t.project === project.id && (project.files[t.path] != null) && !project.open.includes(t.path)) { openFile(t.path); return; }
+    }
+    toast("No closed tabs to reopen", "info");
+  } },
+  { id: "duplicate-project", label: "Duplicate Project…", cat: "File", run: async () => {
+    const name = await promptDialog({ title: "Duplicate project", message: "A copy of every file, binary files included, as a new project.", value: uniqueProjectName(`${project.name} copy`), okLabel: "Duplicate" });
+    if (!name) return;
+    commitDirty();
+    const bins = Object.fromEntries([...assetBytes].map(([k, v]) => [k, v.slice()]));
+    const src = project;
+    createProject({ files: { ...src.files }, entry: src.entry, packages: [...(src.packages || [])], npm: { ...(src.npm || {}) }, stdin: { ...(src.stdin || {}) } }, name);
+    for (const d of src.dirs || []) addDirs(d);
+    if (Object.keys(bins).length) await addAssets(bins);
+    persistProject(); renderTree();
+    toast(`Made "${name}", a copy of "${src.name}"`, "ok");
+  } },
+  { id: "format-all", label: "Format All Files in the Project", cat: "Edit", run: formatAllFiles },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
@@ -4459,8 +4503,8 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "gh-gist-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
-  Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "gh-gist-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
+  Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],

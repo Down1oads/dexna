@@ -131,6 +131,7 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Vim keys** (Settings > Editor): modes, motions, operators, registers, macros, `:w` to save. The mode shows in the status bar.
 - **Bookmarks**: Ctrl+Alt+K marks a line, Ctrl+Alt+L / Ctrl+Alt+J jump between them across files, and the Bookmarks tab lists them. They move with your edits.
 - **TODOs**: every `TODO`, `FIXME`, `HACK`, `BUG` and `NOTE` comment in the project, highlighted in the editor and listed in the TODOs tab.
+- **Reopen Closed Tab** (Alt+Shift+T, or a tab's right-click menu), **Format All Files in the Project** (Edit menu; Local History keeps the versions from before), and **Duplicate Project** (File menu; binary files included).
 - **Explorer filter**: type in the box above the files to see only those whose path matches (all words, any order), with their folders opened; Enter opens the first, Escape clears it.
 - **Line endings**: the status bar shows LF or CRLF for the open file; click it to convert.
 - **Text menu**: sort lines (numbers in order), remove duplicates, reverse, shuffle, change case (camelCase, snake_case, PascalCase, kebab-case, CONSTANT_CASE and more), Base64 and URL encode/decode, evaluate math in the selection, insert a UUID or a date.
@@ -270,6 +271,7 @@ After you have opened Dexna once, it works without a connection: its own files, 
 | Markdown preview | Ctrl+Shift+V |
 | Toggle bookmark / next / previous | Ctrl+Alt+K / Ctrl+Alt+L / Ctrl+Alt+J |
 | Zen mode | Ctrl+K Z |
+| Reopen closed tab | Alt+Shift+T |
 
 ## How it works
 
