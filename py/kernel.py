@@ -407,10 +407,32 @@ def _dexna_inspect(path):
 
 # ---------------------------------------------------------------- debugger
 class Debugger:
-    def __init__(self, breakpoints, stop_on_entry):
+    def __init__(self, breakpoints, stop_on_entry, conds=None):
         self.bps = breakpoints
+        self.conds = conds or {}  # {file: {"line": {"cond": "i == 5", "log": "i is {i}"}}}
         self.mode = "step" if stop_on_entry else "continue"
         self.target = 0
+
+    def _hit(self, frame, fn, ln):
+        """Should this breakpoint stop? A condition must be true; a logpoint prints and goes on."""
+        c = self.conds.get(fn, {}).get(str(ln))
+        if not c:
+            return True
+        if c.get("cond"):
+            try:
+                if not eval(c["cond"], frame.f_globals, frame.f_locals):
+                    return False
+            except Exception as e:
+                print(f"[the condition of the breakpoint on line {ln} failed: {type(e).__name__}: {e}]", file=sys.stderr)
+                return True
+        if c.get("log"):
+            try:
+                msg = eval("f" + repr(c["log"]), frame.f_globals, frame.f_locals)
+            except Exception as e:
+                msg = f"{c['log']}  [{type(e).__name__}: {e}]"
+            print(msg)
+            return False
+        return True
 
     @staticmethod
     def _depth(frame):
@@ -437,7 +459,7 @@ class Debugger:
             fn = _rel(frame.f_code.co_filename)
             ln = frame.f_lineno
             stop = False
-            if ln in self.bps.get(fn, ()):
+            if ln in self.bps.get(fn, ()) and self._hit(frame, fn, ln):
                 stop = True
             elif self.mode == "step":
                 stop = True
@@ -472,7 +494,9 @@ class Debugger:
                 cmd = wait_reply("eval-result", json.dumps({"expr": expr, "result": res}))
                 continue
             if cmd.startswith("bps:"):
-                self.bps = {k: set(v) for k, v in json.loads(cmd[4:]).items()}
+                data = json.loads(cmd[4:])
+                self.conds = data.pop("__conds__", self.conds)
+                self.bps = {k: set(v) for k, v in data.items()}
                 cmd = wait_reply("ack", "")
                 continue
             break
@@ -664,7 +688,7 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
         code = compile(src, full, "exec")
         if debug:
             bps = {k: set(v) for k, v in json.loads(breakpoints_json).items()}
-            Debugger(bps, stop_on_entry).run(code, ns)
+            Debugger(bps, stop_on_entry, opts.get("bpConds")).run(code, ns)
         elif mode == "coverage":
             cov = _Coverage()
             with cov:

@@ -1346,3 +1346,7 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .search-scope { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 10px 4px; padding: 2px 4px 2px 8px; font-size: 12px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .search-scope.hidden { display: none; }
 .tab .tlock svg { width: 12px; height: 12px; opacity: .7; margin-left: -2px; }
+
+/* breakpoints with a condition (a ring) and logpoints (a blue diamond) */
+.dx-bp.cond { background: radial-gradient(circle, var(--bg) 0 2.2px, var(--err) 2.8px) !important; }
+.dx-bp.log { background: #60a5fa !important; border-radius: 1px; transform: rotate(45deg) scale(.82); }

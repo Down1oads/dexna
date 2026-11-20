@@ -423,6 +423,18 @@ async function newFileFromClipboard(dir = "") {
 }
 
 function setupEditorInserts(ed) {
+  ed.onContextMenu((e) => {
+    if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !currentPath()?.endsWith(".py")) return;
+    const path = currentPath(), line = e.target.position?.lineNumber;
+    if (!line) return;
+    e.event.preventDefault(); e.event.stopPropagation();
+    const has = (project.breakpoints[path] || []).includes(line), c = project.bpConds?.[path]?.[line];
+    setTimeout(() => { document.querySelector(".monaco-menu-container, .context-view")?.remove?.(); showMenu(e.event.posx, e.event.posy, [
+      { label: has ? "Remove Breakpoint" : "Add Breakpoint", run: () => toggleBreakpoint(path, line) },
+      { label: c?.cond ? "Edit Condition…" : "Add Conditional Breakpoint…", run: () => editBreakpoint(path, line, "cond") },
+      { label: c?.log ? "Edit Logpoint…" : "Add Logpoint…", run: () => editBreakpoint(path, line, "log") },
+    ]); }, 0);
+  });
   ed.addAction({ id: "dexna.copyMd", label: "Copy as Markdown Code Block", contextMenuGroupId: "9_cutcopypaste", contextMenuOrder: 9, run: () => copyAsMarkdown() });
   // GitHub actions on the editor's right-click menu (they explain themselves when the project is not on GitHub)
   ed.addAction({ id: "dexna.ghLink", label: "Copy GitHub Link to These Lines", contextMenuGroupId: "9_dexna", contextMenuOrder: 5, run: () => cmdById("gh-copy-link")?.run() });
@@ -791,7 +803,7 @@ function createEditor() {
   });
   editor.onMouseLeave(() => hint.clear());
   editor.onMouseDown((e) => {
-    if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && currentPath()) {
+    if (e.target.type === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN && currentPath() && e.event.leftButton) { // a right click opens the margin's menu instead
       toggleBreakpoint(currentPath(), e.target.position.lineNumber);
       hint.clear();
     }
@@ -2601,7 +2613,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" 
   if (settings.formatOnSave) await formatDocument().catch(() => {});
   showPanel("terminal");
   if (settings.clearOnRun) terminal.clear();
-  const opts = { ...(devtools?.runOptions(path) || {}), mode: debug ? "run" : mode };
+  const opts = { ...(devtools?.runOptions(path) || {}), mode: debug ? "run" : mode, bpConds: project.bpConds || {} };
   const what = debug ? "Debugging" : mode === "coverage" ? "Running with coverage" : mode === "profile" ? "Profiling" : "Running";
   terminal.separator(`${what} ${path}${opts.args?.length ? " " + opts.args.join(" ") : ""} at ${new Date().toLocaleTimeString()}`);
   sink = terminal;
@@ -3597,21 +3609,40 @@ function renderBreakpointDecos(path) {
   const m = models.get(path);
   if (!m) return;
   const lines = project.breakpoints[path] || [];
-  bpDecos.set(path, m.deltaDecorations(bpDecos.get(path) || [], lines.map((ln) => ({
-    range: new monaco.Range(ln, 1, ln, 1),
-    options: { glyphMarginClassName: "dx-bp", glyphMarginHoverMessage: { value: "Breakpoint" }, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges, overviewRuler: { color: "#f87171", position: monaco.editor.OverviewRulerLane.Left } },
-  }))));
+  bpDecos.set(path, m.deltaDecorations(bpDecos.get(path) || [], lines.map((ln) => {
+    const c = project.bpConds?.[path]?.[ln];
+    const kind = c?.log ? " log" : c?.cond ? " cond" : "";
+    const hover = c?.log ? `Logpoint: prints \`${c.log}\`${c.cond ? ` when \`${c.cond}\`` : ""}` : c?.cond ? `Breakpoint: stops when \`${c.cond}\`` : "Breakpoint";
+    return { range: new monaco.Range(ln, 1, ln, 1), options: { glyphMarginClassName: "dx-bp" + kind, glyphMarginHoverMessage: { value: hover + "  \n_Right-click the margin to change it._" }, stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges, overviewRuler: { color: c?.log ? "#60a5fa" : "#f87171", position: monaco.editor.OverviewRulerLane.Left } } };
+  })));
+}
+/** A condition ("stop only when…") or a log message ("print this instead of stopping") on a breakpoint. */
+async function editBreakpoint(path, line, kind) {
+  if (!path?.endsWith(".py")) return toast("Conditions and logpoints are for Python files", "info");
+  const cur = project.bpConds?.[path]?.[line] || {};
+  const v = await promptDialog(kind === "log"
+    ? { title: `Logpoint on line ${line}`, message: "Printed each time the line runs, instead of stopping. Put expressions in braces, like an f-string: i is {i}, total {sum(xs)}.", value: cur.log || "", placeholder: "i is {i}", okLabel: "Set logpoint" }
+    : { title: `Condition for line ${line}`, message: "Stop here only when this Python expression is true. Leave it empty for a plain breakpoint.", value: cur.cond || "", placeholder: "i == 50", okLabel: "Set" });
+  if (v == null) return;
+  project.bpConds ||= {}; const f = (project.bpConds[path] ||= {});
+  const next = { ...cur, [kind === "log" ? "log" : "cond"]: v.trim() || undefined };
+  if (!next.cond && !next.log) delete f[line]; else f[line] = next;
+  const set = new Set(project.breakpoints[path] || []); set.add(line);
+  project.breakpoints[path] = [...set].sort((a, b) => a - b);
+  renderBreakpointDecos(path); renderBreakpointList(); persistProject(); markBpsDirty();
 }
 function syncBreakpointsFromDecos(path) {
   const m = models.get(path);
-  const lines = [...new Set((bpDecos.get(path) || []).map((id) => m.getDecorationRange(id)?.startLineNumber).filter(Boolean))].sort((a, b) => a - b);
-  const prev = (project.breakpoints[path] || []).join();
+  const ids = bpDecos.get(path) || [], old = project.breakpoints[path] || [], conds = project.bpConds?.[path];
+  if (conds) { const moved = {}; ids.forEach((id, i) => { const ln = m.getDecorationRange(id)?.startLineNumber; if (ln && conds[old[i]]) moved[ln] = conds[old[i]]; }); project.bpConds[path] = moved; }
+  const lines = [...new Set(ids.map((id) => m.getDecorationRange(id)?.startLineNumber).filter(Boolean))].sort((a, b) => a - b);
+  const prev = old.join();
   if (lines.join() !== prev) { project.breakpoints[path] = lines; renderBreakpointDecos(path); renderBreakpointList(); markBpsDirty(); }
 }
 function toggleBreakpoint(path, line) {
   if (!path || !path.endsWith(".py")) return;
   const set = new Set(project.breakpoints[path] || []);
-  set.has(line) ? set.delete(line) : set.add(line);
+  if (set.has(line)) { set.delete(line); if (project.bpConds?.[path]) delete project.bpConds[path][line]; } else set.add(line);
   project.breakpoints[path] = [...set].sort((a, b) => a - b);
   if (!project.breakpoints[path].length) delete project.breakpoints[path];
   renderBreakpointDecos(path);
@@ -3622,7 +3653,7 @@ function toggleBreakpoint(path, line) {
 function markBpsDirty() {
   if (!dbg.active) return;
   dbg.bpsDirty = true;
-  if (dbg.paused) { dbg.queue.unshift({ cmd: "bps:" + JSON.stringify(project.breakpoints) }); dbg.bpsDirty = false; dbgPump(); }
+  if (dbg.paused) { dbg.queue.unshift({ cmd: "bps:" + JSON.stringify({ ...project.breakpoints, __conds__: project.bpConds || {} }) }); dbg.bpsDirty = false; dbgPump(); }
 }
 function clearBreakpoints() {
   project.breakpoints = {};
@@ -4668,6 +4699,8 @@ const COMMANDS = [
   { id: "new-from-clip", label: "New File from Clipboard…", cat: "File", run: () => newFileFromClipboard() },
   { id: "lock-file", label: "Lock or Unlock This File (Read-only)", cat: "File", run: () => project.active && toggleLock(project.active) },
   { id: "find-folder", label: "Find in Folder…", cat: "Edit", run: async () => { const dirs = [...new Set(Object.keys(project.files).map(dirname).filter(Boolean))].sort(); if (!dirs.length) return toast("This project has no folders", "info"); quickPick({ placeholder: "Search inside which folder?", source: (q) => dirs.filter((d) => d.toLowerCase().includes(q.toLowerCase())).map((d) => ({ label: d + "/", run: () => searchInFolder(d) })) }); } },
+  { id: "bp-cond", label: "Add Conditional Breakpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "cond") },
+  { id: "bp-log", label: "Add Logpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "log") },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
   { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {
