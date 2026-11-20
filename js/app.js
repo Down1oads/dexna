@@ -394,6 +394,34 @@ document.addEventListener("keydown", (e) => {
   }
 }, true);
 
+/** Guess a file type from its text, for New File from Clipboard. */
+function guessExt(t) {
+  const s = t.trimStart();
+  if (/^<!doctype html|^<html/i.test(s)) return "html";
+  if (/^[\[{]/.test(s)) { try { JSON.parse(t); return "json"; } catch (_) {} }
+  if (/^(def |class |import |from \w+ import |print\(|if __name__)/m.test(t)) return "py";
+  if (/^(function |const |let |import .* from |export |console\.log)/m.test(t)) return "js";
+  if (/^#{1,6} |\n\s*[-*] /.test(t)) return "md";
+  if (/^[.#]?[\w-]+\s*\{[^}]*:[^}]*\}/m.test(t)) return "css";
+  if (/^(SELECT|CREATE TABLE|INSERT INTO|UPDATE|WITH)\b/im.test(t)) return "sql";
+  if (/^package main|^func /m.test(t)) return "go";
+  if (/#include\s*</.test(t)) return /\b(std::|cout|namespace)\b/.test(t) ? "cpp" : "c";
+  if (/\b(public static void main|System\.out\.println)\b/.test(t)) return "java";
+  if (/^[^,\n]+(,[^,\n]+)+\n[^,\n]+(,[^,\n]+)+/.test(t)) return "csv";
+  return "txt";
+}
+async function newFileFromClipboard(dir = "") {
+  let t; try { t = await navigator.clipboard.readText(); } catch (_) { return toast("The browser did not allow reading the clipboard", "warn"); }
+  if (!t?.trim()) return toast("The clipboard has no text", "info");
+  const ext = guessExt(t);
+  const name = await promptDialog({ title: "New file from the clipboard", message: `${t.split("\n").length} lines. It looks like ${ext === "txt" ? "plain text" : "a ." + ext + " file"}: change the name or the extension if not.`, value: (dir ? dir + "/" : "") + "pasted." + ext, select: [(dir ? dir.length + 1 : 0), (dir ? dir.length + 1 : 0) + 6], okLabel: "Create" });
+  if (!name) return;
+  const path = validPath(name);
+  if (!path) return;
+  if (exists(path)) return toast(`${path} already exists`, "warn");
+  createFile(path, t.endsWith("\n") ? t : t + "\n", { open: true });
+}
+
 function setupEditorInserts(ed) {
   ed.addAction({ id: "dexna.copyMd", label: "Copy as Markdown Code Block", contextMenuGroupId: "9_cutcopypaste", contextMenuOrder: 9, run: () => copyAsMarkdown() });
   // GitHub actions on the editor's right-click menu (they explain themselves when the project is not on GitHub)
@@ -1088,6 +1116,7 @@ function movePath(from, to) {
     more?.onRename(a, b);
     if (project.entry === a) project.entry = b;
     project.open = project.open.map((o) => (o === a ? b : o));
+    if (project.locked) project.locked = project.locked.map((o) => (o === a ? b : o));
     if (project.pinned) project.pinned = project.pinned.map((o) => (o === a ? b : o));
     if (project.active === a) project.active = b;
     disposeModel(a);
@@ -1459,6 +1488,7 @@ treeEl.addEventListener("contextmenu", (e) => {
     { label: "New File…", kb: "ctrl+alt+n", run: () => newFileDialog(dir) },
     { label: "New Folder…", run: () => newFolderDialog(dir) },
     { label: "Upload Files…", run: () => { uploadTarget = dir; $("#file-upload").click(); } },
+    { label: "New File from Clipboard…", run: () => newFileFromClipboard(dir) },
     { label: "Import File from URL…", run: () => importFromUrl(dir) },
   ];
   if (p) {
@@ -1473,8 +1503,9 @@ treeEl.addEventListener("contextmenu", (e) => {
         items.push({ label: project.entry === p && project.pinEntry ? "Unset as Main File" : "Set as Main File", run: () => togglePinEntry(p) });
       }
       items.push({ label: "Duplicate", run: () => duplicateFile(p) }, { label: "Download", run: () => downloadFile(p) });
+      if (!isAsset(p)) items.push({ label: isLocked(p) ? "Unlock File" : "Lock File (Read-only)", run: () => toggleLock(p) });
       if (isAsset(p) && kindOf(p) === "image" && !/\.(svg|ico|cur)$/i.test(p)) items.push({ label: "Resize or Convert Image…", run: () => imageTool(p) });
-    } else items.push({ label: "Download Folder as ZIP", run: () => downloadFolder(p) });
+    } else items.push({ label: "Find in Folder…", run: () => searchInFolder(p) }, { label: "Download Folder as ZIP", run: () => downloadFolder(p) });
     items.push({ label: "Copy Path", run: () => navigator.clipboard?.writeText(p) });
     const curFile = currentPath();
     if (curFile && curFile !== p) items.push({ label: `Copy Path Relative to ${basename(curFile)}`, run: () => navigator.clipboard?.writeText(relPath(curFile, p)) });
@@ -1778,7 +1809,7 @@ async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}
   notebook?.onOpen(key.startsWith("ext:") ? null : key);
   if (!key.startsWith("ext:")) persistProject();
   if (key.startsWith("ext:") && !extTabs.includes(key)) extTabs.push(key);
-  editor.updateOptions({ readOnly: key.startsWith("ext:") || autoTyping.has(key) });
+  editor.updateOptions({ readOnly: key.startsWith("ext:") || autoTyping.has(key) || isLocked(key), readOnlyMessage: isLocked(key) ? { value: "This file is locked. Unlock it from its tab or the Explorer (right-click) to edit it." } : undefined });
   showWelcome(false);
   if (line) {
     const sel = new monaco.Selection(line, col, line, col + selectLen);
@@ -1818,6 +1849,15 @@ function closeTab(key, { silent } = {}) {
 function saveViewStateFor(key) { if (editor.getModel() && keyForUri(editor.getModel().uri) === key) saveViewState(); }
 const allTabs = () => [...project.open, ...extTabs];
 const isPinned = (key) => !!project.pinned?.includes(key);
+const isLocked = (key) => !!project?.locked?.includes(key);
+/** A locked file cannot be typed in (programs and pulls can still change it). */
+function toggleLock(key) {
+  project.locked ||= [];
+  project.locked = isLocked(key) ? project.locked.filter((k) => k !== key) : [...project.locked, key];
+  persistProject(); renderTabs(); renderTree();
+  if (key === project.active) editor.updateOptions({ readOnly: isLocked(key), readOnlyMessage: isLocked(key) ? { value: "This file is locked. Unlock it from its tab or the Explorer (right-click) to edit it." } : undefined });
+  toast(isLocked(key) ? `Locked ${basename(key)}: it cannot be edited by accident` : `Unlocked ${basename(key)}`, "ok");
+}
 const unpinnedTabs = () => allTabs().filter((k) => !isPinned(k));
 /** Pinned tabs stay at the front, show a pin instead of a close button, and survive Close Others / Close All. */
 function togglePin(key) {
@@ -1850,6 +1890,7 @@ function renderTabs() {
     const tab = h("div", { class: "tab" + (pinned ? " pinned" : "") + (key === project.active && !pageOpen() ? " active" : "") + (ext ? " readonly" : "") + (dirty.has(key) ? " dirty" : "") + (c?.e ? " has-error" : c?.w ? " has-warn" : ""), title: p, draggable: "true", "data-key": key },
       ext ? fi("book") : fileIcon(p),
       h("span", { class: "tname" }, name),
+      isLocked(key) ? h("span", { class: "tlock", title: "Locked (read-only)", html: iconSvg("lock") }) : null,
       dup || ext ? h("span", { class: "tdir" }, ext ? "read-only" : dirname(p) || "./") : null,
       pinned ? h("button", { class: "close pin", title: "Pinned: click to unpin", onclick: (e) => { e.stopPropagation(); togglePin(key); } }, icon("pin"))
         : h("button", { class: "close", title: "Close (Alt+W)", onclick: (e) => { e.stopPropagation(); closeTab(key); } }, icon("close")));
@@ -1863,6 +1904,7 @@ function renderTabs() {
         { label: "Close to the Right", run: () => allTabs().slice(allTabs().indexOf(key) + 1).filter((k) => !isPinned(k)).forEach((k) => closeTab(k, { silent: true })) },
         { label: "Close All", run: () => unpinnedTabs().forEach((k) => closeTab(k, { silent: true })) },
         { label: pinned ? "Unpin Tab" : "Pin Tab", disabled: ext, run: () => togglePin(key) },
+        { label: isLocked(key) ? "Unlock File" : "Lock File (Read-only)", disabled: ext, run: () => toggleLock(key) },
         { label: "Reopen Closed Tab", kb: "alt+shift+t", disabled: !closedTabs.some((t) => t.project === project.id), run: () => cmdById("tab-reopen").run() },
         "-",
         { label: "Reveal in Explorer", disabled: ext, run: () => { expandTo(key); renderTree(); setView("explorer"); selectTreeRow(key); } },
@@ -4021,7 +4063,15 @@ function renderPackagesView() {
 /* =====================================================================
  * Search
  * ===================================================================== */
-const searchState = { case: false, word: false, regex: false };
+const searchState = { case: false, word: false, regex: false, folder: "" };
+function searchInFolder(dir) {
+  searchState.folder = dir || "";
+  const el = $("#search-scope");
+  el.classList.toggle("hidden", !dir);
+  el.replaceChildren(...(dir ? [h("span", {}, "In ", h("b", {}, dir + "/")), h("button", { class: "btn icon sm", title: "Search the whole project", onclick: () => searchInFolder("") }, icon("close"))] : []));
+  setView("search"); setTimeout(() => $("#search-input").focus(), 0);
+  runSearch();
+}
 function searchRegex() {
   const q = $("#search-input").value;
   if (!q) return null;
@@ -4038,7 +4088,7 @@ const runSearch = debounce(() => {
   let total = 0, files = 0;
   const hidden = isExcluded();
   for (const path of Object.keys(project.files).sort()) {
-    if (hidden(path)) continue;
+    if (hidden(path) || (searchState.folder && !path.startsWith(searchState.folder + "/"))) continue;
     const lines = (models.get(path)?.getValue() ?? project.files[path]).split("\n");
     const hits = [];
     lines.forEach((l, i) => { re.lastIndex = 0; let m; while ((m = re.exec(l)) && hits.length < 500) { hits.push({ line: i + 1, col: m.index + 1, len: m[0].length, text: l }); if (!m[0].length) re.lastIndex++; } });
@@ -4615,6 +4665,9 @@ const COMMANDS = [
   { id: "patch-make", label: "Create Patch of Your Changes…", cat: "Source Control", run: makePatch },
   { id: "patch-apply", label: "Apply Patch…", cat: "Source Control", run: askPatch },
   { id: "find-output", label: "Find in Terminal Output", cat: "Run", run: () => { showPanel("terminal"); setTimeout(findInOutput, 50); } },
+  { id: "new-from-clip", label: "New File from Clipboard…", cat: "File", run: () => newFileFromClipboard() },
+  { id: "lock-file", label: "Lock or Unlock This File (Read-only)", cat: "File", run: () => project.active && toggleLock(project.active) },
+  { id: "find-folder", label: "Find in Folder…", cat: "Edit", run: async () => { const dirs = [...new Set(Object.keys(project.files).map(dirname).filter(Boolean))].sort(); if (!dirs.length) return toast("This project has no folders", "info"); quickPick({ placeholder: "Search inside which folder?", source: (q) => dirs.filter((d) => d.toLowerCase().includes(q.toLowerCase())).map((d) => ({ label: d + "/", run: () => searchInFolder(d) })) }); } },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
   { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {

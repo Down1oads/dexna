@@ -1342,3 +1342,7 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 ::highlight(dexna-find) { background-color: color-mix(in srgb, #ffd23d 45%, transparent); }
 ::highlight(dexna-find-now) { background-color: #ff9632; color: #000; }
 .panel-body { position: relative; }
+
+.search-scope { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 0 10px 4px; padding: 2px 4px 2px 8px; font-size: 12px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.search-scope.hidden { display: none; }
+.tab .tlock svg { width: 12px; height: 12px; opacity: .7; margin-left: -2px; }
