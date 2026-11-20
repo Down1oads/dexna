@@ -170,6 +170,7 @@ A local history for every project, like a small Git with no setup: open **Source
 - **Commit** saves a snapshot of the whole project. Leave the message empty and Dexna writes one ("Update main.py").
 - **History**: see what any commit changed, compare it with your files now, **restore** a version, or undo the last commit.
 - **Change markers** next to the line numbers show added (green), changed (blue) and deleted (red) lines. Click one to open the diff.
+- **Patches** (File menu, or the command palette): **Create Patch of Your Changes** writes everything changed since the last commit as a unified diff (the format `git diff` makes) to download, copy or open; **Apply Patch** takes one from a file, the clipboard or the open file (Git's own diffs work too), finds hunks that have moved a little, and says which files it does not fit.
 - **File History** and **Compare with Last Commit** on a tab's right-click menu. **Compare Active File With...** compares two files, or a file with the clipboard.
 
 Commits are stored in this browser (IndexedDB), next to the projects.
@@ -208,7 +209,7 @@ Every result has Copy and Insert (into the editor at the cursor).
 - **Coverage** (Run > Run with Coverage): marks every line that ran in green and every line that did not in red, and prints the percentage for each file. Run > Clear Coverage removes the marks.
 - **Profiler** (Run > Run with Profiler): a table of every function with its calls, own time and total time, sortable, with only your code or everything. Click a row to jump to the function.
 - **Run settings** (Run > Run Settings): command-line arguments (`sys.argv`), environment variables (`os.environ`) and answers for `input()`, typed in the dialog or read from a file in the project. They are saved per file with the project; the prepared answers show in the terminal as if typed, and after them `input()` asks as usual.
-- Terminal with ANSI colours and clickable tracebacks. Runtime errors are highlighted in the editor.
+- Terminal with ANSI colours and clickable tracebacks. **Ctrl+F** in the terminal, Python console or shell finds text in the output, highlights every match, and steps through them with Enter and Shift+Enter. Runtime errors are highlighted in the editor.
 
 ## Packages
 

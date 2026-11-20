@@ -21,6 +21,7 @@ import { createCursesView } from "./cursesview.js";
 import { createNotebook } from "./notebook.js";
 import { createPro } from "./pro.js";
 import { createGitHub } from "./github.js";
+import { createPatch, applyPatch } from "./patch.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
@@ -309,6 +310,89 @@ function copyAsMarkdown() {
   const fence = code.includes("```") ? "~~~" : "```", lang = m.getLanguageId() === "plaintext" ? "" : m.getLanguageId();
   navigator.clipboard?.writeText(`${fence}${lang}\n${code.replace(/\s+$/, "")}\n${fence}\n`).then(() => toast("Copied as a Markdown code block", "ok"), () => toast("The browser did not allow copying", "warn"));
 }
+
+/* ---------- patches: your changes as a unified diff, and applying one ---------- */
+function makePatch() {
+  commitDirty();
+  const head = extras?.scm.head, base = head?.files || {}, now = project.files, ch = {};
+  for (const p of new Set([...Object.keys(base), ...Object.keys(now)])) if (base[p] !== now[p]) ch[p] = [base[p] ?? null, now[p] ?? null];
+  if (!Object.keys(ch).length) return toast(head ? "Nothing changed since the last commit" : "No files to make a patch of", "info");
+  const text = createPatch(ch);
+  quickPick({ placeholder: `A patch of ${Object.keys(ch).length} changed file${Object.keys(ch).length === 1 ? "" : "s"} ${head ? `since "${head.message}"` : "(no commit yet: every file is new)"}`, source: () => [
+    { label: "Download it", detail: slug(project.name) + ".patch", run: () => downloadBlob(new Blob([text], { type: "text/x-diff" }), slug(project.name) + ".patch") },
+    { label: "Copy it", detail: `${text.split("\n").length} lines`, run: () => navigator.clipboard?.writeText(text).then(() => toast("Patch copied", "ok")) },
+    { label: "Open it as a file", detail: "changes.patch", run: () => { let p = "changes.patch"; for (let n = 2; exists(p); n++) p = `changes-${n}.patch`; createFile(p, text, { open: true }); } },
+  ] });
+}
+async function applyPatchFrom(text, name = "the patch") {
+  commitDirty();
+  const r = applyPatch(text, project.files);
+  if (!r.files) return toast(`${name} has no changes Dexna can read (it should be a unified diff, like git diff makes)`, "warn", 6000);
+  const n = Object.keys(r.changes).length + r.removed.length;
+  if (!n) return toast(`Nothing applied: ${r.failed.join("; ")}`, "error", 8000);
+  if (!(await confirmDialog({ title: "Apply patch", message: `Change ${Object.keys(r.changes).length} file(s)${r.removed.length ? ` and delete ${r.removed.length}` : ""} from ${name}?${r.failed.length ? ` It does not fit ${r.failed.length} file(s): ${r.failed.join("; ")}.` : ""} Local History keeps the versions from before.`, okLabel: "Apply" }))) return;
+  applyFileChanges(r.changes);
+  if (r.removed.length) removeFiles(r.removed);
+  toast(`Applied ${name}: ${n} file${n === 1 ? "" : "s"}` + (r.failed.length ? `, ${r.failed.length} did not fit` : ""), r.failed.length ? "warn" : "ok", 6000);
+}
+function askPatch() {
+  quickPick({ placeholder: "Apply a patch from…", source: () => [
+    { label: "A file on your computer", detail: ".patch or .diff", run: () => { const i = Object.assign(document.createElement("input"), { type: "file", accept: ".patch,.diff,text/*" }); i.onchange = async () => { const f = i.files[0]; if (f) applyPatchFrom(await f.text(), f.name); }; i.click(); } },
+    { label: "The clipboard", detail: "a diff you copied", run: async () => { try { applyPatchFrom(await navigator.clipboard.readText(), "the clipboard"); } catch (_) { toast("The browser did not allow reading the clipboard", "warn"); } } },
+    ...(currentPath()?.match(/\.(patch|diff)$/) ? [{ label: `The open file, ${basename(currentPath())}`, run: () => applyPatchFrom(project.files[currentPath()], basename(currentPath())) }] : []),
+  ] });
+}
+
+/* ---------- finding text in the terminal, console and shell ---------- */
+let termFind = null;
+function findInOutput() {
+  const pane = ["terminal", "console", "shell"].map((id) => document.getElementById(id)).find((el) => el && el.offsetParent !== null);
+  if (!pane) return false;
+  if (!termFind) {
+    const input = h("input", { type: "search", placeholder: "Find in output", spellcheck: "false" });
+    const count = h("span", { class: "muted small" });
+    const bar = h("div", { class: "term-find hidden" }, input, count,
+      h("button", { class: "btn icon sm", title: "Previous (Shift+Enter)", onclick: () => go(-1) }, icon("arrow")),
+      h("button", { class: "btn icon sm", title: "Next (Enter)", onclick: () => go(1) }, icon("chevronDown")),
+      h("button", { class: "btn icon sm", title: "Close (Escape)", onclick: () => close() }, icon("close")));
+    let ranges = [], at = -1, target = null;
+    const hl = typeof Highlight === "function" && CSS.highlights;
+    const search = () => {
+      ranges = []; at = -1;
+      const q = input.value;
+      if (q && target) {
+        const walk = document.createTreeWalker(target, NodeFilter.SHOW_TEXT), lq = q.toLowerCase();
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) { const t = n.data.toLowerCase(); for (let i = t.indexOf(lq); i >= 0; i = t.indexOf(lq, i + lq.length)) { const r = new Range(); r.setStart(n, i); r.setEnd(n, i + q.length); ranges.push(r); } }
+      }
+      if (hl) { CSS.highlights.set("dexna-find", new Highlight(...ranges)); CSS.highlights.delete("dexna-find-now"); }
+      count.textContent = q ? (ranges.length ? `${ranges.length} found` : "Not found") : "";
+      if (ranges.length) go(1);
+    };
+    const go = (d) => {
+      if (!ranges.length) return;
+      at = (at + d + ranges.length) % ranges.length;
+      const r = ranges[at];
+      if (hl) CSS.highlights.set("dexna-find-now", new Highlight(r));
+      r.startContainer.parentElement?.scrollIntoView({ block: "center" });
+      count.textContent = `${at + 1} of ${ranges.length}`;
+    };
+    const close = () => { bar.classList.add("hidden"); if (hl) { CSS.highlights.delete("dexna-find"); CSS.highlights.delete("dexna-find-now"); } target?.focus?.(); };
+    input.addEventListener("input", search);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(e.shiftKey ? -1 : 1); } else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); } });
+    $(".panel-body").prepend(bar);
+    termFind = { bar, input, search, setTarget: (t) => { target = t; } };
+  }
+  termFind.setTarget(pane);
+  termFind.bar.classList.remove("hidden");
+  termFind.input.focus(); termFind.input.select();
+  termFind.search();
+  return true;
+}
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "f" && e.target.closest?.(".panel-body") && !e.target.closest("#console-input, .term-find")) {
+    if (findInOutput()) { e.preventDefault(); e.stopPropagation(); }
+  }
+}, true);
 
 function setupEditorInserts(ed) {
   ed.addAction({ id: "dexna.copyMd", label: "Copy as Markdown Code Block", contextMenuGroupId: "9_cutcopypaste", contextMenuOrder: 9, run: () => copyAsMarkdown() });
@@ -4523,6 +4607,9 @@ const COMMANDS = [
   { id: "save-output", label: "Save Terminal Output…", cat: "Run", run: savePanelOutput },
   { id: "import-url", label: "Import File from URL…", cat: "File", run: () => importFromUrl() },
   { id: "copy-md", label: "Copy as Markdown Code Block", cat: "Edit", run: copyAsMarkdown },
+  { id: "patch-make", label: "Create Patch of Your Changes…", cat: "Source Control", run: makePatch },
+  { id: "patch-apply", label: "Apply Patch…", cat: "Source Control", run: askPatch },
+  { id: "find-output", label: "Find in Terminal Output", cat: "Run", run: () => { showPanel("terminal"); setTimeout(findInOutput, 50); } },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
   { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {
@@ -4758,7 +4845,7 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],

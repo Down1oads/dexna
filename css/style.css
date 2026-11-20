@@ -1332,3 +1332,13 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .gh-site { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
 .gh-site a { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gh-site svg { width: 13px; height: 13px; flex: none; }
+
+/* finding text in the terminal */
+.term-find { position: absolute; top: 6px; right: 14px; z-index: 5; display: flex; align-items: center; gap: 4px; padding: 4px 6px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 14px #0004; }
+.term-find.hidden { display: none; }
+.term-find input { width: 180px; height: 22px; font-size: 12px; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--fg); }
+.term-find .btn.icon.sm svg { width: 13px; height: 13px; }
+.term-find button[title^="Previous"] svg { transform: rotate(-90deg); }
+::highlight(dexna-find) { background-color: color-mix(in srgb, #ffd23d 45%, transparent); }
+::highlight(dexna-find-now) { background-color: #ff9632; color: #000; }
+.panel-body { position: relative; }
