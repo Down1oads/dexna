@@ -7,6 +7,7 @@
 // commit. Comparing those hashes with the files now tells what changed on either side.
 
 import { isBinary } from "./assets.js";
+import { EXPORT_KEYS } from "./tweaks.js";
 
 const MAX_FILES = 1500, MAX_TEXT = 8_000_000, MAX_TEXT_FILE = 2_000_000, MAX_BIN = 80_000_000, MAX_BIN_FILE = 25_000_000;
 const SKIP_DIR = /(^|\/)(\.git|node_modules|\.venv|venv|__pycache__|\.mypy_cache|\.pytest_cache|\.next)\//;
@@ -699,6 +700,54 @@ export function createGitHub(API) {
     });
   }
 
+  /* ---------- settings sync: your settings in a secret gist ---------- */
+  const SYNC_FILE = "dexna-settings.json", SYNC_KEY = "dexna:settings-gist";
+  async function findSyncGist() {
+    let id = null; try { id = localStorage.getItem(SYNC_KEY); } catch (_) {}
+    if (id) { try { return await gh(`/gists/${id}`); } catch (e) { if (e.status !== 404) throw e; } }
+    for (let page = 1; page <= 5; page++) {
+      const list = await gh(`/gists?per_page=100&page=${page}`);
+      const hit = list.find((g) => g.files?.[SYNC_FILE]);
+      if (hit) { try { localStorage.setItem(SYNC_KEY, hit.id); } catch (_) {} return gh(`/gists/${hit.id}`); }
+      if (list.length < 100) break;
+    }
+    return null;
+  }
+  const syncError = (e) => (e.status === 403 || e.status === 404 ? "Your token may not use gists. Give it Gists: Read and write (fine-grained), or the gist scope (classic)." : e.message);
+  async function syncUpload() {
+    if (!(await needAuth())) return null;
+    const data = { app: "dexna", kind: "settings", version: 1, exported: new Date().toISOString(), data: {} };
+    for (const k of EXPORT_KEYS) { const v = API.LS.get(k, undefined); if (v !== undefined) data.data[k] = v; }
+    const files = { [SYNC_FILE]: { content: JSON.stringify(data, null, 2) } };
+    API.setStatusFlash?.("Saving your settings to GitHub…");
+    try {
+      const existing = await findSyncGist();
+      const gist = existing ? await gh(`/gists/${existing.id}`, { method: "PATCH", body: { files } }) : await gh("/gists", { method: "POST", body: { description: "Dexna settings (kept in sync by Dexna)", public: false, files } });
+      try { localStorage.setItem(SYNC_KEY, gist.id); } catch (_) {}
+      API.toast(`Settings saved to GitHub (a secret gist). On another device, sign in and use Settings Sync: Download.`, "ok", 6000);
+      return gist.id;
+    } catch (e) { API.toast(syncError(e), "error", 7000); return null; }
+  }
+  async function syncDownload() {
+    if (!(await needAuth())) return null;
+    API.setStatusFlash?.("Looking for your settings on GitHub…");
+    try {
+      const gist = await findSyncGist();
+      if (!gist) return API.toast("No saved settings found on GitHub yet. Use Settings Sync: Upload on the device whose settings you want to keep.", "info", 7000);
+      const f = gist.files[SYNC_FILE];
+      const text = f.truncated ? await (await fetch(f.raw_url)).text() : f.content;
+      const d = JSON.parse(text);
+      if (d?.app !== "dexna" || d.kind !== "settings" || typeof d.data !== "object") throw new Error("The saved settings are not in a form Dexna understands.");
+      const keys = Object.keys(d.data).filter((k) => EXPORT_KEYS.includes(k));
+      const when = d.exported ? ` saved ${API.ago(Date.parse(d.exported))}` : "";
+      if (!(await API.confirmDialog({ title: "Download settings from GitHub", message: `Replace this browser's settings, themes, shortcuts and snippets with the ones${when}? Your projects stay as they are. Dexna reloads to apply them.`, okLabel: "Download and reload" }))) return null;
+      for (const k of keys) API.LS.set(k, d.data[k]);
+      window.__dexnaReloading = true;
+      location.reload();
+      return keys;
+    } catch (e) { API.toast(syncError(e), "error", 7000); return null; }
+  }
+
   /* ---------- issues ---------- */
   async function issues() {
     const g = API.project?.github;
@@ -857,7 +906,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -873,6 +922,8 @@ export function createGitHub(API) {
       { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },
       { id: "gh-gist", label: "GitHub: Share as Gist…", cat: "File", run: shareGist },
       { id: "gh-issues", label: "GitHub: Issues…", cat: "Source Control", run: issues },
+      { id: "sync-up", label: "Settings Sync: Upload to GitHub", cat: "Preferences", run: syncUpload },
+      { id: "sync-down", label: "Settings Sync: Download from GitHub", cat: "Preferences", run: syncDownload },
       { id: "gh-issue-new", label: "GitHub: New Issue…", cat: "Source Control", run: () => newIssue() },
       { id: "gh-issue-sel", label: "GitHub: Create Issue from Selection…", cat: "Source Control", run: issueFromSelection },
     ],

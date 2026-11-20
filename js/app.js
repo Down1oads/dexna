@@ -3927,6 +3927,8 @@ function renderSettingsBody() {
     { title: "Keyboard shortcuts", desc: "See every shortcut Dexna offers.", btn: "Show", run: showShortcuts },
     { title: "Export settings", desc: "Download your settings, themes, shortcuts, snippets and looks as a file, to keep or to use on another device.", btn: "Export", run: () => tweaks.exportSettings() },
     { title: "Import settings", desc: "Load a file made with Export settings. Your projects are not touched.", btn: "Import...", run: () => tweaks.importSettings() },
+    { title: "Settings Sync: save to GitHub", desc: "Keep your settings, themes, shortcuts and snippets in a secret gist on your GitHub account, to use on your other devices. Needs GitHub sign-in.", btn: "Upload", run: () => github.syncUpload() },
+    { title: "Settings Sync: load from GitHub", desc: "Replace this browser's settings with the ones you saved to GitHub. Your projects are not touched.", btn: "Download...", run: () => github.syncDownload() },
     { title: "Reset all settings", desc: "Put every setting above back to its default.", btn: "Reset", run: () => { for (const k of Object.keys(DEFAULT_SETTINGS)) settings[k] = DEFAULT_SETTINGS[k]; LS.del("look"); setSetting("theme", settings.theme); toast("Settings reset", "ok"); } },
     { title: "Delete all local data", desc: "Remove every project, setting and history entry Dexna stored in this browser. Download anything you want to keep first.", btn: "Delete...", danger: true, run: resetEverything },
   ].filter((r) => !q || `data privacy ${r.title} ${r.desc}`.toLowerCase().includes(q));
