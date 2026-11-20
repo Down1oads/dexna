@@ -1229,8 +1229,11 @@ function isExcluded() {
   if (excludeCache.text !== settings.filesExclude) excludeCache = { text: settings.filesExclude, fn: makeMatcher(settings.filesExclude) };
   return excludeCache.fn;
 }
+/** A file's size in bytes: binary files from their index, text as UTF-8. */
+const fileSize = (p) => (isAsset(p) ? project.assets[p].size : project.files[p] != null ? new TextEncoder().encode(project.files[p]).length : 0);
 const treeCompare = (a, b) => {
   if (settings.explorerSort === "type") { const ea = extOf(a), eb = extOf(b); if (ea !== eb) return ea.localeCompare(eb); }
+  if (settings.explorerSort === "size") { const d = fileSize(b) - fileSize(a); if (d) return d; }
   return basename(a).localeCompare(basename(b), undefined, { numeric: true, sensitivity: "base" });
 };
 const treeEl = $("#file-tree");
@@ -1297,7 +1300,7 @@ function renderTree() {
     }
     for (const f of node.files.sort(treeCompare)) {
       const c = counts[f];
-      const row = h("div", { class: "row" + (treeSelection === f ? " selected" : "") + (f === runTarget ? " entry" : ""), style: { paddingLeft: 8 + depth * 14 + "px" }, "data-path": f, draggable: "true", title: f },
+      const row = h("div", { class: "row" + (treeSelection === f ? " selected" : "") + (f === runTarget ? " entry" : ""), style: { paddingLeft: 8 + depth * 14 + "px" }, "data-path": f, draggable: "true", title: `${f} · ${sizeLabel(fileSize(f))}` },
         h("span", { class: "twisty" }), fileIcon(f), h("span", { class: "name" + (c?.e ? " err" : c?.w ? " warn" : "") }, basename(f)),
         f === project.entry && project.pinEntry ? h("span", { class: "badge-main" }, "MAIN") : null,
         c?.e ? h("span", { class: "meta err" }, c.e) : c?.w ? h("span", { class: "meta warn" }, c.w) : null);
@@ -4021,7 +4024,7 @@ const SETTINGS_SCHEMA = [
   { key: "autoSave", cat: "Files", label: "Auto save", desc: "When edits are saved to this browser. With \"Only with Ctrl+S\", tabs with unsaved edits show a dot and Dexna asks before you leave the page.", type: "select", options: [["delay", "As you type"], ["focus", "When you click away or switch windows"], ["off", "Only with Ctrl+S"]] },
   { key: "autoSaveDelay", cat: "Files", label: "Auto save delay", desc: "How long after you stop typing \"As you type\" saves.", type: "select", options: [[400, "Right away"], [1000, "1 second"], [3000, "3 seconds"], [10000, "10 seconds"]] },
   { key: "filesExclude", cat: "Files", label: "Hide files", desc: "Files and folders to hide from the Explorer, search and Go to File, one pattern per line. * matches within a name, ** across folders; a pattern without / matches anywhere (*.log, __pycache__, build/**).", type: "css" },
-  { key: "explorerSort", cat: "Files", label: "Explorer sort order", desc: "How files are sorted in the Explorer (folders always come first).", type: "select", options: [["name", "By name"], ["type", "By type, then name"]] },
+  { key: "explorerSort", cat: "Files", label: "Explorer sort order", desc: "How files are sorted in the Explorer (folders always come first).", type: "select", options: [["name", "By name"], ["type", "By type, then name"], ["size", "By size, largest first"]] },
   { key: "confirmClose", cat: "Files", label: "Ask before closing the tab", desc: "Protect against an accidental Ctrl+W: the browser asks \"Leave site?\" before the Dexna tab closes or reloads, so you can cancel. Browsers do not let a page block Ctrl+W itself; in full screen (F11 or Zen mode), Ctrl+W closes the editor tab instead (see below).", type: "select", options: [["always", "Always"], ["unsaved", "Only with unsaved edits (auto save off)"]] },
   { key: "fullscreenCtrlW", cat: "Files", label: "Ctrl+W in full screen closes the editor tab", desc: "In full screen Dexna can take Ctrl+W from the browser, so it closes the file you are editing (like in VS Code) instead of the whole browser tab. Works in Chrome and Edge.", type: "bool" },
   { key: "toggleFullscreen", cat: "Files", label: "Full screen", desc: "Enter full screen now (Esc, held for a moment, leaves).", type: "action", btn: "Enter full screen", run: () => document.documentElement.requestFullscreen?.().catch(() => toast("The browser did not allow full screen.", "error")) },
