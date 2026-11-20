@@ -65,7 +65,7 @@ const DEFAULT_SETTINGS = {
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
   runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
-  bgEffect: "none", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
+  bgEffect: "none", bgSolid: "#1e4fd8", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
   accentColor: "", uiFont: "plex", editorFont: "jetbrains", lineHeight: 0,
   sidebarSide: "left", panelSide: "bottom", showActivityBar: true, showStatusBar: true, density: "normal", uiFontSize: 13, fileIcons: "color", activityHidden: [],
   errorLens: "off", rulers: "none", cursorBlinking: "smooth", cursorWidth: 2, lineHighlight: "all", guides: "both", folding: true, minimapSide: "right", scrollbarSize: "normal",
@@ -3322,6 +3322,9 @@ const SETTINGS_SCHEMA = [
   { key: "corners", cat: "Appearance", label: "Corners", desc: "How rounded buttons, dialogs, tabs and fields are.", type: "select", options: [["sharp", "Sharp"], ["default", "Slightly rounded"], ["round", "Rounded"]] },
   { key: "look", cat: "Background and effects", label: "Looks", desc: "One click sets a theme, a background and effects that go together. Change any part of it below.", type: "looks" },
   { key: "bgEffect", cat: "Background and effects", label: "Background", desc: "An animated background behind the editor and panels. It pauses when the tab is hidden, and stays still if your system asks for reduced motion.", type: "select", options: EFFECTS },
+  { key: "bgSolid", cat: "Background and effects", label: "Solid color", desc: "Fill the background with one plain color. Pick one, or choose any color with the last button.", type: "swatches",
+    swatches: [["#1e4fd8", "Blue"], ["#0f1f4a", "Navy"], ["#3a9ae8", "Sky blue"], ["#0f7a7a", "Teal"], ["#1f8a4a", "Green"], ["#12402a", "Forest green"], ["#c8282a", "Red"], ["#6a0f1f", "Crimson"],
+      ["#e8701a", "Orange"], ["#e8c21a", "Yellow"], ["#6a2ad8", "Purple"], ["#e04a8a", "Pink"], ["#5a3a24", "Brown"], ["#4a4a52", "Grey"], ["#f4f4f4", "White"], ["#000000", "Black"]] },
   { key: "bgImage", cat: "Background and effects", label: "Background image", desc: "Use your own picture as the background. It is stored in this browser only.", type: "image" },
   { key: "bgIntensity", cat: "Background and effects", label: "Strength", desc: "How strongly the background shows.", type: "range", min: 10, max: 100, unit: "%" },
   { key: "bgSpeed", cat: "Background and effects", label: "Speed", desc: "How fast it moves. 0 keeps it still.", type: "range", min: 0, max: 100, unit: "" },
@@ -3425,7 +3428,7 @@ const SETTINGS_SCHEMA = [
 const SETTING_CATS = ["Appearance", "Background and effects", "Extras", "Layout", "Editor", "Files", "Languages", "Python", "Terminal", "Data and privacy"];
 const settingsUI = { query: "" };
 
-const LOOK_KEYS = new Set(["bgEffect", "bgIntensity", "bgSpeed", "glass", "glassBlur", "bgImageBlur", "cursorEffect", "corners", "uiFont", "editorFont"]);
+const LOOK_KEYS = new Set(["bgEffect", "bgSolid", "bgIntensity", "bgSpeed", "glass", "glassBlur", "bgImageBlur", "cursorEffect", "corners", "uiFont", "editorFont"]);
 /** Change a setting while a slider is being dragged: apply it, but do not redraw the settings page. */
 function setSettingLive(key, value) {
   if (key in overriddenUser) { overriddenUser[key] = value; saveSettings(); return; }
@@ -3529,6 +3532,11 @@ function settingItem(sd) {
         h("button", { class: "theme-tile new", title: "Make your own theme, starting from the current one", onclick: () => cmdById("theme-new").run() }, h("span", { class: "tt-prev new" }, icon("plus")), h("span", { class: "tt-name" }, "New theme"))));
   } else if (sd.type === "looks") {
     control = h("div", { class: "look-grid" }, look.LOOKS.map((l) => look.lookCard(l)));
+  } else if (sd.type === "swatches") {
+    const cur = settings.bgEffect === "solid" ? (settings.bgSolid || "").toLowerCase() : null;
+    const pick = (c) => { if (settings.bgEffect !== "solid") settings.bgIntensity = 100; settings.bgSolid = c; setSetting("bgEffect", "solid"); };
+    control = h("div", { class: "si-swatches" }, sd.swatches.map(([c, name]) => h("button", { class: "si-swatch" + (cur === c ? " on" : ""), title: name, "aria-label": name, style: { background: c }, onclick: () => pick(c) })),
+      h("label", { class: "si-swatch si-swatch-any" + (cur && !sd.swatches.some(([c]) => c === cur) ? " on" : ""), title: "Any color" }, h("input", { type: "color", "aria-label": "Any color", value: settings.bgSolid || "#1e4fd8", onchange: (e) => pick(e.target.value.toLowerCase()) })));
   } else if (sd.type === "range") {
     const out = h("span", { class: "si-range-val" }, settings[sd.key] + (sd.unit ?? ""));
     control = h("div", { class: "si-range" }, h("input", { type: "range", min: sd.min, max: sd.max, step: sd.step || 1, value: settings[sd.key],

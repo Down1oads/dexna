@@ -145,6 +145,14 @@ export const LOOKS = [
   { id: "pixelfadeneon", name: "Pixel neon fade", desc: "Dithered neon bands on a diagonal", theme: "dracula", set: { bgEffect: "pixelfadeneon", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelfadeember", name: "Pixel ember fade", desc: "A dithered glow rising from below", theme: "gruvbox-dark", set: { bgEffect: "pixelfadeember", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelfadeocean", name: "Pixel ocean fade", desc: "Dithered ocean bands on a slow swell", theme: "nord", set: { bgEffect: "pixelfadeocean", bgIntensity: 90, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidblue", name: "Solid blue", desc: "The background filled with plain blue", theme: "tokyo-night", set: { bgEffect: "solid", bgSolid: "#1e4fd8", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidnavy", name: "Solid navy", desc: "The background filled with plain navy", theme: "tokyo-night", set: { bgEffect: "solid", bgSolid: "#0f1f4a", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidteal", name: "Solid teal", desc: "The background filled with plain teal", theme: "nord", set: { bgEffect: "solid", bgSolid: "#0f7a7a", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidgreen", name: "Solid green", desc: "The background filled with plain green", theme: "everforest-dark", set: { bgEffect: "solid", bgSolid: "#1f8a4a", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidred", name: "Solid red", desc: "The background filled with plain red", theme: "one-dark", set: { bgEffect: "solid", bgSolid: "#c8282a", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidorange", name: "Solid orange", desc: "The background filled with plain orange", theme: "gruvbox-dark", set: { bgEffect: "solid", bgSolid: "#e8701a", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidpurple", name: "Solid purple", desc: "The background filled with plain purple", theme: "dracula", set: { bgEffect: "solid", bgSolid: "#6a2ad8", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
+  { id: "solidpink", name: "Solid pink", desc: "The background filled with plain pink", theme: "rose-pine", set: { bgEffect: "solid", bgSolid: "#e04a8a", bgIntensity: 100, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "pixelplanet", name: "Pixel planet", desc: "A turning pixel-art planet with its moon", theme: "tokyo-night", set: { bgEffect: "pixelplanet", bgIntensity: 95, bgSpeed: 35, glass: 64, glassBlur: false, corners: "round", cursorEffect: "none", accentColor: "" } },
   { id: "mono", name: "Black and white", desc: "Plain black and white, no effects", theme: "mono-black", set: { bgEffect: "none", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
   { id: "dust", name: "Dust", desc: "Specks drifting through a faint shaft of light", theme: "mono-black", set: { bgEffect: "dust", bgIntensity: 100, bgSpeed: 35, glass: 72, glassBlur: false, corners: "default", cursorEffect: "none", accentColor: "" } },
@@ -984,7 +992,7 @@ function createBackdrop() {
     if (!fx) return;
     const scale = fx.lowRes ?? Math.min(1.5, devicePixelRatio || 1);
     canvas.width = Math.max(2, Math.round(innerWidth * scale)); canvas.height = Math.max(2, Math.round(innerHeight * scale));
-    s = { ...s, w: canvas.width, h: canvas.height, px: scale, colors: opts.colors, fg: opts.fg, dark: opts.dark, mouse: null };
+    s = { ...s, w: canvas.width, h: canvas.height, px: scale, colors: opts.colors, fg: opts.fg, dark: opts.dark, solid: opts.solid, mouse: null };
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     fx.init?.call(fx, s);
   };
@@ -1135,7 +1143,7 @@ export function createLook(A) {
     const st = A.settings;
     if (!fxOn()) { if (backdrop) await backdrop.set({ effect: "none", intensity: 0 }); return; }
     backdrop ||= createBackdrop();
-    const ok = await backdrop.set({ effect: st.bgEffect, intensity: Math.max(0.05, Math.min(1, (st.bgIntensity ?? 60) / 100)), speed: ((st.bgSpeed ?? 40) / 40), imageBlur: st.bgImageBlur || 0, ...themeColors() });
+    const ok = await backdrop.set({ effect: st.bgEffect, intensity: Math.max(0.05, Math.min(1, (st.bgIntensity ?? 60) / 100)), speed: ((st.bgSpeed ?? 40) / 40), imageBlur: st.bgImageBlur || 0, solid: st.bgSolid, ...themeColors() });
     if (!ok && st.bgEffect === "video") A.toast("Pick a video for the background in Settings > Background and effects.");
     if (!ok && st.bgEffect === "image") A.toast("Pick an image for the background in Settings > Background and effects.");
   }
@@ -1305,6 +1313,7 @@ export function createLook(A) {
       breathe: `radial-gradient(circle at 50% 50%, transparent 0 16px, ${c.accent}55 17px 18px, transparent 19px), radial-gradient(circle at 50% 50%, ${c.accent}22, transparent 40%)`,
       blueprint: `radial-gradient(circle at 60% 50%, transparent 0 18px, ${c.accent}44 19px 20px, transparent 21px), linear-gradient(${c.accent}12 1px, transparent 1px) 0 0 / 10px 10px, linear-gradient(90deg, ${c.accent}12 1px, transparent 1px) 0 0 / 10px 10px`,
       terrazzo: `radial-gradient(3px 2px at 20% 30%, ${c.accent}66, transparent), radial-gradient(5px 4px at 60% 50%, ${c.keyword}55, transparent), radial-gradient(2px 2px at 80% 20%, ${c.func}66, transparent), radial-gradient(4px 3px at 40% 75%, ${c.fg}44, transparent), radial-gradient(2px 2px at 75% 80%, ${c.accent}66, transparent)`,
+      solid: `linear-gradient(${l.set.bgSolid || c.accent}, ${l.set.bgSolid || c.accent})`,
       planet: `radial-gradient(ellipse 40px 9px at 75% 70%, transparent 70%, #e8d2b099 72%, transparent 80%), radial-gradient(circle at 75% 70%, #d9a066 0 22px, transparent 23px), linear-gradient(#03040a, #0b0f24)`,
     }[l.set.bgEffect] || "none";
     const on = A.LS.get("look", "") === l.id;

@@ -92,6 +92,11 @@ function pixelFade(sets, madeFor, value) {
 
 export function makeFade() {
   return {
+    // one plain color, chosen in settings (drawn tiny: it only needs one pixel's worth of detail)
+    solid: {
+      lowRes: 0.02,
+      draw(ctx, s) { ctx.fillStyle = /^#[0-9a-f]{6}$/i.test(s.solid || "") ? s.solid : "#1e4fd8"; ctx.fillRect(0, 0, s.w, s.h); },
+    },
     fadesky: smoothFade(SKY, "dark", Math.PI / 2, 0.15),
     fadeocean: smoothFade(OCEAN, "dark", Math.PI / 4, 0.4),
     fadeember: smoothFade(EMBER, "dark", (3 * Math.PI) / 4, 0.4),
@@ -129,6 +134,7 @@ export function makeFade() {
 }
 
 export const FADE = [
+  ["solid", "Solid color"],
   ["fadeember", "Ember fade"], ["fadeglow", "Glow fade (black)"], ["fadeneon", "Neon fade"], ["fadeocean", "Ocean fade"], ["fadepastel", "Pastel fade"], ["fadesky", "Sky fade"],
   ["pixelfadeember", "Pixel ember fade"], ["pixelfadeneon", "Pixel neon fade"], ["pixelfadeocean", "Pixel ocean fade"], ["pixelfadesky", "Pixel sky fade"],
 ];
