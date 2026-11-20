@@ -382,7 +382,13 @@ export function createGitHub(API) {
       API.persist(); changed();
       API.toast(`Pushed ${entries.length} file${entries.length === 1 ? "" : "s"} to ${g.owner}/${g.repo} (${g.branch}): "${message.split("\n")[0]}"`, "ok", 5000);
       return { pushed: entries.length, sha: commit.sha, url: commit.html_url };
-    } catch (e) { API.toast(e.message, "error", 8000); return null; }
+    } catch (e) {
+      if ((e.status === 403 || e.status === 404) && auth && g.owner.toLowerCase() !== auth.login.toLowerCase()) {
+        if (await API.confirmDialog({ title: "You cannot push here", message: `${g.owner}/${g.repo} belongs to someone else. Fork it (make your own copy on GitHub), push your changes there, and open a pull request to offer them?`, okLabel: "Fork" })) { if (await fork()) return push(message); }
+        return null;
+      }
+      API.toast(e.message, "error", 8000); return null;
+    }
   }
   function autoMessage(st) {
     const all = [...st.edited, ...st.removed], names = all.map((f) => f.split("/").pop());
@@ -611,21 +617,23 @@ export function createGitHub(API) {
     const p = API.project, g = p?.github;
     if (!g) return API.toast("This project is not linked to GitHub", "warn");
     if (!(await needAuth())) return null;
-    const def = await defaultBranchOf(g).catch(() => "main");
-    if (g.branch === def) return API.toast(`You are on ${def}, the default branch. Create a branch first (click the branch name), push to it, then open a pull request.`, "info", 7000);
-    const existing = await gh(`/repos/${g.owner}/${g.repo}/pulls?state=open&head=${encodeURIComponent(g.owner + ":" + g.branch)}`).catch(() => []);
+    // from a fork, the pull request goes to the repository it was forked from
+    const target = g.upstream || `${g.owner}/${g.repo}`, headRef = g.upstream ? `${g.owner}:${g.branch}` : g.branch;
+    const def = g.upstream ? ((await gh(`/repos/${g.upstream}`).catch(() => null))?.default_branch || "main") : await defaultBranchOf(g).catch(() => "main");
+    if (!g.upstream && g.branch === def) return API.toast(`You are on ${def}, the default branch. Create a branch first (click the branch name), push to it, then open a pull request.`, "info", 7000);
+    const existing = await gh(`/repos/${target}/pulls?state=open&head=${encodeURIComponent(g.owner + ":" + g.branch)}`).catch(() => []);
     if (existing.length) { g.pr = { number: existing[0].number, url: existing[0].html_url }; API.persist(); changed(); API.toast(`Pull request #${existing[0].number} is already open for ${g.branch}`, "info", 5000); return g.pr; }
     const st = await localState(p);
     if (st.edited.length || st.removed.length) {
       if (!(await API.confirmDialog({ title: "Push first?", message: `${st.edited.length + st.removed.length} changed file(s) are not on GitHub yet, so they would not be part of the pull request. Push them now?`, okLabel: "Push, then continue" }))) return null;
       if (!(await push())) return null;
     }
-    const branches = await listRepos(`/repos/${g.owner}/${g.repo}/branches`).catch(() => [{ name: def }]);
+    const branches = await listRepos(`/repos/${target}/branches`).catch(() => [{ name: def }]);
     const commits = await gh(`/repos/${g.owner}/${g.repo}/commits?sha=${encodeURIComponent(g.branch)}&per_page=1`).catch(() => []);
     return new Promise((resolve) => {
       const title = h("input", { value: (commits[0]?.commit.message || g.branch).split("\n")[0], spellcheck: "true" });
       const body = h("textarea", { class: "gh-readme", rows: 6, placeholder: "What does this change, and why?", spellcheck: "true" });
-      const base = h("select", {}, branches.filter((b) => b.name !== g.branch).map((b) => h("option", { value: b.name, selected: b.name === def }, b.name)));
+      const base = h("select", {}, branches.filter((b) => g.upstream || b.name !== g.branch).map((b) => h("option", { value: b.name, selected: b.name === def }, b.name)));
       const draft = h("input", { type: "checkbox" });
       const err = h("p", { class: "gh-err hidden" });
       const btn = h("button", { class: "btn primary" }, "Create pull request");
@@ -633,7 +641,7 @@ export function createGitHub(API) {
       btn.addEventListener("click", async () => {
         btn.disabled = true; err.classList.add("hidden");
         try {
-          const pr = await gh(`/repos/${g.owner}/${g.repo}/pulls`, { method: "POST", body: { title: title.value.trim() || g.branch, head: g.branch, base: base.value, body: body.value, draft: draft.checked } });
+          const pr = await gh(`/repos/${target}/pulls`, { method: "POST", body: { title: title.value.trim() || g.branch, head: headRef, base: base.value, body: body.value, draft: draft.checked } });
           g.pr = { number: pr.number, url: pr.html_url }; API.persist(); API.closeModal(); changed(); forget(`/repos/${g.owner}/${g.repo}/pulls`);
           API.toast(`Opened pull request #${pr.number}: ${pr.title}`, "ok", 6000);
           resolve(g.pr);
@@ -643,7 +651,7 @@ export function createGitHub(API) {
         }
       });
       API.openModal(h("div", { class: "modal gh-modal gh-publish" },
-        h("div", { class: "modal-head" }, `Pull request: ${g.branch} into…`),
+        h("div", { class: "modal-head" }, g.upstream ? `Pull request: your ${g.branch} into ${g.upstream}` : `Pull request: ${g.branch} into…`),
         h("div", { class: "modal-body" },
           field("Into branch", base), field("Title", title), field("Description", body),
           h("label", { class: "si-check" }, draft, h("span", {}, "Draft (not ready for review yet)")), err),
@@ -831,6 +839,27 @@ export function createGitHub(API) {
     if (v) return openGist(v);
   }
 
+  /* ---------- forks: your own copy of someone else's repository ---------- */
+  async function fork() {
+    const p = API.project, g = p?.github;
+    if (!g) return API.toast("This project is not linked to GitHub", "warn");
+    if (!(await needAuth())) return null;
+    if (g.owner.toLowerCase() === auth.login.toLowerCase()) return API.toast("This repository is already yours", "info");
+    API.setStatusFlash?.(`Forking ${g.owner}/${g.repo}…`);
+    try {
+      const f = await gh(`/repos/${g.owner}/${g.repo}/forks`, { method: "POST", body: { default_branch_only: false } });
+      // GitHub makes the fork in the background: wait until its branch is there
+      let ok = false;
+      for (let i = 0; i < 15 && !ok; i++) { try { await headOf(f.owner.login, f.name, g.branch); ok = true; } catch (_) { await new Promise((r) => setTimeout(r, 1000)); } }
+      if (!ok) throw new Error("GitHub is still making the fork. Try again in a minute.");
+      const from = `${g.owner}/${g.repo}`;
+      Object.assign(g, { owner: f.owner.login, repo: f.name, private: !!f.private, upstream: from, pr: null }); // same commits, so the sync state carries over
+      API.persist(); changed(); forget("/repos/");
+      API.toast(`Forked ${from} to ${f.full_name}. Push now goes to your fork; open a pull request there to offer your changes.`, "ok", 7000);
+      return f.full_name;
+    } catch (e) { API.toast(e.message, "error", 7000); return null; }
+  }
+
   /* ---------- issues ---------- */
   async function issues() {
     const g = API.project?.github;
@@ -978,7 +1007,8 @@ export function createGitHub(API) {
       h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? pushBtn : btn("Sign in to push…", "user", signIn, "primary"), btn("Issues", "info", issues)),
       auth ? h("div", { class: "muted small" }, "Ctrl+Enter commits and pushes. The Commit button below only saves a snapshot in this browser.") : null,
       conflictList(p),
-      auth && g.defaultBranch && g.branch !== g.defaultBranch ? h("div", { class: "gh-acts" }, g.pr ? h("a", { class: "btn sm", href: g.pr.url, target: "_blank", rel: "noopener" }, `Pull request #${g.pr.number}`) : btn(`Pull request into ${g.defaultBranch}…`, "branch", pullRequest)) : null,
+      auth && (g.upstream || (g.defaultBranch && g.branch !== g.defaultBranch)) ? h("div", { class: "gh-acts" }, g.pr ? h("a", { class: "btn sm", href: g.pr.url, target: "_blank", rel: "noopener" }, `Pull request #${g.pr.number}`) : btn(g.upstream ? `Pull request to ${g.upstream}…` : `Pull request into ${g.defaultBranch}…`, "branch", pullRequest)) : null,
+      g.upstream ? h("div", { class: "muted small" }, `A fork of ${g.upstream}`) : null,
       activity(g));
   }
   function conflictList(p) {
@@ -989,7 +1019,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, openGist, statusBranch, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, openGist, fork, statusBranch, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -1000,6 +1030,7 @@ export function createGitHub(API) {
       { id: "gh-publish", label: "GitHub: Publish Project to a New Repository…", cat: "Source Control", run: publish },
       { id: "gh-unlink", label: "GitHub: Unlink Project", cat: "Source Control", run: unlink },
       { id: "gh-branch", label: "GitHub: Switch or Create Branch…", cat: "Source Control", run: chooseBranch },
+      { id: "gh-fork", label: "GitHub: Fork This Repository", cat: "Source Control", run: fork },
       { id: "gh-pr", label: "GitHub: Create Pull Request…", cat: "Source Control", run: pullRequest },
       { id: "gh-open-file", label: "GitHub: Open This File on GitHub", cat: "Source Control", run: openOnGitHub },
       { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },

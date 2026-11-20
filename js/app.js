@@ -1319,6 +1319,7 @@ treeEl.addEventListener("contextmenu", (e) => {
       { label: `Delete ${sel.length} Items`, kb: "delete", run: () => deleteMany(sel) },
       { label: `Move ${sel.length} Items to Folder…`, run: () => moveMany(sel) },
       { label: `Download ${sel.length} Items as ZIP`, run: () => downloadMany(sel) },
+      ...(sel.length === 2 && sel.every((f) => project.files[f] != null) ? [{ label: "Compare the Two Files", run: () => extras.showDiff({ original: textOf(sel[0]), modified: textOf(sel[1]), path: sel[1], live: true, language: langOf(sel[1]), title: `${sel[0]} ↔ ${sel[1]}`, originalLabel: sel[0], modifiedLabel: sel[1] }) }] : []),
       "-",
       { label: "Clear Selection", run: () => { treeMulti.clear(); paintTreeSelection(); } },
     ]);
@@ -4649,11 +4650,19 @@ function quickOpen(prefix = "") {
     source: (q) => {
       if (q.startsWith(">")) {
         const t = q.slice(1).trim();
+        const recentCmds = LS.get("recentCommands", []);
+        const used = (label, run) => () => { LS.set("recentCommands", [label, ...LS.get("recentCommands", []).filter((l) => l !== label)].slice(0, 8)); run(); };
         const own = COMMANDS.filter((c) => !c.hidden).map((c) => ({ label: (c.cat ? c.cat + ": " : "") + c.label, kb: c.kb, run: c.run }));
         const seen = new Set(own.map((o) => o.label.replace(/^.*?: /, "").toLowerCase()));
         const ed = editor ? editor.getSupportedActions().filter((a) => a.label && !seen.has(a.label.toLowerCase())).map((a) => ({ label: a.label, run: () => { editor.focus(); a.run(); } })) : [];
-        return [...own, ...ed].map((c) => ({ ...c, m: fuzzy(t, c.label) })).filter((c) => c.m)
-          .sort((a, b) => b.m.score - a.m.score).map((c) => ({ label: c.label, labelHtml: highlight(c.label, c.m.idx), desc: kbLabel(c.kb), run: c.run }));
+        const all = [...own, ...ed];
+        if (!t) { // nothing typed: the commands you used last come first
+          const byLabel = new Map(all.map((c) => [c.label, c]));
+          const recent = recentCmds.map((l) => byLabel.get(l)).filter(Boolean);
+          return [...recent.map((c) => ({ label: c.label, desc: kbLabel(c.kb) || "recently used", run: used(c.label, c.run) })), ...all.filter((c) => !recentCmds.includes(c.label)).map((c) => ({ label: c.label, desc: kbLabel(c.kb), run: used(c.label, c.run) }))];
+        }
+        return all.map((c) => ({ ...c, m: fuzzy(t, c.label) })).filter((c) => c.m)
+          .sort((a, b) => b.m.score - a.m.score).map((c) => ({ label: c.label, labelHtml: highlight(c.label, c.m.idx), desc: kbLabel(c.kb), run: used(c.label, c.run) }));
       }
       if (q.startsWith("=")) return extras.calcItems(q.slice(1));
       if (q.startsWith("#")) return more.symbolItems(q.slice(1).trim());
