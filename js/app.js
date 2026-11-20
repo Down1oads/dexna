@@ -1577,7 +1577,52 @@ function renderHome() {
     h("p", { class: "home-note" }, "Python, JavaScript, TypeScript, Lua, SQL and web pages run on your device and your code stays in this browser. Online languages send the file you run to a public compiler, after you agree.")));
 }
 
+function rememberRecent(key) {
+  if (!project || key.startsWith("ext:")) return;
+  project.recent = [key, ...(project.recent || []).filter((k) => k !== key)].slice(0, 30);
+}
+function recentFiles() {
+  const list = (project.recent || []).filter((k) => project.files[k] != null && k !== project.active);
+  if (!list.length) return toast("No other files opened recently", "info");
+  quickPick({ placeholder: "Recently opened files (type to filter)", source: (q) => list.filter((k) => k.toLowerCase().includes(q.trim().toLowerCase())).map((k) => ({ label: basename(k), detail: dirname(k), iconHtml: fileIconSvg(k), desc: project.open.includes(k) ? "open" : "", run: () => openFile(k) })) });
+}
+
+/* ---------- the open file's language: change it for now, or always for its kind of file ---------- */
+function changeLanguage() {
+  const m = editor?.getModel(), path = currentPath();
+  if (!m || !path) return;
+  const langs = monaco.languages.getLanguages().filter((l) => l.aliases?.length).map((l) => [l.id, l.aliases[0]]).sort((a, b) => a[1].localeCompare(b[1]));
+  const ext = path.includes(".") ? "*." + path.split(".").pop().toLowerCase() : null;
+  quickPick({ placeholder: `Language for ${basename(path)} (now ${langName(m.getLanguageId())})`, source: (q) => {
+    const t = q.trim().toLowerCase(), items = [];
+    for (const [id, name] of langs) {
+      if (t && !name.toLowerCase().includes(t) && !id.includes(t)) continue;
+      items.push({ label: name, desc: id === m.getLanguageId() ? "current" : "", run: () => { monaco.editor.setModelLanguage(m, id); updateCursorStatus(); $("#sb-lang").textContent = langName(id); } });
+      if (ext) items.push({ label: `${name}: always for ${ext} files`, detail: "saved as a file association (Settings > Files)", run: () => { setSetting("fileAssociations", { ...settings.fileAssociations, [ext]: id }); $("#sb-lang").textContent = langName(id); toast(`${ext} files now open as ${name}`, "ok"); } });
+    }
+    return items;
+  } });
+}
+$("#sb-lang").classList.add("clickable");
+$("#sb-lang").title = "Language: click to change it";
+$("#sb-lang").onclick = () => changeLanguage();
+
+/* ---------- saving what the terminal shows ---------- */
+function savePanelOutput() {
+  const pane = ["terminal", "console", "shell"].map((id) => document.getElementById(id)).find((el) => el && el.offsetParent !== null) || $("#terminal");
+  const text = (pane?.innerText || "").replace(/\u00a0/g, " ").replace(/\s+$/, "") + "\n";
+  if (!text.trim()) return toast("There is no output to save", "info");
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+  quickPick({ placeholder: "Save the output", source: () => [
+    { label: "As a file in the project", detail: `output-${stamp}.txt`, run: () => { let path = `output-${stamp}.txt`; for (let n = 2; exists(path); n++) path = `output-${stamp}-${n}.txt`; createFile(path, text, { open: true }); toast(`Saved the output as ${path}`, "ok"); } },
+    { label: "Download it", detail: "a .txt file", run: () => downloadBlob(new Blob([text], { type: "text/plain" }), `output-${stamp}.txt`) },
+    { label: "Copy it", detail: `${text.split("\n").length - 1} lines`, run: () => navigator.clipboard?.writeText(text).then(() => toast("Output copied", "ok")) },
+  ] });
+}
+$("#panel-save").onclick = () => savePanelOutput();
+
 async function openFile(key, { line, col = 1, focus = true, selectLen = 0 } = {}) {
+  rememberRecent(key);
   if (!key) return;
   let model;
   if (key.startsWith("ext:")) {
@@ -4416,6 +4461,9 @@ const COMMANDS = [
   { id: "format-all", label: "Format All Files in the Project", cat: "Edit", run: formatAllFiles },
   { id: "surround", label: "Surround With…", cat: "Edit", kb: "ctrl+alt+s", run: surroundWith },
   { id: "json-sort", label: "JSON: Sort Keys", cat: "Text", run: sortJsonKeys },
+  { id: "recent-files", label: "Recent Files…", cat: "File", kb: "ctrl+e", run: recentFiles },
+  { id: "change-language", label: "Change Language Mode…", cat: "View", run: changeLanguage },
+  { id: "save-output", label: "Save Terminal Output…", cat: "Run", run: savePanelOutput },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
