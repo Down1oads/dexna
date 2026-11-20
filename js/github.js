@@ -860,6 +860,62 @@ export function createGitHub(API) {
     } catch (e) { API.toast(e.message, "error", 7000); return null; }
   }
 
+  /* ---------- websites: GitHub Pages ---------- */
+  async function publishSite() {
+    const p = API.project, g = p?.github;
+    if (!g) return API.toast("Put the project on GitHub first (Publish to GitHub in Source Control), then publish the website.", "info", 6000);
+    if (!(await needAuth())) return null;
+    const files = API.currentFiles(), prefix = g.sub ? g.sub + "/" : "";
+    const folder = files["index.html"] != null ? "/" : files["docs/index.html"] != null ? "/docs" : null;
+    if (!folder) return API.toast("A website needs an index.html at the top of the project or in a docs folder.", "warn", 6000);
+    if (g.sub) return API.toast("GitHub Pages serves a whole repository (or its docs folder), and this project is one folder of a repository.", "warn", 7000);
+    const st = await localState(p);
+    if (st.edited.length || st.removed.length) {
+      if (!(await API.confirmDialog({ title: "Push first", message: `${st.edited.length + st.removed.length} changed file(s) are not on GitHub yet. Push them (as "${autoMessage(st)}"), then publish the website?`, okLabel: "Push and publish" }))) return null;
+      if (!(await push(autoMessage(st)))) return null;
+    }
+    API.setStatusFlash?.("Turning on GitHub Pages…");
+    try {
+      let site = await gh(`/repos/${g.owner}/${g.repo}/pages`).catch((e) => { if (e.status === 404) return null; throw e; });
+      const source = { branch: g.branch, path: folder };
+      if (!site) site = await gh(`/repos/${g.owner}/${g.repo}/pages`, { method: "POST", body: { source } });
+      else if (site.source?.branch !== source.branch || site.source?.path !== source.path) { await gh(`/repos/${g.owner}/${g.repo}/pages`, { method: "PUT", body: { source } }); site = await gh(`/repos/${g.owner}/${g.repo}/pages`); }
+      g.pages = { url: site.html_url, branch: g.branch, path: folder }; API.persist(); changed();
+      API.toast(`GitHub Pages is on for ${g.owner}/${g.repo} (${g.branch}${folder === "/" ? "" : ", " + folder.slice(1)}). Building the site…`, "info", 5000);
+      // wait for the first build (it usually takes under a minute)
+      for (let i = 0; i < 40; i++) {
+        const b = await gh(`/repos/${g.owner}/${g.repo}/pages/builds/latest`).catch(() => null);
+        if (b?.status === "built") { API.toast(`Your website is live: ${site.html_url}`, "ok", 10000); changed(); return site.html_url; }
+        if (b?.status === "errored") throw new Error(`GitHub could not build the site: ${b.error?.message || "see the repository's Actions tab"}`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+      API.toast(`The site is still building. It will be at ${site.html_url} in a minute or two.`, "info", 8000);
+      return site.html_url;
+    } catch (e) {
+      const msg = e.status === 422 && /private|plan|upgrade/i.test(e.message) ? "GitHub Pages for private repositories needs a paid GitHub plan. Make the repository public on GitHub, or upgrade." : e.status === 403 || e.status === 404 ? "Your token may not change this repository's settings. Give it Pages: Read and write (fine-grained), or the repo scope (classic)." : e.message;
+      API.toast(msg, "error", 8000); return null;
+    }
+  }
+
+  /* ---------- GitHub Actions: ready-made workflows ---------- */
+  const WORKFLOWS = [
+    ["python-tests.yml", "Python tests", "Runs pytest on every push and pull request", "name: Python tests\non:\n  push:\n  pull_request:\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with:\n          python-version: \"3.12\"\n      - run: pip install pytest\n      - run: if [ -f requirements.txt ]; then pip install -r requirements.txt; fi\n      - run: pytest\n"],
+    ["python-lint.yml", "Python lint (Ruff)", "Checks the Python code for errors and style on every push", "name: Lint\non:\n  push:\n  pull_request:\njobs:\n  ruff:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: astral-sh/ruff-action@v3\n"],
+    ["node-tests.yml", "Node tests", "Runs npm test on every push and pull request", "name: Node tests\non:\n  push:\n  pull_request:\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n      - run: npm ci || npm install\n      - run: npm test\n"],
+    ["pages.yml", "Deploy a static site to GitHub Pages", "Publishes the repository's files as a website on every push to main (set Pages to use GitHub Actions)", "name: Deploy to GitHub Pages\non:\n  push:\n    branches: [main]\n  workflow_dispatch:\npermissions:\n  contents: read\n  pages: write\n  id-token: write\nconcurrency:\n  group: pages\n  cancel-in-progress: true\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    environment:\n      name: github-pages\n      url: ${{ steps.deployment.outputs.page_url }}\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/configure-pages@v5\n      - uses: actions/upload-pages-artifact@v3\n        with:\n          path: .\n      - id: deployment\n        uses: actions/deploy-pages@v4\n"],
+  ];
+  function addWorkflow() {
+    const files = API.currentFiles(), paths = Object.keys(files);
+    const fits = (n) => (n.startsWith("python") ? paths.some((f) => f.endsWith(".py")) : n.startsWith("node") ? paths.includes("package.json") : n === "pages.yml" ? paths.includes("index.html") : false);
+    API.quickPick({ placeholder: "Add a GitHub Actions workflow (it runs on GitHub after you push)", source: (q) => WORKFLOWS.filter(([, t]) => t.toLowerCase().includes(q.trim().toLowerCase())).sort((a, b) => fits(b[0]) - fits(a[0])).map(([name, title, detail, yml]) => ({ label: title, detail, desc: fits(name) ? "fits this project" : "", run: () => {
+      const path = ".github/workflows/" + name;
+      if (files[path] != null) return API.toast(`${path} is already there`, "info");
+      API.writeFiles({ [path]: yml });
+      API.rerenderFiles?.(); API.openFile(path);
+      API.toast(`Added ${path}. Push it, and GitHub runs it: the results show in the GitHub box and the repository's Actions tab.`, "ok", 7000);
+    } })) });
+  }
+
   /* ---------- issues ---------- */
   async function issues() {
     const g = API.project?.github;
@@ -1009,6 +1065,7 @@ export function createGitHub(API) {
       conflictList(p),
       auth && (g.upstream || (g.defaultBranch && g.branch !== g.defaultBranch)) ? h("div", { class: "gh-acts" }, g.pr ? h("a", { class: "btn sm", href: g.pr.url, target: "_blank", rel: "noopener" }, `Pull request #${g.pr.number}`) : btn(g.upstream ? `Pull request to ${g.upstream}…` : `Pull request into ${g.defaultBranch}…`, "branch", pullRequest)) : null,
       g.upstream ? h("div", { class: "muted small" }, `A fork of ${g.upstream}`) : null,
+      g.pages ? h("div", { class: "gh-site" }, icon("external"), h("a", { href: g.pages.url, target: "_blank", rel: "noopener" }, g.pages.url.replace(/^https?:\/\//, "").replace(/\/$/, ""))) : auth && !g.sub && (API.currentFiles()["index.html"] != null || API.currentFiles()["docs/index.html"] != null) ? h("div", { class: "gh-acts" }, btn("Publish website…", "external", publishSite)) : null,
       activity(g));
   }
   function conflictList(p) {
@@ -1019,7 +1076,7 @@ export function createGitHub(API) {
   }
 
   return {
-    open, ask, fromUrl, openGist, fork, statusBranch, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
+    open, ask, fromUrl, openGist, publishSite, addWorkflow, fork, statusBranch, addGitignore, addLicense, signIn, signOut, pull, push, publish, unlink, panel, compareWithGitHub, syncUpload, syncDownload, issues, newIssue, issueFromSelection, chooseBranch, switchBranch, createBranch, pullRequest, compareConflict, shareGist, fileUrl,
     get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
     commands: [
       { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
@@ -1031,6 +1088,8 @@ export function createGitHub(API) {
       { id: "gh-unlink", label: "GitHub: Unlink Project", cat: "Source Control", run: unlink },
       { id: "gh-branch", label: "GitHub: Switch or Create Branch…", cat: "Source Control", run: chooseBranch },
       { id: "gh-fork", label: "GitHub: Fork This Repository", cat: "Source Control", run: fork },
+      { id: "gh-pages", label: "GitHub: Publish Website (GitHub Pages)…", cat: "Source Control", run: publishSite },
+      { id: "gh-workflow", label: "GitHub: Add a Workflow (GitHub Actions)…", cat: "Source Control", run: addWorkflow },
       { id: "gh-pr", label: "GitHub: Create Pull Request…", cat: "Source Control", run: pullRequest },
       { id: "gh-open-file", label: "GitHub: Open This File on GitHub", cat: "Source Control", run: openOnGitHub },
       { id: "gh-copy-link", label: "GitHub: Copy Link to These Lines", cat: "Source Control", run: copyLink },

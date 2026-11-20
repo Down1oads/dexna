@@ -1326,3 +1326,9 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 
 #file-tree .row.multi { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 #file-tree .row.multi .name { color: var(--fg); }
+
+/* the web preview at a device's size, scaled down to fit the pane */
+#preview-frame.sized { flex: none; transform-origin: top center; margin: 8px auto 0; box-shadow: 0 0 0 1px var(--border), 0 6px 24px #0005; border-radius: 6px; background: #fff; }
+.gh-site { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+.gh-site a { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-site svg { width: 13px; height: 13px; flex: none; }

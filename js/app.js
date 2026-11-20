@@ -1918,6 +1918,22 @@ function insertToc() {
   editor.focus();
 }
 $("#sb-cursor").onclick = () => { editor.focus(); editor.getAction("editor.action.gotoLine")?.run(); };
+/* ---------- the web preview at the size of a phone, a tablet or a laptop ---------- */
+const PREVIEW_SIZES = [["fit", "Fit the pane", 0, 0], ["phone", "Phone 390 × 844", 390, 844], ["tablet", "Tablet 820 × 1180", 820, 1180], ["laptop", "Laptop 1366 × 768", 1366, 768], ["desktop", "Desktop 1920 × 1080", 1920, 1080]];
+function applyPreviewSize() {
+  const frame = $("#preview-frame"), [, , w, hgt] = PREVIEW_SIZES.find(([k]) => k === (layout.previewSize || "fit")) || PREVIEW_SIZES[0];
+  const box = frame.parentElement, btn = $("#preview-size");
+  if (btn) btn.title = "Preview size: " + (PREVIEW_SIZES.find(([k]) => k === (layout.previewSize || "fit")) || PREVIEW_SIZES[0])[1];
+  frame.classList.toggle("sized", !!w);
+  if (!w) { frame.style.width = frame.style.height = frame.style.transform = ""; return; }
+  const scale = Math.min(1, (box.clientWidth - 16) / w, (box.clientHeight - 16) / hgt);
+  Object.assign(frame.style, { width: w + "px", height: hgt + "px", transform: `scale(${scale})` });
+}
+function choosePreviewSize() {
+  quickPick({ placeholder: "Show the page at the size of…", source: () => PREVIEW_SIZES.map(([k, label]) => ({ label, desc: (layout.previewSize || "fit") === k ? "current" : "", run: () => { layout.previewSize = k; saveLayout?.(); applyPreviewSize(); } })) });
+}
+$("#preview-size")?.addEventListener("click", choosePreviewSize);
+new ResizeObserver(() => applyPreviewSize()).observe($("#preview"));
 $("#sb-eol").onclick = () => chooseEol();
 $("#sb-indent").onclick = () => quickPick({
   placeholder: "Tab size",
@@ -4508,6 +4524,16 @@ const COMMANDS = [
   { id: "import-url", label: "Import File from URL…", cat: "File", run: () => importFromUrl() },
   { id: "copy-md", label: "Copy as Markdown Code Block", cat: "Edit", run: copyAsMarkdown },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
+  { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
+  { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {
+    const pkgs = [...new Set(project.packages || [])];
+    if (!pkgs.length) return toast("This project has no Python packages yet: install some in the Packages view, or import them in your code and run it", "info", 6000);
+    const lines = pkgs.map((p) => { if (/[<>=!~]/.test(p)) return p; const v = installedPkgs?.find?.((x) => normPy(x.name) === normPy(p))?.version; return v ? `${p}==${v}` : p; }).sort((a, b) => a.localeCompare(b));
+    const text = lines.join("\n") + "\n";
+    if (project.files["requirements.txt"] != null && !(await confirmDialog({ title: "Replace requirements.txt", message: `Write ${lines.length} package${lines.length === 1 ? "" : "s"} (with the versions installed now) over the requirements.txt already here?`, okLabel: "Replace" }))) return;
+    applyFileChanges({ "requirements.txt": text }); openFile("requirements.txt");
+    toast(`Wrote requirements.txt: ${lines.join(", ")}`, "ok", 5000);
+  } },
   { id: "req-install", label: "Python: Install Packages from requirements.txt", cat: "Run", run: () => { if (project.files["requirements.txt"] == null) return toast("This project has no requirements.txt", "info"); const add = syncRequirements(); if (!add.length) toast("Every package in requirements.txt is already in the project", "info"); } },
   { id: "download", label: "Download Project as ZIP", cat: "File", run: downloadProject },
   { id: "download-file", label: "Download Current File", cat: "File", run: () => currentPath() && downloadFile(currentPath()) },
