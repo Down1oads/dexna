@@ -20,6 +20,8 @@ import { createDevtools } from "./devtools.js";
 import { createCursesView } from "./cursesview.js";
 import { createNotebook } from "./notebook.js";
 import { createPro } from "./pro.js";
+import { createGitHub } from "./github.js";
+import { createOffline } from "./offline.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
 import { EXAMPLES, BLANK } from "./examples.js";
@@ -1179,6 +1181,7 @@ function renderHome() {
             action("newFile", "New file...", () => newFileDialog(""), "ctrl+alt+n"),
             action("search", "Go to file...", () => quickOpen(), "ctrl+p"),
             action("download", "Import project from ZIP...", () => $("#zip-upload").click()),
+            action("branch", "Open a GitHub repository...", () => github.ask()),
             action("file", "Upload files...", () => { uploadTarget = ""; $("#file-upload").click(); }),
             action("star", "Command palette...", () => quickOpen(">"), "ctrl+shift+p"),
             action("branch", "Source control and history", () => setView("scm"), "ctrl+shift+g"),
@@ -3912,6 +3915,10 @@ COMMANDS.push(...notebook.commands);
 API.pathOfModel = pathOfModel;
 pro = createPro(API);
 COMMANDS.push(...pro.commands);
+const github = createGitHub(API);
+COMMANDS.push(...github.commands);
+const offline = createOffline(API);
+COMMANDS.push(...offline.commands);
 
 const normKb = (kb) => { const parts = kb.split("+"); const key = parts.pop(); return ["ctrl", "alt", "shift"].filter((m) => parts.includes(m)).concat(key).join("+"); };
 const keymap = new Map();
@@ -4021,12 +4028,12 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
-  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "about"],
+  Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "app-install", "offline-info", "offline-clear", "-", "about"],
 };
 function buildMenus() {
   const bar = $("#menus");
@@ -4268,6 +4275,7 @@ async function boot() {
   consoleTerm.system("Python console. Variables from your last run are available here, for example: [x**2 for x in range(10)]");
   splash.classList.add("fade");
   setTimeout(() => splash.remove(), 400);
+  github.fromUrl(); // ?github=owner/repo links
 
   if ("serviceWorker" in navigator && !self.crossOriginIsolated && location.protocol === "https:") {
     setTimeout(() => toast("Running in limited mode (no input() or debugger). Reload the page to enable full mode.", "warn", 7000), 4000);
@@ -4276,6 +4284,7 @@ async function boot() {
 
 // Handy for power users and automated tests: window.dexna.lsp("complete", [...])
 window.dexna = {
+  github,
   fx: () => fx,
   lsp: (method, args) => lspCall(method, args),
   kernel: () => kernel,

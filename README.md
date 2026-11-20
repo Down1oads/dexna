@@ -208,7 +208,11 @@ Every result has Copy and Insert (into the editor at the cursor).
 
 ## Projects
 
-Multiple projects, upload files or import a ZIP, download a project as a ZIP, and **share links** that pack the whole project into the URL (nothing is uploaded). Everything autosaves to your browser's local storage, and Source Control keeps as many committed versions as you like.
+Multiple projects, upload files or import a ZIP, **open a GitHub repository** (File > Open GitHub Repository, or the Home page: `owner/name`, a github.com link, or a link to one folder; text files are copied into a new project, images and other binary files are left out; a link like `…/dexna/?github=owner/name` asks and then opens it), download a project as a ZIP, and **share links** that pack the whole project into the URL (nothing is uploaded). Everything autosaves to your browser's local storage, and Source Control keeps as many committed versions as you like.
+
+## Works offline and installs as an app
+
+After you have opened Dexna once, it works without a connection: its own files, the editor and every language runtime you have used are kept by the browser, and an **Offline** note appears in the status bar when the connection drops. Online languages, installing packages and GitHub still need a connection. Dexna's own files always come fresh from the network when you are online, so updates arrive at once. **Help > Install Dexna as an App** installs it where the browser allows (Chrome and Edge; Safari has Add to Dock). **Help > Offline Storage** shows what is kept or clears it; your projects and settings are not touched.
 
 ## Keyboard shortcuts
 
