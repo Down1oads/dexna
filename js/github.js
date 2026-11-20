@@ -1,10 +1,18 @@
-// Open a public GitHub repository as a new project. The file list comes from GitHub's API (two
-// requests, so the 60-an-hour limit for visitors without an account goes a long way); the files
-// themselves come from raw.githubusercontent.com. Only the repository's name is sent anywhere.
+// GitHub: open a repository as a project, and, signed in with a personal access token, pull, push
+// and publish. Everything talks to GitHub's API straight from the browser (it allows that); there is
+// no Dexna server. The token is kept in this browser's storage only and sent only to api.github.com.
+//
+// A project opened from a branch remembers where it came from (project.github): the repository, the
+// branch, the folder, the commit it was last in step with, and each file's Git blob hash at that
+// commit. Comparing those hashes with the files now tells what changed on either side.
 
-const MAX_FILES = 400, MAX_TOTAL = 4_000_000, MAX_FILE = 500_000;
-const SKIP_DIR = /(^|\/)(\.git|node_modules|\.venv|venv|__pycache__|\.mypy_cache|\.pytest_cache|dist|build|\.next|target)\//;
-const BINARY = /\.(png|jpe?g|gif|webp|avif|ico|icns|bmp|tiff?|psd|pdf|docx?|xlsx?|pptx?|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|exe|dll|so|dylib|o|a|lib|obj|wasm|pyc|pyd|whl|egg|mp3|mp4|m4a|wav|flac|ogg|webm|mov|avi|mkv|ttf|otf|woff2?|eot|sqlite3?|db|bin|dat|pkl|npy|npz|h5|onnx|pt|ckpt|keystore|p12|der)$/i;
+import { isBinary } from "./assets.js";
+
+const MAX_FILES = 1500, MAX_TEXT = 8_000_000, MAX_TEXT_FILE = 2_000_000, MAX_BIN = 80_000_000, MAX_BIN_FILE = 25_000_000;
+const SKIP_DIR = /(^|\/)(\.git|node_modules|\.venv|venv|__pycache__|\.mypy_cache|\.pytest_cache|\.next)\//;
+// files that are certainly binary (images, fonts, audio...): kept as bytes, never decoded as text
+const BINARY = /\.(png|jpe?g|gif|webp|avif|ico|icns|cur|bmp|tiff?|psd|pdf|docx?|xlsx?|pptx?|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|exe|dll|so|dylib|o|a|lib|obj|wasm|pyc|pyd|whl|egg|mp3|mp4|m4a|aac|wav|flac|ogg|oga|opus|webm|mov|avi|mkv|ttf|otf|woff2?|eot|sqlite3?|db|bin|dat|pkl|npy|npz|h5|onnx|pt|ckpt|glb|fbx|blend|keystore|p12|der)$/i;
+const TOKEN_KEY = "dexna:github-auth"; // not part of Export settings, profiles or share links
 
 /** "owner/repo", "github.com/owner/repo", or a link to a branch or folder (…/tree/branch/folder). */
 export function parseRepo(text) {
@@ -15,83 +23,138 @@ export function parseRepo(text) {
   return { owner: m[1], repo: m[2], ref: m[3] ? decodeURIComponent(m[3]) : null, sub: m[4] ? decodeURIComponent(m[4]).replace(/\/+$/, "") : "" };
 }
 
-/** Choose which files to download: text files only, small enough, within the overall limits. */
-export function pickFiles(tree, sub) {
+/** Choose which files to download: text and binary files (images, fonts, audio...), within the limits. */
+export function pickFiles(tree, sub, limits = true) {
   const prefix = sub ? sub + "/" : "";
-  const take = [], skipped = { binary: 0, large: 0, limit: 0 };
-  let total = 0;
+  const take = [], skipped = { large: 0, limit: 0 };
+  let text = 0, bin = 0;
   for (const it of tree) {
     if (it.type !== "blob" || (prefix && !it.path.startsWith(prefix))) continue;
     const rel = it.path.slice(prefix.length);
-    if (SKIP_DIR.test("/" + rel)) continue;
-    if (BINARY.test(rel)) { skipped.binary++; continue; }
-    if ((it.size || 0) > MAX_FILE) { skipped.large++; continue; }
-    if (take.length >= MAX_FILES || total + (it.size || 0) > MAX_TOTAL) { skipped.limit++; continue; }
-    total += it.size || 0;
-    take.push({ path: it.path, rel });
+    if (SKIP_DIR.test("/" + rel) || it.mode === "120000" || it.mode === "160000") continue; // links and submodules
+    const binary = BINARY.test(rel), size = it.size || 0;
+    if (size > (binary ? MAX_BIN_FILE : Math.max(MAX_TEXT_FILE, MAX_BIN_FILE))) { skipped.large++; continue; }
+    if (limits && (take.length >= MAX_FILES || (binary ? bin + size > MAX_BIN : text + size > MAX_TEXT))) { skipped.limit++; continue; }
+    if (binary) bin += size; else text += size;
+    take.push({ path: it.path, rel, sha: it.sha, mode: it.mode, binary });
   }
-  return { take, skipped, total };
+  return { take, skipped, total: text + bin };
 }
 
-export function createGitHub(API) {
-  const api = (path) => fetch("https://api.github.com" + path, { headers: { Accept: "application/vnd.github+json" } });
-  const why = async (res, what) => {
-    if (res.status === 404) return `${what} was not found. It may be private or spelled differently.`;
-    if (res.status === 403 || res.status === 429) {
-      const reset = +res.headers.get("x-ratelimit-reset");
-      return "GitHub's limit for visitors without an account is used up" + (reset ? `; try again after ${new Date(reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : ". Try again in a while.");
-    }
-    return `GitHub answered ${res.status} for ${what}.`;
-  };
+/** The hash Git gives a file's contents ("blob <size>\0<bytes>", SHA-1), to compare without downloading. */
+export async function blobSha(content) {
+  const body = typeof content === "string" ? new TextEncoder().encode(content) : content, head = new TextEncoder().encode(`blob ${body.length}\0`);
+  const all = new Uint8Array(head.length + body.length); all.set(head); all.set(body, head.length);
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-1", all))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const shaCache = new Map(), binCache = new WeakMap(); // so the panel can recount changes cheaply
+async function shaOf(content) {
+  if (typeof content !== "string") { let s = binCache.get(content); if (!s) { s = await blobSha(content); binCache.set(content, s); } return s; }
+  let s = shaCache.get(content); if (!s) { s = await blobSha(content); if (shaCache.size > 3000) shaCache.clear(); shaCache.set(content, s); } return s;
+}
+const toBase64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
+const b64text = (b64) => { const bin = atob(b64.replace(/\n/g, "")), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); return bytes; };
 
+export function createGitHub(API) {
+  const { h } = API;
+  let auth = null; // { token, login }
+  try { auth = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null"); } catch (_) { auth = null; }
+  const changed = () => { document.dispatchEvent(new Event("dexna:github")); };
+
+  /* ---------- talking to GitHub ---------- */
+  async function gh(path, { method = "GET", body, token = auth?.token } = {}) {
+    let res;
+    try {
+      res = await fetch("https://api.github.com" + path, {
+        method, body: body ? JSON.stringify(body) : undefined, cache: "no-store",
+        headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(token ? { Authorization: "Bearer " + token } : {}), ...(body ? { "Content-Type": "application/json" } : {}) },
+      });
+    } catch (_) { throw new Error("Could not reach GitHub. Check your connection."); }
+    if (res.ok) return res.status === 204 ? null : res.json();
+    let msg = ""; try { msg = (await res.json()).message || ""; } catch (_) {}
+    const err = new Error(msg); err.status = res.status;
+    if (res.status === 401) err.message = "GitHub did not accept your token: it may have expired or been revoked. Sign in again with a new one.";
+    else if ((res.status === 403 || res.status === 429) && res.headers.get("x-ratelimit-remaining") === "0") {
+      const reset = +res.headers.get("x-ratelimit-reset");
+      err.message = (token ? "GitHub's hourly limit for your account is used up" : "GitHub's limit for visitors without an account is used up (signing in raises it)") + (reset ? `; try again after ${new Date(reset * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.` : ".");
+    } else if (res.status === 403) err.message = path === "/user/repos" ? "Your token is not allowed to create repositories. Give it Administration: Read and write (with All repositories), or use a classic token with the repo scope." : "Your token is not allowed to do this. It needs Contents: Read and write on this repository.";
+    else if (res.status === 404) err.message = "Not found. The repository may be private (sign in with a token that can see it) or spelled differently.";
+    else if (res.status === 409) err.message = msg.includes("empty") ? "The repository is empty. Add a first file on GitHub, or publish a new repository from Dexna." : msg || "GitHub reported a conflict.";
+    else if (res.status === 422) err.message = msg || "GitHub could not do that.";
+    else err.message = `GitHub answered ${res.status}${msg ? ": " + msg : ""}.`;
+    throw err;
+  }
+  const encPath = (p) => p.split("/").map(encodeURIComponent).join("/");
+  async function headOf(owner, repo, branch) { return (await gh(`/repos/${owner}/${repo}/git/ref/heads/${encPath(branch)}`)).object.sha; }
+  async function treeOf(owner, repo, commitSha) {
+    const c = await gh(`/repos/${owner}/${repo}/git/commits/${commitSha}`);
+    const t = await gh(`/repos/${owner}/${repo}/git/trees/${c.tree.sha}?recursive=1`);
+    return { treeSha: c.tree.sha, tree: t.tree || [], truncated: t.truncated };
+  }
+  /** Download files: from raw.githubusercontent.com for public repositories, through the API for private ones. */
+  async function download(info, items, onProgress) {
+    const out = {}; let i = 0, done = 0;
+    const one = async (f) => {
+      if (info.private) { const b = await gh(`/repos/${info.owner}/${info.repo}/git/blobs/${f.sha}`); return b64text(b.content); }
+      const res = await fetch(`https://raw.githubusercontent.com/${info.owner}/${info.repo}/${info.at}/${encPath(f.path)}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      return new Uint8Array(await res.arrayBuffer());
+    };
+    const worker = async () => {
+      while (i < items.length) {
+        const f = items[i++];
+        try { const bytes = await one(f); out[f.rel] = f.binary || isBinary(bytes) ? bytes : new TextDecoder().decode(bytes); } catch (_) { /* one file failing should not stop the rest */ }
+        if (++done % 10 === 0) onProgress?.(done, items.length);
+      }
+    };
+    await Promise.all(Array.from({ length: 8 }, worker));
+    return out;
+  }
+
+  /* ---------- opening a repository ---------- */
   async function open(text) {
     const r = parseRepo(text);
     if (!r) { API.toast("Write it as owner/name, for example octocat/Hello-World, or paste its github.com link", "warn", 5000); return null; }
     const name = `${r.owner}/${r.repo}`;
     API.setStatusFlash?.(`Opening ${name}…`);
     try {
-      let ref = r.ref;
-      if (!ref) {
-        const res = await api(`/repos/${r.owner}/${r.repo}`);
-        if (!res.ok) throw new Error(await why(res, name));
-        ref = (await res.json()).default_branch || "main";
-      }
-      const tr = await api(`/repos/${r.owner}/${r.repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
-      if (!tr.ok) throw new Error(await why(tr, `The branch "${ref}" of ${name}`));
-      const data = await tr.json();
-      const { take, skipped } = pickFiles(data.tree || [], r.sub);
-      if (!take.length) throw new Error(r.sub ? `No text files in ${r.sub}.` : `${name} has no text files Dexna can open.`);
-      // download a few at a time
-      const files = {};
-      let done = 0, i = 0;
-      const enc = (p) => p.split("/").map(encodeURIComponent).join("/");
-      const worker = async () => {
-        while (i < take.length) {
-          const f = take[i++];
-          try {
-            const res = await fetch(`https://raw.githubusercontent.com/${r.owner}/${r.repo}/${encodeURIComponent(ref)}/${enc(f.path)}`);
-            if (res.ok) { const buf = new Uint8Array(await res.arrayBuffer()); if (!buf.includes(0)) files[f.rel] = new TextDecoder().decode(buf); else skipped.binary++; }
-          } catch (_) { /* one file failing should not stop the rest */ }
-          if (++done % 10 === 0) API.setStatusFlash?.(`Opening ${name}: ${done} of ${take.length} files`);
-        }
-      };
-      await Promise.all(Array.from({ length: 8 }, worker));
-      const paths = Object.keys(files);
+      const info = await gh(`/repos/${r.owner}/${r.repo}`);
+      const branch = r.ref || info.default_branch || "main";
+      // a branch is followed (so you can pull and push later); a tag or commit is opened as a copy
+      let head = null;
+      try { head = await headOf(r.owner, r.repo, branch); } catch (e) { if (e.status !== 404) throw e; }
+      const at = head || branch;
+      const { tree, truncated } = head ? await treeOf(r.owner, r.repo, head) : { tree: (await gh(`/repos/${r.owner}/${r.repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`)).tree, truncated: false };
+      const { take, skipped } = pickFiles(tree, r.sub);
+      if (!take.length) throw new Error(r.sub ? `No files in ${r.sub}.` : `${name} has no files.`);
+      const got = await download({ owner: r.owner, repo: r.repo, private: info.private, at }, take, (d, n) => API.setStatusFlash?.(`Opening ${name}: ${d} of ${n} files`));
+      const files = {}, bins = {};
+      for (const [k, v] of Object.entries(got)) (typeof v === "string" ? files : bins)[k] = v;
+      const paths = Object.keys(got);
       if (!paths.length) throw new Error("The files could not be downloaded. Check your connection.");
       const entry = paths.find((f) => /^(main|app|__main__)\.py$/.test(f)) || paths.find((f) => /(^|\/)(main|app|__main__)\.py$/.test(f)) || paths.find((f) => /^index\.html$/i.test(f)) || paths.find((f) => /^readme\.md$/i.test(f));
       API.createProject({ files, entry }, r.sub ? `${r.repo}/${r.sub.split("/").pop()}` : r.repo);
-      const left = skipped.binary + skipped.large + skipped.limit;
-      const note = left ? ` Left out ${left}: ${[skipped.binary && `${skipped.binary} images or other binary files`, skipped.large && `${skipped.large} over 500 KB`, skipped.limit && `${skipped.limit} past the limit of ${MAX_FILES} files or 4 MB`].filter(Boolean).join(", ")}.` : "";
-      API.toast(`Opened ${name} (${ref}): ${paths.length} files.${note}${data.truncated ? " GitHub sent only part of a very large repository." : ""}`, "ok", left ? 8000 : 4000);
+      const p = API.project; // the project now open
+      if (Object.keys(bins).length) await API.addAssets(bins);
+      if (head && p) {
+        const base = {}, modes = {};
+        for (const f of take) if (got[f.rel] != null) { base[f.rel] = f.sha; if (f.mode !== "100644") modes[f.rel] = f.mode; }
+        p.github = { owner: r.owner, repo: r.repo, branch, sub: r.sub, private: !!info.private, head, base, modes, synced: Date.now() };
+        API.persist();
+      }
+      const left = skipped.large + skipped.limit, nb = Object.keys(bins).length;
+      const note = left ? ` Left out ${left}: ${[skipped.large && `${skipped.large} over 25 MB`, skipped.limit && `${skipped.limit} past the limit of ${MAX_FILES} files, 8 MB of text or 80 MB in all`].filter(Boolean).join(", ")}.` : "";
+      API.toast(`Opened ${name} (${branch}): ${paths.length} files${nb ? `, ${nb} of them images or other binary files` : ""}.${note}${truncated ? " GitHub sent only part of a very large repository." : ""}`, "ok", left ? 8000 : 4000);
+      changed();
       return paths.length;
     } catch (e) {
-      API.toast(e.message.includes("Failed to fetch") ? "Could not reach GitHub. Check your connection." : e.message, "error", 6000);
+      API.toast(e.status === 404 && !auth ? `${name} was not found. It may be private (sign in to open private repositories) or spelled differently.` : e.message, "error", 7000);
       return null;
     }
   }
 
   async function ask() {
-    const v = await API.promptDialog({ title: "Open a GitHub repository", message: "A public repository, as owner/name or its github.com link. A link to a folder (…/tree/branch/folder) opens just that folder. Text files are copied into a new project; images and other binary files are left out.", placeholder: "octocat/Hello-World", okLabel: "Open" });
+    const v = await API.promptDialog({ title: "Open a GitHub repository", message: (auth ? "Any repository your token can see, " : "A public repository, ") + "as owner/name or its github.com link. A link to a folder (…/tree/branch/folder) opens just that folder. Its files, images included, are copied into a new project.", placeholder: "octocat/Hello-World", okLabel: "Open" });
     if (v) return open(v);
   }
 
@@ -107,8 +170,236 @@ export function createGitHub(API) {
     if (ok) open(v);
   }
 
+  /* ---------- signing in ---------- */
+  async function signIn() {
+    return new Promise((resolve) => {
+      const input = h("input", { type: "password", placeholder: "github_pat_… or ghp_…", spellcheck: "false", autocomplete: "off" });
+      const err = h("p", { class: "gh-err hidden" });
+      const btn = h("button", { class: "btn primary" }, "Sign in");
+      const go = async () => {
+        const token = input.value.trim();
+        if (!token) return input.focus();
+        btn.disabled = true; btn.textContent = "Checking…"; err.classList.add("hidden");
+        try {
+          const me = await gh("/user", { token });
+          auth = { token, login: me.login };
+          try { localStorage.setItem(TOKEN_KEY, JSON.stringify(auth)); } catch (_) {}
+          API.closeModal(); API.toast(`Signed in to GitHub as ${me.login}`, "ok"); changed(); resolve(true);
+        } catch (e) {
+          err.textContent = e.status === 401 ? "GitHub did not accept this token. Check that it was copied whole and has not expired." : e.message;
+          err.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Sign in";
+        }
+      };
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      btn.addEventListener("click", go);
+      const link = (href, text) => h("a", { href, target: "_blank", rel: "noopener" }, text);
+      API.openModal(h("div", { class: "modal gh-modal" },
+        h("div", { class: "modal-head" }, "Sign in to GitHub"),
+        h("div", { class: "modal-body" },
+          h("p", {}, "Dexna talks to GitHub straight from your browser using a personal access token. The token stays in this browser and is only ever sent to GitHub."),
+          h("ol", { class: "gh-steps" },
+            h("li", {}, link("https://github.com/settings/personal-access-tokens/new", "Create a fine-grained token"), " on GitHub (it opens in a new tab)."),
+            h("li", {}, "Under ", h("b", {}, "Repository access"), ", pick the repositories Dexna may use, or All repositories."),
+            h("li", {}, "Under ", h("b", {}, "Permissions"), ", set ", h("b", {}, "Contents"), " to Read and write. To publish new repositories from Dexna, also set ", h("b", {}, "Administration"), " to Read and write (with All repositories)."),
+            h("li", {}, "Generate it, copy it, and paste it here.")),
+          h("p", { class: "muted small" }, "A classic token with the ", h("code", {}, "repo"), " scope works too (", link("https://github.com/settings/tokens/new?scopes=repo&description=Dexna", "create one"), ")."),
+          input, err),
+        h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { API.closeModal(); resolve(false); } }, "Cancel"), btn)), () => resolve(false));
+      setTimeout(() => input.focus(), 50);
+    });
+  }
+  async function signOut() {
+    if (!(await API.confirmDialog({ title: "Sign out of GitHub", message: "Dexna forgets your token. Projects stay linked to their repositories, so you can sign in again later. To revoke the token itself, delete it on GitHub.", okLabel: "Sign out" }))) return;
+    auth = null; try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+    API.toast("Signed out of GitHub", "ok"); changed();
+  }
+  const needAuth = async () => auth || ((await signIn()) && auth);
+
+  /* ---------- comparing with the last sync ---------- */
+  async function localState(p) {
+    const g = p.github, files = { ...API.currentFiles(), ...(API.assetFiles?.() || {}) }, shas = {};
+    for (const [path, text] of Object.entries(files)) shas[path] = await shaOf(text);
+    const edited = Object.keys(shas).filter((f) => g.base[f] !== shas[f]);
+    const removed = Object.keys(g.base).filter((f) => files[f] == null);
+    return { files, shas, edited, removed };
+  }
+
+  /* ---------- pull ---------- */
+  async function pull({ quiet = false } = {}) {
+    const p = API.project, g = p?.github;
+    if (!g) return API.toast("This project is not linked to GitHub. Open a repository, or publish this project.", "warn");
+    API.setStatusFlash?.(`Pulling from ${g.owner}/${g.repo}…`);
+    try {
+      const head = await headOf(g.owner, g.repo, g.branch);
+      if (head === g.head) { if (!quiet) API.toast(`Already up to date with ${g.owner}/${g.repo} (${g.branch})`, "ok"); return { upToDate: true }; }
+      const { tree } = await treeOf(g.owner, g.repo, head);
+      const { take } = pickFiles(tree, g.sub, false);
+      const remote = new Map(take.map((f) => [f.rel, f]));
+      const { files, shas } = await localState(p);
+      const get = [], conflicts = [], remove = [];
+      let same = 0;
+      for (const [rel, f] of remote) {
+        const base = g.base[rel], mine = shas[rel];
+        if (f.sha === base) continue; // not changed on GitHub
+        if (mine === f.sha) { g.base[rel] = f.sha; same++; continue; } // already the same here
+        if (mine == null && base == null) get.push(f); // new on GitHub
+        else if (mine === base) get.push(f); // changed on GitHub, not here
+        else { conflicts.push(rel); g.base[rel] = f.sha; } // changed on both sides: keep yours
+      }
+      for (const rel of Object.keys(g.base)) {
+        if (remote.has(rel)) continue;
+        if (files[rel] != null && shas[rel] === g.base[rel]) remove.push(rel); // deleted on GitHub, unchanged here
+        else if (files[rel] != null) conflicts.push(rel);
+        delete g.base[rel];
+      }
+      const got = await download({ owner: g.owner, repo: g.repo, private: g.private, at: head }, get, (d, n) => API.setStatusFlash?.(`Pulling: ${d} of ${n} files`));
+      const writes = {};
+      for (const f of get) if (got[f.rel] != null) { writes[f.rel] = got[f.rel]; g.base[f.rel] = f.sha; if (f.mode !== "100644") g.modes[f.rel] = f.mode; }
+      const added = Object.keys(writes).filter((f) => files[f] == null).length, updated = Object.keys(writes).length - added;
+      if (Object.keys(writes).length) API.writeFiles(writes);
+      if (remove.length) API.removeFiles(remove);
+      g.head = head; g.synced = Date.now();
+      API.persist(); changed();
+      const parts = [updated && `${updated} updated`, added && `${added} added`, remove.length && `${remove.length} removed`].filter(Boolean);
+      API.toast(`Pulled ${g.owner}/${g.repo}: ${parts.length ? parts.join(", ") : "nothing to change here"}.` + (conflicts.length ? ` Kept your version of ${conflicts.slice(0, 4).join(", ")}${conflicts.length > 4 ? ` and ${conflicts.length - 4} more` : ""}, also changed on GitHub; pushing will replace GitHub's.` : ""), conflicts.length ? "warn" : "ok", conflicts.length ? 10000 : 4000);
+      return { updated, added, removed: remove.length, conflicts };
+    } catch (e) { API.toast(e.message, "error", 7000); return null; }
+  }
+
+  /* ---------- push ---------- */
+  async function push(message) {
+    const p = API.project, g = p?.github;
+    if (!g) return API.toast("This project is not linked to GitHub. Open a repository, or publish this project.", "warn");
+    if (!(await needAuth())) return null;
+    const st = await localState(p);
+    if (!st.edited.length && !st.removed.length) { API.toast("Nothing to push: the project matches GitHub", "info"); return { pushed: 0 }; }
+    if (message == null) {
+      const list = [...st.edited, ...st.removed];
+      message = await API.promptDialog({ title: `Push to ${g.owner}/${g.repo} (${g.branch})`, message: `${list.length} file${list.length === 1 ? "" : "s"}: ${list.slice(0, 6).join(", ")}${list.length > 6 ? "…" : ""}. Describe the change:`, value: autoMessage(st), okLabel: "Commit and push" });
+      if (message == null) return null;
+    }
+    message = message.trim() || autoMessage(st);
+    API.setStatusFlash?.(`Pushing to ${g.owner}/${g.repo}…`);
+    try {
+      const head = await headOf(g.owner, g.repo, g.branch);
+      if (head !== g.head) {
+        const pullFirst = await API.confirmDialog({ title: "GitHub has newer commits", message: `Someone (or you, elsewhere) pushed to ${g.branch} since this project last pulled. Pull those changes first; your own edits are kept. Then push again.`, okLabel: "Pull now" });
+        if (pullFirst) await pull();
+        return null;
+      }
+      const { treeSha } = await treeOf(g.owner, g.repo, head);
+      const prefix = g.sub ? g.sub + "/" : "";
+      const entries = [];
+      for (const rel of st.edited) {
+        const c = st.files[rel], mode = g.modes[rel] || "100644";
+        if (typeof c === "string") entries.push({ path: prefix + rel, mode, type: "blob", content: c });
+        else entries.push({ path: prefix + rel, mode, type: "blob", sha: (await gh(`/repos/${g.owner}/${g.repo}/git/blobs`, { method: "POST", body: { content: toBase64(c), encoding: "base64" } })).sha }); // binary: upload it first
+      }
+      entries.push(
+        ...st.removed.map((rel) => ({ path: prefix + rel, mode: g.modes[rel] || "100644", type: "blob", sha: null })));
+      const tree = await gh(`/repos/${g.owner}/${g.repo}/git/trees`, { method: "POST", body: { base_tree: treeSha, tree: entries } });
+      const commit = await gh(`/repos/${g.owner}/${g.repo}/git/commits`, { method: "POST", body: { message, tree: tree.sha, parents: [head] } });
+      await gh(`/repos/${g.owner}/${g.repo}/git/refs/heads/${encPath(g.branch)}`, { method: "PATCH", body: { sha: commit.sha } });
+      for (const rel of st.edited) g.base[rel] = st.shas[rel];
+      for (const rel of st.removed) { delete g.base[rel]; delete g.modes[rel]; }
+      g.head = commit.sha; g.synced = Date.now();
+      API.persist(); changed();
+      API.toast(`Pushed ${entries.length} file${entries.length === 1 ? "" : "s"} to ${g.owner}/${g.repo} (${g.branch}): "${message.split("\n")[0]}"`, "ok", 5000);
+      return { pushed: entries.length, sha: commit.sha, url: commit.html_url };
+    } catch (e) { API.toast(e.message, "error", 8000); return null; }
+  }
+  function autoMessage(st) {
+    const all = [...st.edited, ...st.removed], names = all.map((f) => f.split("/").pop());
+    if (all.length === 1) return `${st.removed.length ? "Delete" : "Update"} ${names[0]}`;
+    if (all.length <= 3) return `Update ${names.join(", ")}`;
+    return `Update ${all.length} files`;
+  }
+
+  /* ---------- publish ---------- */
+  async function publish() {
+    const p = API.project;
+    if (!p) return;
+    if (p.github) return API.toast(`This project is already on GitHub: ${p.github.owner}/${p.github.repo}`, "info");
+    if (!(await needAuth())) return null;
+    return new Promise((resolve) => {
+      const name = h("input", { value: (p.name || "my-project").trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "my-project", spellcheck: "false" });
+      const priv = h("input", { type: "checkbox", checked: true });
+      const err = h("p", { class: "gh-err hidden" });
+      const btn = h("button", { class: "btn primary" }, "Publish");
+      const go = async () => {
+        btn.disabled = true; btn.textContent = "Publishing…"; err.classList.add("hidden");
+        try {
+          const repo = await gh("/user/repos", { method: "POST", body: { name: name.value.trim(), private: priv.checked, auto_init: true, description: "" } });
+          const branch = repo.default_branch || "main";
+          let head = null;
+          for (let i = 0; i < 6 && !head; i++) { try { head = await headOf(repo.owner.login, repo.name, branch); } catch (_) { await new Promise((r) => setTimeout(r, 700)); } } // a new repository takes a moment
+          if (!head) throw new Error("The repository was created, but GitHub has not set it up yet. Try Push in a moment.");
+          p.github = { owner: repo.owner.login, repo: repo.name, branch, sub: "", private: !!repo.private, head, base: {}, modes: {}, synced: Date.now() };
+          API.persist(); API.closeModal(); changed();
+          const r = await push(`Add ${p.name || repo.name} from Dexna`);
+          if (r) API.toast(`Published to github.com/${repo.full_name}${repo.private ? " (private)" : ""}`, "ok", 6000);
+          resolve(r);
+        } catch (e) {
+          err.textContent = e.status === 422 && /name already exists/i.test(e.message) ? "You already have a repository with that name. Pick another." : e.message;
+          err.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Publish";
+        }
+      };
+      btn.addEventListener("click", go);
+      name.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+      API.openModal(h("div", { class: "modal gh-modal" },
+        h("div", { class: "modal-head" }, "Publish to GitHub"),
+        h("div", { class: "modal-body" },
+          h("p", {}, `Creates a new repository under ${auth.login} with this project's files, and links the project to it so you can push and pull.`),
+          h("label", { class: "gh-field" }, h("span", {}, "Repository name"), name),
+          h("label", { class: "si-check" }, priv, h("span", {}, "Private (only you, and people you invite, can see it)")),
+          err),
+        h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { API.closeModal(); resolve(null); } }, "Cancel"), btn)), () => resolve(null));
+      setTimeout(() => name.select(), 50);
+    });
+  }
+
+  async function unlink() {
+    const p = API.project, g = p?.github;
+    if (!g) return;
+    if (!(await API.confirmDialog({ title: "Unlink from GitHub", message: `The project keeps its files but no longer pulls from or pushes to ${g.owner}/${g.repo}. Nothing changes on GitHub.`, okLabel: "Unlink" }))) return;
+    delete p.github; API.persist(); changed();
+  }
+
+  /* ---------- the GitHub box at the top of Source Control ---------- */
+  function panel() {
+    const p = API.project, g = p?.github, icon = API.icon;
+    const btn = (label, ic, run, cls = "") => h("button", { class: "btn sm " + cls, onclick: run }, ic ? icon(ic) : null, label);
+    const who = auth ? h("span", { class: "gh-who", title: "Signed in to GitHub. Click to sign out.", onclick: signOut }, icon("user"), auth.login) : null;
+    const head = h("div", { class: "gh-head" }, h("span", { class: "gh-title" }, "GitHub"), who);
+    if (!g) {
+      return h("div", { class: "gh-box" }, head,
+        h("div", { class: "muted small" }, auth ? "This project is not on GitHub yet." : "Sign in to open private repositories, and to pull, push and publish projects."),
+        h("div", { class: "gh-acts" }, auth ? btn("Publish to GitHub…", "upload", publish, "primary") : btn("Sign in…", "user", signIn, "primary"), btn("Open a repository…", "download", ask)));
+    }
+    const status = h("div", { class: "muted small gh-status" }, "Checking for changes…");
+    localState(p).then((st) => {
+      const n = st.edited.length + st.removed.length;
+      status.textContent = (n ? `${n} file${n === 1 ? "" : "s"} changed since the last pull or push.` : "In step with GitHub as of the last pull or push.") + (g.synced ? ` Synced ${API.ago(g.synced)}.` : "");
+    }).catch(() => { status.textContent = ""; });
+    const url = `https://github.com/${g.owner}/${g.repo}` + (g.sub || g.branch ? `/tree/${encPath(g.branch)}${g.sub ? "/" + encPath(g.sub) : ""}` : "");
+    return h("div", { class: "gh-box" }, head,
+      h("div", { class: "gh-repo" }, h("a", { href: url, target: "_blank", rel: "noopener", title: "Open on GitHub" }, `${g.owner}/${g.repo}${g.sub ? "/" + g.sub : ""}`), h("span", { class: "gh-branch" }, icon("branch"), g.branch),
+        h("button", { class: "btn icon sm", title: "Unlink from GitHub", onclick: unlink }, icon("close"))),
+      status,
+      h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? btn("Push…", "upload", () => push(), "primary") : btn("Sign in to push…", "user", signIn, "primary")));
+  }
+
   return {
-    open, ask, fromUrl,
-    commands: [{ id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask }],
+    open, ask, fromUrl, signIn, signOut, pull, push, publish, unlink, panel,
+    get signedIn() { return !!auth; }, get login() { return auth?.login || null; },
+    commands: [
+      { id: "gh-open", label: "Open GitHub Repository…", cat: "File", run: ask },
+      { id: "gh-signin", label: "GitHub: Sign In…", cat: "Source Control", run: signIn },
+      { id: "gh-signout", label: "GitHub: Sign Out", cat: "Source Control", run: signOut },
+      { id: "gh-pull", label: "GitHub: Pull", cat: "Source Control", run: () => pull() },
+      { id: "gh-push", label: "GitHub: Commit and Push…", cat: "Source Control", run: () => push() },
+      { id: "gh-publish", label: "GitHub: Publish Project to a New Repository…", cat: "Source Control", run: publish },
+      { id: "gh-unlink", label: "GitHub: Unlink Project", cat: "Source Control", run: unlink },
+    ],
   };
 }

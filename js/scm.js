@@ -230,6 +230,7 @@ export function createScm(root, api) {
       h("span", { class: "scm-cmsg" }, c.message),
       h("span", { class: "scm-cmeta" }, `${api.ago(c.time)} · ${c.stats?.files ?? "?"} file${c.stats?.files === 1 ? "" : "s"}`, c.stats ? h("span", { class: "add" }, ` +${c.stats.added}`) : null, c.stats ? h("span", { class: "del" }, ` −${c.stats.removed}`) : null)));
     root.replaceChildren(...[
+      api.topPanel?.() || null,
       h("div", { class: "scm-top" }, msg, commitBtn),
       h("div", { class: "sub-title" }, `Changes`, h("span", { class: "badge" }, list.length || ""),
         h("span", { class: "sub-acts" }, list.length ? h("button", { class: "btn icon sm", title: "Discard all changes", onclick: () => discard(list.map((c) => c.path)) }, icon("undo")) : null)),

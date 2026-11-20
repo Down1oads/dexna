@@ -168,7 +168,9 @@ export function createExtras(A) {
     confirmDialog: A.confirmDialog, quickPick: A.quickPick, showMenu: A.showMenu,
     getProject: () => A.project, currentFiles: A.currentFiles, writeFiles: A.writeFiles, removeFiles: A.removeFiles,
     openFile: A.openFile, showDiff, persist: A.persist, onChange: () => { updateScmBadge(); scheduleMarkers(); },
+    topPanel: () => A.githubPanel?.(),
   });
+  document.addEventListener("dexna:github", () => { if (A.layout.view === "scm" && A.layout.sidebar) scm.render(); });
   function updateScmBadge() {
     const n = scm.head ? scm.changes().length : 0; // before the first commit, every file would count: no badge then
     const b = document.querySelector('#activitybar [data-view="scm"] .ab-badge');

@@ -21,6 +21,7 @@ import { createCursesView } from "./cursesview.js";
 import { createNotebook } from "./notebook.js";
 import { createPro } from "./pro.js";
 import { createGitHub } from "./github.js";
+import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
 import { Terminal, setAnsiPalette } from "./terminal.js";
@@ -118,6 +119,66 @@ let power = null; // split editor, snippets, clipboard and local history, run on
 
 const EMPTY_PROJECT = { name: "My project", files: {} };
 const newId = () => Math.random().toString(36).slice(2, 10);
+
+/* ---------- binary files (images, fonts, audio...): bytes in IndexedDB, an index in project.assets ---------- */
+let assetBytes = new Map(), assetB64 = new Map();
+const isAsset = (p) => !!project?.assets?.[p];
+const assetPaths = () => Object.keys(project?.assets || {});
+function assetBase64(p) {
+  let v = assetB64.get(p);
+  if (v == null && assetBytes.has(p)) { v = dataUrl(assetBytes.get(p), "").slice(13); assetB64.set(p, v); } // "data:;base64," is 13 characters
+  return v ?? null;
+}
+async function loadAssets(p) {
+  assetBytes = new Map(); assetB64 = new Map();
+  const paths = Object.keys(p.assets || {});
+  if (!paths.length) return;
+  const all = await assetStore.all(p.id, paths);
+  if (project !== p) return;
+  for (const [k, v] of Object.entries(all)) assetBytes.set(k, v);
+  renderTree();
+  if (web.path) refreshPreview({ full: true });
+}
+/** Add or replace binary files: { path: Uint8Array }. */
+async function addAssets(map) {
+  if (!project) return;
+  project.assets ||= {};
+  const id = project.id, list = Object.entries(map).filter(([p]) => project.files[p] == null);
+  for (const [path, bytes] of list) {
+    project.assets[path] = { size: bytes.length, type: mimeOf(path) };
+    assetBytes.set(path, bytes); assetB64.delete(path);
+    addDirs(dirname(path));
+  }
+  persistProject(); renderTree();
+  if (web.path) refreshPreview({ full: true });
+  await Promise.all(list.map(([p, b]) => assetStore.put(id, p, b)));
+}
+function removeAssets(paths) {
+  for (const p of paths) { delete project.assets[p]; assetBytes.delete(p); assetB64.delete(p); assetStore.del(project.id, p); }
+}
+/** Files for Python: the text files, plus the bytes of binary files so programs can open them. */
+const filesForPython = () => (assetBytes.size ? { ...project.files, ...Object.fromEntries(assetBytes) } : project.files);
+
+function openAsset(path) {
+  const meta = project.assets?.[path];
+  if (!meta) return;
+  const bytes = assetBytes.get(path), kind = kindOf(path), url = bytes ? dataUrl(bytes, mimeOf(path)) : null;
+  const info = h("span", { class: "muted small" }, sizeLabel(meta.size));
+  let body;
+  if (!bytes) body = h("p", { class: "muted" }, "Still loading. Try again in a moment.");
+  else if (kind === "image") { const img = h("img", { class: "asset-img", src: url, alt: basename(path) }); img.onload = () => { info.textContent = `${img.naturalWidth} × ${img.naturalHeight} · ${sizeLabel(meta.size)}`; }; body = h("div", { class: "asset-view checker" }, img); }
+  else if (kind === "audio") body = h("div", { class: "asset-view" }, h("audio", { src: url, controls: true }));
+  else if (kind === "video") body = h("div", { class: "asset-view" }, h("video", { class: "asset-img", src: url, controls: true }));
+  else if (kind === "font") {
+    const fam = "dexna-font-" + Math.random().toString(36).slice(2);
+    new FontFace(fam, bytes).load().then((f) => document.fonts.add(f)).catch(() => {});
+    body = h("div", { class: "asset-view asset-font", style: { fontFamily: `"${fam}", sans-serif` } }, h("div", { style: { fontSize: "34px" } }, "The quick brown fox jumps over the lazy dog"), h("div", { style: { fontSize: "18px" } }, "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789 !?&"));
+  } else body = h("p", { class: "muted" }, "A binary file. Dexna keeps it with the project (for the web preview, Python, ZIP downloads and GitHub) but cannot edit it.");
+  openModal(h("div", { class: "modal asset-modal" },
+    h("div", { class: "modal-head" }, basename(path), " ", info),
+    h("div", { class: "modal-body" }, body, h("p", { class: "muted small" }, path)),
+    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => downloadFile(path) }, "Download"), h("button", { class: "btn primary", onclick: () => closeOverlay?.() }, "Close"))));
+}
 
 function makeProject(tpl, name) {
   const files = { ...tpl.files };
@@ -579,6 +640,8 @@ async function loadProject(id) {
   if (web.path) showPreview(false); // the preview belongs to the project being left
   closeAllModels();
   project = data;
+  project.assets ||= {};
+  loadAssets(project);
   project.dirs ||= []; project.breakpoints ||= {}; project.packages ||= []; project.npm ||= {}; project.watches ||= []; project.expanded ||= [];
   project.open = (project.open || []).filter((p) => project.files[p] != null);
   if (!project.files[project.active]) project.active = project.open[0] || null;
@@ -629,6 +692,7 @@ async function renameProject() {
 async function deleteProject() {
   if (!(await confirmDialog({ title: "Delete project", message: `Delete "${project.name}" and all of its files? This cannot be undone.`, okLabel: "Delete", danger: true }))) return;
   const id = project.id;
+  assetStore.delProject(id, assetPaths()).catch(() => {});
   LS.del("project:" + id);
   extras?.scm.deleteProject(id).catch(() => {});
   power?.deleteProject(id);
@@ -678,7 +742,7 @@ function validPath(p) {
   if (!p || p.split("/").some((s) => s === "." || s === ".." || !s)) return null;
   return p;
 }
-const exists = (p) => project.files[p] != null || project.dirs.includes(p) || Object.keys(project.files).some((f) => f.startsWith(p + "/"));
+const exists = (p) => project.files[p] != null || isAsset(p) || project.dirs.includes(p) || [...Object.keys(project.files), ...assetPaths()].some((f) => f.startsWith(p + "/"));
 
 function addDirs(p) { let d = p; while (d) { if (!project.dirs.includes(d)) project.dirs.push(d); d = dirname(d); } }
 
@@ -735,12 +799,20 @@ function movePath(from, to) {
   if (!to || to === from) return false;
   if (to.startsWith(from + "/")) { toast("Can't move a folder into itself", "error"); return false; }
   if (exists(to)) { toast(`${to} already exists`, "error"); return false; }
-  const isFile = project.files[from] != null;
+  const isFile = project.files[from] != null || isAsset(from);
   const mapping = [];
   if (isFile) mapping.push([from, to]);
-  else for (const f of Object.keys(project.files)) if (f.startsWith(from + "/")) mapping.push([f, to + f.slice(from.length)]);
+  else for (const f of [...Object.keys(project.files), ...assetPaths()]) if (f.startsWith(from + "/")) mapping.push([f, to + f.slice(from.length)]);
   const activeKey = project.active;
   for (const [a, b] of mapping) {
+    if (isAsset(a)) { // a binary file: move its bytes too
+      const bytes = assetBytes.get(a), meta = project.assets[a];
+      delete project.assets[a]; project.assets[b] = meta;
+      assetBytes.delete(a); assetB64.delete(a);
+      if (bytes) { assetBytes.set(b, bytes); assetStore.put(project.id, b, bytes); }
+      assetStore.del(project.id, a);
+      continue;
+    }
     const m = models.get(a);
     const content = m ? m.getValue() : project.files[a];
     delete project.files[a];
@@ -782,14 +854,16 @@ async function renameDialog(path) {
 }
 
 async function deletePath(path) {
-  const isFile = project.files[path] != null;
+  const isFile = project.files[path] != null || isAsset(path);
   if (settings.confirmDelete !== false && !(await confirmDialog({ title: "Delete", message: `Delete ${isFile ? "file" : "folder"} "${path}"${isFile ? "" : " and everything inside it"}? File > Local History can bring files back.`, okLabel: "Delete", danger: true }))) return;
-  const files = isFile ? [path] : Object.keys(project.files).filter((f) => f.startsWith(path + "/"));
+  const files = isFile ? [path] : [...Object.keys(project.files), ...assetPaths()].filter((f) => f.startsWith(path + "/"));
   if (!isFile) project.dirs = project.dirs.filter((d) => d !== path && !d.startsWith(path + "/"));
   removeFiles(files);
 }
 /** Delete files without asking. */
 function removeFiles(files) {
+  const bin = files.filter(isAsset);
+  if (bin.length) { removeAssets(bin); files = files.filter((f) => !isAsset(f) && !bin.includes(f)); if (!files.length) { persistProject(); renderTree(); if (web.path) refreshPreview({ full: true }); return; } }
   power?.beforeRemove(files);
   for (const f of files) {
     if (project.files[f] == null) continue;
@@ -812,7 +886,8 @@ function duplicateFile(path) {
   const dot = path.lastIndexOf(".");
   let n = 1, cand;
   do { cand = dot > path.lastIndexOf("/") ? `${path.slice(0, dot)}_copy${n > 1 ? n : ""}${path.slice(dot)}` : `${path}_copy${n > 1 ? n : ""}`; n++; } while (exists(cand));
-  createFile(cand, models.get(path)?.getValue() ?? project.files[path]);
+  if (isAsset(path)) addAssets({ [cand]: assetBytes.get(path) });
+  else createFile(cand, models.get(path)?.getValue() ?? project.files[path]);
 }
 
 function downloadBlob(blob, name) {
@@ -821,34 +896,38 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
-function downloadProject() { downloadBlob(createZip(project.files, slug(project.name)), slug(project.name) + ".zip"); }
-function downloadFile(path) { downloadBlob(new Blob([project.files[path]], { type: "text/plain" }), basename(path)); }
+function downloadProject() { downloadBlob(createZip({ ...project.files, ...Object.fromEntries(assetBytes) }, slug(project.name)), slug(project.name) + ".zip"); }
+function downloadFile(path) { downloadBlob(isAsset(path) ? new Blob([assetBytes.get(path) || new Uint8Array()], { type: mimeOf(path) }) : new Blob([project.files[path]], { type: "text/plain" }), basename(path)); }
 
 async function readUploads(fileList, dir = "") {
   let added = 0, skipped = 0;
+  const bins = {};
   for (const f of fileList) {
     if (f.name.toLowerCase().endsWith(".zip")) { await importZip(f); continue; }
-    if (f.size > 2_000_000) { skipped++; continue; }
+    if (f.size > 25_000_000) { skipped++; continue; }
     const buf = new Uint8Array(await f.arrayBuffer());
-    if (buf.subarray(0, 8000).includes(0)) { skipped++; continue; }
-    let text;
-    try { text = new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch (_) { skipped++; continue; }
     const rel = (f.webkitRelativePath || f.name);
     let path = validPath((dir ? dir + "/" : "") + rel);
     if (!path) continue;
+    if (isBinary(buf) || f.size > 2_000_000) { if (project.files[path] == null) { bins[path] = buf; added++; } else skipped++; continue; } // images, fonts, audio...
+    const text = new TextDecoder().decode(buf);
     if (project.files[path] != null) { models.get(path)?.setValue(text); added++; continue; }
     if (createFile(path, text, { open: added === 0 })) added++;
   }
+  if (Object.keys(bins).length) await addAssets(bins);
   if (added) toast(`Added ${added} file${added > 1 ? "s" : ""}`, "ok");
-  if (skipped) toast(`Skipped ${skipped} binary or large file${skipped > 1 ? "s" : ""}. Dexna stores text files only.`, "warn");
+  if (skipped) toast(`Skipped ${skipped} file${skipped > 1 ? "s" : ""}: over 25 MB, or a binary file with the name of a text file.`, "warn");
 }
 
 async function importZip(file) {
   try {
-    const files = await readZip(await file.arrayBuffer());
-    if (!Object.keys(files).length) return toast("No text files found in the zip", "warn");
-    createProject({ files, entry: Object.keys(files).find((f) => /(^|\/)(main|app|__main__)\.py$/.test(f)) }, file.name.replace(/\.zip$/i, ""));
-    toast(`Imported ${Object.keys(files).length} files`, "ok");
+    const all = await readZip(await file.arrayBuffer(), { binary: true });
+    if (!Object.keys(all).length) return toast("No files found in the zip", "warn");
+    const files = {}, bins = {};
+    for (const [k, v] of Object.entries(all)) (typeof v === "string" ? files : bins)[k] = v;
+    createProject({ files, entry: Object.keys(files).find((f) => /(^|\/)(main|app|__main__)\.py$/.test(f)) || Object.keys(files).find((f) => /(^|\/)index\.html?$/i.test(f)) }, file.name.replace(/\.zip$/i, ""));
+    if (Object.keys(bins).length) await addAssets(bins);
+    toast(`Imported ${Object.keys(all).length} files`, "ok");
   } catch (e) { toast("Could not read zip: " + e.message, "error"); }
 }
 
@@ -883,6 +962,7 @@ function buildTree() {
   const hidden = isExcluded();
   for (const d of project.dirs) if (!hidden(d)) dirNode(d);
   for (const f of Object.keys(project.files)) if (!hidden(f)) dirNode(dirname(f)).files.push(f);
+  for (const f of assetPaths()) if (!hidden(f)) dirNode(dirname(f)).files.push(f);
   return root;
 }
 
@@ -950,7 +1030,8 @@ treeEl.addEventListener("click", (e) => {
     treeSelection = p;
     persistProject();
     renderTree();
-  } else { selectTreeRow(p); openFile(p, { focus: e.detail > 1 }); }
+  } else if (isAsset(p)) { selectTreeRow(p); openAsset(p); }
+  else { selectTreeRow(p); openFile(p, { focus: e.detail > 1 }); }
 });
 treeEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
@@ -967,7 +1048,7 @@ treeEl.addEventListener("contextmenu", (e) => {
   if (p) {
     items.push("-");
     if (!isDir) {
-      items.push({ label: "Open", run: () => openFile(p) });
+      items.push({ label: "Open", run: () => (isAsset(p) ? openAsset(p) : openFile(p)) });
       if (isRunnable(p)) {
         items.push({ label: "Run This File", run: () => runFile({ path: p }) });
         items.push({ label: project.entry === p && project.pinEntry ? "Unset as Main File" : "Set as Main File", run: () => togglePinEntry(p) });
@@ -1014,10 +1095,10 @@ treeEl.addEventListener("drop", (e) => {
     const to = (targetDir ? targetDir + "/" : "") + basename(dragPath);
     if (to !== dragPath) movePath(dragPath, to);
     if (targetDir) expandTo(targetDir + "/x");
-  } else if (e.dataTransfer.files.length) readUploads(e.dataTransfer.files, targetDir);
+  } else if (e.dataTransfer.files.length) readUploads([...e.dataTransfer.files], targetDir); // a copy: the drop's list empties once the event ends
 });
 let uploadTarget = "";
-$("#file-upload").addEventListener("change", (e) => { readUploads(e.target.files, uploadTarget); e.target.value = ""; });
+$("#file-upload").addEventListener("change", (e) => { readUploads([...e.target.files], uploadTarget); e.target.value = ""; }); // copy first: clearing the input empties its live file list
 $("#zip-upload").addEventListener("change", (e) => { if (e.target.files[0]) importZip(e.target.files[0]); e.target.value = ""; });
 
 $('[data-view="explorer"] .view-actions').addEventListener("click", (e) => {
@@ -1916,7 +1997,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" 
     await kernelReady();
     setBusy(true, debug ? "debug" : "run");
     await ensurePackages();
-    await kernel.call("sync", { files: project.files, dirs: project.dirs });
+    await kernel.call("sync", { files: filesForPython(), dirs: project.dirs });
     const sources = Object.entries(project.files).filter(([p]) => p.endsWith(".py")).map(([, c]) => c);
     const res = await kernel.call("run", { path, debug, stopOnEntry, breakpoints: project.breakpoints, sources, autoInstall: settings.autoInstall, opts });
     const secs = res.time.toFixed(res.time < 10 ? 3 : 1);
@@ -1951,7 +2032,7 @@ async function runTests(files, only = []) {
     await kernelReady();
     setBusy(true, "run");
     await ensurePackages();
-    await kernel.call("sync", { files: project.files, dirs: project.dirs });
+    await kernel.call("sync", { files: filesForPython(), dirs: project.dirs });
     const sources = Object.entries(project.files).filter(([p]) => p.endsWith(".py")).map(([, c]) => c);
     const res = await kernel.call("tests", { files, only, sources, autoInstall: settings.autoInstall });
     applyFileChanges(res.changes);
@@ -1974,7 +2055,7 @@ async function runNotebookCell(code, cellSink) {
     await kernelReady();
     setBusy(true, "repl");
     await ensurePackages();
-    await kernel.call("sync", { files: project.files, dirs: project.dirs });
+    await kernel.call("sync", { files: filesForPython(), dirs: project.dirs });
     const res = await kernel.call("cell", { code, autoInstall: settings.autoInstall });
     applyFileChanges(res.changes);
     return res;
@@ -2005,7 +2086,7 @@ async function replExec(code, { echo = true, label } = {}) {
     await kernelReady();
     setBusy(true, "repl");
     await ensurePackages();
-    await kernel.call("sync", { files: project.files, dirs: project.dirs });
+    await kernel.call("sync", { files: filesForPython(), dirs: project.dirs });
     const res = await kernel.call("repl", { code, autoInstall: settings.autoInstall });
     applyFileChanges(res.changes);
   } catch (e) {
@@ -2020,6 +2101,8 @@ async function replExec(code, { echo = true, label } = {}) {
 
 function applyFileChanges(changes, { silent = false } = {}) {
   if (!changes) return;
+  const bins = Object.entries(changes).filter(([, v]) => v instanceof Uint8Array);
+  if (bins.length) { addAssets(Object.fromEntries(bins)); changes = Object.fromEntries(Object.entries(changes).filter(([, v]) => !(v instanceof Uint8Array))); }
   const added = [];
   for (const [p, text] of Object.entries(changes)) {
     if (project.files[p] == null) { project.files[p] = text; addDirs(dirname(p)); ensureModel(p); added.push(p); }
@@ -2219,14 +2302,87 @@ const PREVIEW_BRIDGE = (store) => `(() => {
     removeItem: (k) => { data.delete(String(k)); save(); }, clear: () => { data.clear(); save(); }, key: (i) => [...data.keys()][i] ?? null, get length() { return data.size; } };
   try { Object.defineProperty(window, "localStorage", { value: storage, configurable: true }); } catch (_) {}
 })();`;
+/*
+ * Files the page uses besides its HTML, CSS and scripts (images, fonts, audio, JSON...). The preview
+ * runs in a sandbox that cannot load anything from Dexna, so each file goes into the page once, and a
+ * small script there turns it into a URL of its own: for references in the HTML and CSS (rewritten
+ * here to "dexna-asset:<path>"), and for ones made while the page runs (fetch, XMLHttpRequest, img.src,
+ * new Audio, setAttribute, innerHTML).
+ */
+const PREVIEW_FILES = (bins, texts, types, base) => `(() => {
+  const B64 = ${JSON.stringify(bins).replace(/</g, "\\u003c")}, TEXT = ${JSON.stringify(texts).replace(/</g, "\\u003c")}, TYPES = ${JSON.stringify(types)}, BASE = ${JSON.stringify(base)};
+  const urls = new Map();
+  const blobUrl = (p) => {
+    if (urls.has(p)) return urls.get(p);
+    let blob = null;
+    if (B64[p] != null) { const bin = atob(B64[p]), a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); blob = new Blob([a], { type: TYPES[p] || "" }); }
+    else if (TEXT[p] != null) blob = new Blob([TEXT[p]], { type: TYPES[p] || "text/plain" });
+    const u = blob ? URL.createObjectURL(blob) : null; urls.set(p, u); return u;
+  };
+  const key = (ref) => {
+    if (typeof ref !== "string" || !ref) return null;
+    if (ref.startsWith("dexna-asset:")) return decodeURIComponent(ref.slice(12));
+    if (/^([a-z][\\w+.-]*:|\\/\\/|#)/i.test(ref)) return null;
+    const out = [];
+    for (const x of ((ref.startsWith("/") ? "" : BASE) + ref.split(/[?#]/)[0]).split("/")) { if (!x || x === ".") continue; if (x === "..") out.pop(); else out.push(x); }
+    try { return decodeURIComponent(out.join("/")); } catch (_) { return out.join("/"); }
+  };
+  const map = (ref) => { const k = key(ref); return k != null && (k in B64 || k in TEXT) ? blobUrl(k) : null; };
+  const css = (t) => (t.indexOf("url(") < 0 ? t : t.replace(/url\\(\\s*(['"]?)([^'")]+)\\1\\s*\\)/gi, (m, q, r) => { const u = map(r.trim()); return u ? 'url("' + u + '")' : m; }));
+  const srcset = (v) => v.split(",").map((s) => { const [u, ...rest] = s.trim().split(/\\s+/); return [map(u) || u, ...rest].join(" "); }).join(", ");
+  const of = window.fetch.bind(window);
+  window.fetch = (input, init) => of((typeof input === "string" && map(input)) || input, init);
+  const xo = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (m, url, ...r) { return xo.call(this, m, map(String(url)) || url, ...r); };
+  for (const C of [HTMLImageElement, HTMLMediaElement, HTMLSourceElement, HTMLTrackElement, HTMLInputElement, HTMLEmbedElement]) {
+    const d = Object.getOwnPropertyDescriptor(C.prototype, "src");
+    if (d && d.set) Object.defineProperty(C.prototype, "src", { configurable: true, enumerable: d.enumerable, get() { return d.get.call(this); }, set(v) { d.set.call(this, map(String(v)) || v); } });
+  }
+  const OA = window.Audio;
+  if (OA) { window.Audio = function (src) { return src === undefined ? new OA() : new OA(map(String(src)) || src); }; window.Audio.prototype = OA.prototype; }
+  const sa = Element.prototype.setAttribute;
+  Element.prototype.setAttribute = function (n, v) {
+    const l = String(n).toLowerCase();
+    if (typeof v === "string" && (l === "src" || l === "poster" || l === "data" || (l === "href" && this.tagName === "LINK"))) v = map(v) || v;
+    else if (typeof v === "string" && l === "srcset") v = srcset(v);
+    else if (typeof v === "string" && l === "style") v = css(v);
+    return sa.call(this, n, v);
+  };
+  const fix = (el) => {
+    if (el.nodeType !== 1) return;
+    for (const a of ["src", "poster", "data"]) { const v = el.getAttribute(a), m = v && map(v); if (m) sa.call(el, a, m); }
+    if (el.tagName === "LINK") { const v = el.getAttribute("href"), m = v && map(v); if (m) sa.call(el, "href", m); }
+    const ss = el.getAttribute("srcset"); if (ss) { const n = srcset(ss); if (n !== ss) sa.call(el, "srcset", n); }
+    const st = el.getAttribute("style"); if (st && st.indexOf("url(") >= 0) { const n = css(st); if (n !== st) sa.call(el, "style", n); }
+    if (el.tagName === "STYLE" && el.textContent.indexOf("url(") >= 0) { const n = css(el.textContent); if (n !== el.textContent) el.textContent = n; }
+  };
+  new MutationObserver((ms) => {
+    for (const m of ms) {
+      if (m.type === "attributes") { fix(m.target); continue; }
+      for (const n of m.addedNodes) {
+        if (n.nodeType === 1) { fix(n); if (n.querySelectorAll) n.querySelectorAll("[src],[srcset],[poster],[data],[style],link[href],style").forEach(fix); }
+        else if (n.nodeType === 3 && n.parentNode && n.parentNode.tagName === "STYLE") fix(n.parentNode);
+      }
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "srcset", "poster", "data", "style", "href"] });
+})();`;
 function buildPage(path) {
   const doc = new DOMParser().parseFromString(textOf(path), "text/html");
   const missing = [];
   const local = (ref) => { if (!ref || isExternal(ref) || ref.startsWith("data:")) return null; const p = resolveRef(path, ref); if (project.files[p] == null) { missing.push(ref); return null; } return p; };
+  // a reference to another file of the project, as "dexna-asset:<path>" (null when it is not one)
+  const asset = (from, ref) => {
+    if (!ref || isExternal(ref) || /^(data|blob|#)/i.test(ref)) return null;
+    let p; try { p = resolveRef(from, decodeURIComponent(ref.split(/[?#]/)[0])); } catch (_) { p = resolveRef(from, ref.split(/[?#]/)[0]); }
+    return isAsset(p) || (project.files[p] != null && !/\.html?$/i.test(p)) ? "dexna-asset:" + encodeURIComponent(p) : null;
+  };
+  const cssRefs = (css, from) => (css.indexOf("url(") < 0 ? css : css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (m, q, ref) => { const a = asset(from, ref.trim()); return a ? `url("${a}")` : m; }));
   for (const l of doc.querySelectorAll('link[rel~="stylesheet"][href]')) {
     const p = local(l.getAttribute("href")); if (!p) continue;
-    const st = doc.createElement("style"); st.textContent = textOf(p).replace(/<\/style/gi, "<\\/style"); l.replaceWith(st);
+    const st = doc.createElement("style"); st.textContent = cssRefs(textOf(p), p).replace(/<\/style/gi, "<\\/style"); l.replaceWith(st);
   }
+  for (const st of doc.querySelectorAll("style")) if (st.textContent.includes("url(")) st.textContent = cssRefs(st.textContent, path);
+  for (const el of doc.querySelectorAll("[style]")) { const v = el.getAttribute("style"); if (v.includes("url(")) el.setAttribute("style", cssRefs(v, path)); }
   for (const sc of doc.querySelectorAll("script[src]")) {
     const p = local(sc.getAttribute("src")); if (!p) continue;
     const n = doc.createElement("script");
@@ -2234,14 +2390,25 @@ function buildPage(path) {
     n.textContent = textOf(p).replace(/<\/script/gi, "<\\/script") + `\n//# sourceURL=${p}`;
     sc.replaceWith(n);
   }
-  for (const img of doc.querySelectorAll("img[src]")) { // SVG files in the project can be shown
-    const ref = img.getAttribute("src"); if (!ref || isExternal(ref) || ref.startsWith("data:")) continue;
-    const p = resolveRef(path, ref);
-    if (/\.svg$/i.test(p) && project.files[p] != null) img.setAttribute("src", "data:image/svg+xml;charset=utf-8," + encodeURIComponent(textOf(p)));
+  // images, media, icons and the like: point them at the project's files
+  for (const el of doc.querySelectorAll("[src], [poster], object[data], link[href]:not([rel~=stylesheet])")) {
+    for (const at of el.tagName === "LINK" ? ["href"] : el.tagName === "OBJECT" ? ["data"] : ["src", "poster"]) {
+      if (el.tagName === "SCRIPT" || el.tagName === "IFRAME") continue;
+      const a = asset(path, el.getAttribute(at)); if (a) el.setAttribute(at, a);
+    }
   }
+  for (const el of doc.querySelectorAll("[srcset]")) el.setAttribute("srcset", el.getAttribute("srcset").split(",").map((s) => { const [u, ...r] = s.trim().split(/\s+/); return [asset(path, u) || u, ...r].join(" "); }).join(", "));
   const bridge = doc.createElement("script");
   let store = {}; try { store = JSON.parse(localStorage.getItem("dexna:webstore:" + project.id) || "{}"); } catch (_) {}
-  bridge.textContent = PREVIEW_BRIDGE(store);
+  // every binary file once (base64), and the project's other text files, for the page to use
+  const bins = {}, texts = {}, types = {};
+  for (const p of assetPaths()) { const b = assetBase64(p); if (b != null) { bins[p] = b; types[p] = mimeOf(p); } }
+  let textBudget = 15_000_000;
+  for (const [p, t] of Object.entries(project.files)) {
+    if (p === path || t.length > 2_000_000 || (textBudget -= t.length) < 0) continue;
+    texts[p] = t; const m = mimeOf(p); types[p] = m === "application/octet-stream" ? (/\.css$/i.test(p) ? "text/css" : /\.m?js$/i.test(p) ? "text/javascript" : /\.html?$/i.test(p) ? "text/html" : "text/plain") : m;
+  }
+  bridge.textContent = PREVIEW_BRIDGE(store) + "\n" + PREVIEW_FILES(bins, texts, types, path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "");
   (doc.head || doc.documentElement).prepend(bridge);
   return { html: "<!DOCTYPE html>\n" + doc.documentElement.outerHTML, missing };
 }
@@ -3860,7 +4027,7 @@ const API = {
   get monaco() { return monaco; }, get editor() { return editor; }, get project() { return project; }, models,
   openModal, closeModal: () => closeOverlay?.(), quickPick, confirmDialog, promptDialog, showMenu, quickOpen: (p) => quickOpen(p),
   openFile, textOf, langOf, langName, currentPath, modelFor: ensureModel, currentFiles: () => project?.files || {},
-  writeFiles: (changes) => applyFileChanges(changes, { silent: true }), removeFiles, persist: () => persistProject(),
+  writeFiles: (changes) => applyFileChanges(changes, { silent: true }), removeFiles, assetFiles: () => Object.fromEntries(assetBytes), addAssets: (m) => addAssets(m), persist: () => persistProject(),
   setView, showPanel, setSetting, setStatusFlash, downloadBlob, resolveRef, save: () => saveCommand(), closeActive: () => project.active && closeTab(project.active),
   previewFile, previewPath: () => web.path, postToPreview,
   showPreview, editorOptions, isRunnable, run: () => cmdById("run").run(),
@@ -3916,6 +4083,7 @@ API.pathOfModel = pathOfModel;
 pro = createPro(API);
 COMMANDS.push(...pro.commands);
 const github = createGitHub(API);
+API.githubPanel = () => github.panel();
 COMMANDS.push(...github.commands);
 const offline = createOffline(API);
 COMMANDS.push(...offline.commands);
@@ -4028,7 +4196,7 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-zip", "gh-open", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-publish", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "organize", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
@@ -4285,6 +4453,7 @@ async function boot() {
 // Handy for power users and automated tests: window.dexna.lsp("complete", [...])
 window.dexna = {
   github,
+  removeFiles: (files) => removeFiles(files),
   fx: () => fx,
   lsp: (method, args) => lspCall(method, args),
   kernel: () => kernel,

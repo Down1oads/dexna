@@ -208,7 +208,21 @@ Every result has Copy and Insert (into the editor at the cursor).
 
 ## Projects
 
-Multiple projects, upload files or import a ZIP, **open a GitHub repository** (File > Open GitHub Repository, or the Home page: `owner/name`, a github.com link, or a link to one folder; text files are copied into a new project, images and other binary files are left out; a link like `…/dexna/?github=owner/name` asks and then opens it), download a project as a ZIP, and **share links** that pack the whole project into the URL (nothing is uploaded). Everything autosaves to your browser's local storage, and Source Control keeps as many committed versions as you like.
+Multiple projects, upload files or import a ZIP, **open a GitHub repository** (File > Open GitHub Repository, or the Home page: `owner/name`, a github.com link, or a link to one folder; all of its files are copied into a new project, images and other binary files included; a link like `…/dexna/?github=owner/name` asks and then opens it), download a project as a ZIP, and **share links** that pack the whole project into the URL (nothing is uploaded). Everything autosaves to your browser's local storage, and Source Control keeps as many committed versions as you like.
+
+## GitHub
+
+Source Control has a **GitHub** section, and every action is also in the command palette (`GitHub: ...`).
+
+- **Sign in** with a personal access token: Dexna explains how to make one (a fine-grained token with Contents: Read and write on the repositories you choose). There is no Dexna server: the browser talks to GitHub directly, and the token is kept in this browser only, never in exported settings, profiles or share links.
+- **Open** any repository your token can see, private ones included. A project opened from a branch stays linked to it.
+- **Pull** brings in what changed on GitHub. Files you changed here are never overwritten: if a file changed on both sides, your version is kept and Dexna says which files; pushing then replaces GitHub's version.
+- **Commit and Push** sends your changes (edited, new and deleted files, images included) as one commit, with a message Dexna suggests. If GitHub has newer commits, Dexna asks you to pull first.
+- **Publish** creates a new repository (private or public) from any project and links the project to it.
+
+## Images and other binary files
+
+Projects hold images, fonts, audio, video and any other binary file next to the code: from uploads (several at once, or dragged in), ZIP files and GitHub. Their bytes are kept in the browser's IndexedDB. Click one in the Explorer to view it (images with their size, audio and video with a player, fonts with a sample). They can be renamed, moved, deleted and downloaded like any file, and go into Download Project as ZIP. The **web preview** loads them wherever the page refers to them: `<img>`, `srcset`, `<audio>`, `<video>`, icons, CSS `url(...)` (fonts too), and at run time `fetch`, `XMLHttpRequest`, `img.src`, `new Audio(...)` and HTML added with `innerHTML`; `fetch("data.json")` works for the project's text files as well. **Python** can open them (`open("photo.png", "rb")`), and binary files a program writes (a saved plot, an image) join the project.
 
 ## Works offline and installs as an app
 

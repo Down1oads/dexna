@@ -91,7 +91,8 @@ function syncAll(files, dirs = []) {
   for (const d of dirs) mkdirp(PROJECT + "/" + d);
   for (const [p, c] of Object.entries(files)) writeFile(p, c);
 }
-/** Text files the program created or changed during a run. */
+const sameBytes = (a, b) => { if (!(a instanceof Uint8Array) || a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+/** Files the program created or changed during a run: text, and (as bytes) binary files. */
 function collectChanges() {
   const FS = pyodide.FS;
   const out = {};
@@ -101,12 +102,12 @@ function collectChanges() {
       const full = dir + "/" + n, r = rel ? rel + "/" + n : n;
       const st = FS.stat(full);
       if (FS.isDir(st.mode)) walk(full, r);
-      else if (st.size < 512 * 1024) {
+      else if (st.size < 20 * 1024 * 1024) {
         const bytes = FS.readFile(full);
-        if (bytes.includes(0)) continue; // binary
-        let text;
-        try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch (_) { continue; }
-        if (synced.get(r) !== text) { out[r] = text; synced.set(r, text); }
+        let text = null;
+        if (st.size < 512 * 1024 && !bytes.includes(0)) { try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch (_) {} }
+        if (text != null) { if (synced.get(r) !== text) { out[r] = text; synced.set(r, text); } }
+        else if (!sameBytes(synced.get(r), bytes)) { out[r] = bytes; synced.set(r, bytes); } // a binary file the program made (a saved plot, an image...)
       }
     }
   };

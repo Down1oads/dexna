@@ -26,7 +26,7 @@ export function createZip(files, root = "") {
 
   for (const [path, content] of Object.entries(files)) {
     const name = enc.encode(root ? `${root}/${path}` : path);
-    const data = enc.encode(content);
+    const data = typeof content === "string" ? enc.encode(content) : content; // text, or the bytes of a binary file
     const crc = crc32(data);
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true);
@@ -69,7 +69,8 @@ export function createZip(files, root = "") {
 }
 
 /** @returns {Promise<Record<string,string>>} text files only */
-export async function readZip(buffer) {
+/** Text files as { path: string }. With { binary: true }, binary files come too, as Uint8Array. */
+export async function readZip(buffer, { binary = false } = {}) {
   const view = new DataView(buffer);
   const bytes = new Uint8Array(buffer);
   let eocd = -1;
@@ -100,8 +101,10 @@ export async function readZip(buffer) {
       const ds = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
       data = new Uint8Array(await new Response(ds).arrayBuffer());
     } else if (method !== 0) continue;
-    if (data.length > 2_000_000 || data.includes(0)) continue;
-    try { out[name] = dec.decode(data); } catch (_) { /* binary */ }
+    let text = null;
+    if (data.length <= 2_000_000 && !data.subarray(0, 8000).includes(0)) { try { text = dec.decode(data); } catch (_) { /* binary */ } }
+    if (text != null) out[name] = text;
+    else if (binary && data.length <= 25_000_000) out[name] = data.slice();
   }
   // strip a single common top-level folder
   const keys = Object.keys(out);

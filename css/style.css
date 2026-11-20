@@ -1229,3 +1229,34 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .si-swatch.on { outline: 2px solid var(--accent); outline-offset: 2px; }
 .si-swatch-any { position: relative; overflow: hidden; background: conic-gradient(#ff4d4d, #ffd23d, #3ddc84, #3de8ff, #4c8dff, #b48aff, #ff4d6d); }
 .si-swatch-any input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+
+/* GitHub box at the top of Source Control */
+.gh-box { margin: 8px 10px 10px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius, 6px); background: color-mix(in srgb, var(--bg-2, var(--bg)) 80%, transparent); display: flex; flex-direction: column; gap: 8px; }
+.gh-head { display: flex; align-items: center; gap: 8px; }
+.gh-title { font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+.gh-who { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+.gh-who:hover { color: var(--fg); text-decoration: underline; }
+.gh-who svg, .gh-branch svg { width: 13px; height: 13px; }
+.gh-repo { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13px; }
+.gh-repo a { color: var(--accent); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-repo a:hover { text-decoration: underline; }
+.gh-branch { display: inline-flex; align-items: center; gap: 3px; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
+.gh-repo .btn.icon { margin-left: auto; }
+.gh-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.gh-acts .btn { display: inline-flex; align-items: center; gap: 5px; }
+.gh-acts .btn svg { width: 13px; height: 13px; }
+.gh-modal { width: min(560px, calc(100vw - 32px)); }
+.gh-modal .gh-steps { margin: 8px 0 10px 18px; padding: 0; line-height: 1.6; }
+.gh-modal input[type=password], .gh-modal .gh-field input { width: 100%; box-sizing: border-box; }
+.gh-modal .gh-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.gh-err { color: var(--error, #f14c4c); margin: 8px 0 0; }
+.gh-err.hidden { display: none; }
+
+/* binary files: the viewer that opens from the Explorer */
+.asset-modal { width: min(820px, calc(100vw - 32px)); }
+.asset-modal .modal-head .muted { margin-left: 8px; font-weight: 400; }
+.asset-view { display: flex; align-items: center; justify-content: center; min-height: 120px; max-height: 62vh; overflow: auto; border-radius: 6px; }
+.asset-view.checker { background: repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+.asset-img { max-width: 100%; max-height: 60vh; image-rendering: auto; }
+.asset-view audio { width: 100%; }
+.asset-font { flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px; }
