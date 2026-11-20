@@ -153,9 +153,57 @@ export function createGitHub(API) {
     }
   }
 
+  /* ---------- choosing a repository from a list ---------- */
+  let myRepos = null; // fetched once per session, refreshed in the background
+  async function listRepos(path) {
+    const out = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = await gh(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`);
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+  const loadMine = () => listRepos("/user/repos?sort=pushed&affiliation=owner,collaborator,organization_member").then((r) => (myRepos = r));
+
+  /** A searchable list of repositories; typing owner/name or a link opens that instead. */
+  function pickFrom(repos, { title = null } = {}) {
+    const row = (r) => ({
+      label: r.full_name,
+      detail: (r.description || "").slice(0, 90),
+      desc: [r.private ? "private" : null, r.fork ? "fork" : null, r.language, r.pushed_at ? API.ago(Date.parse(r.pushed_at)) : null].filter(Boolean).join(" · "),
+      run: () => open(r.full_name),
+    });
+    API.quickPick({
+      placeholder: title || "Pick a repository, type owner/name, paste a github.com link, or type a username",
+      source: (q) => {
+        const t = q.trim(), lc = t.toLowerCase(), items = [];
+        if (t && parseRepo(t)) items.push({ label: `Open ${t}`, detail: "from GitHub", run: () => open(t) });
+        const words = lc.split(/\s+/).filter(Boolean);
+        for (const r of repos) { // your matching repositories come first
+          const hay = (r.full_name + " " + (r.description || "") + " " + (r.language || "")).toLowerCase();
+          if (words.every((w) => hay.includes(w))) items.push(row(r));
+        }
+        if (!title && /^[A-Za-z0-9-]{1,39}$/.test(t)) items.push({ label: `Show ${t}'s repositories…`, detail: "public repositories of this user or organization", run: () => showUser(t) });
+        if (!auth && !title) items.push({ label: "Sign in to GitHub to list your repositories…", detail: "including private ones", run: async () => { if (await signIn()) ask(); } });
+        return items;
+      },
+    });
+  }
+  async function showUser(name) {
+    API.setStatusFlash?.(`Loading ${name}'s repositories…`);
+    try {
+      const repos = await listRepos(`/users/${encodeURIComponent(name)}/repos?sort=pushed&type=owner`);
+      if (!repos.length) return API.toast(`${name} has no public repositories`, "info");
+      pickFrom(repos.sort((a, b) => Date.parse(b.pushed_at || 0) - Date.parse(a.pushed_at || 0)), { title: `${name}'s repositories (${repos.length}): type to filter` });
+    } catch (e) { API.toast(e.status === 404 ? `There is no GitHub user or organization called ${name}.` : e.message, "error", 6000); }
+  }
   async function ask() {
-    const v = await API.promptDialog({ title: "Open a GitHub repository", message: (auth ? "Any repository your token can see, " : "A public repository, ") + "as owner/name or its github.com link. A link to a folder (…/tree/branch/folder) opens just that folder. Its files, images included, are copied into a new project.", placeholder: "octocat/Hello-World", okLabel: "Open" });
-    if (v) return open(v);
+    if (auth && !myRepos) {
+      API.setStatusFlash?.("Loading your repositories…");
+      try { await loadMine(); } catch (e) { API.toast(e.message, "error", 6000); myRepos = []; }
+    } else if (auth) loadMine().catch(() => {}); // show the list now, refresh it for next time
+    pickFrom(auth ? myRepos || [] : []);
   }
 
   // Links like https://…/dexna/?github=owner/repo open that repository (after asking)
@@ -184,7 +232,7 @@ export function createGitHub(API) {
           const me = await gh("/user", { token });
           auth = { token, login: me.login };
           try { localStorage.setItem(TOKEN_KEY, JSON.stringify(auth)); } catch (_) {}
-          API.closeModal(); API.toast(`Signed in to GitHub as ${me.login}`, "ok"); changed(); resolve(true);
+          myRepos = null; API.closeModal(); API.toast(`Signed in to GitHub as ${me.login}`, "ok"); changed(); resolve(true);
         } catch (e) {
           err.textContent = e.status === 401 ? "GitHub did not accept this token. Check that it was copied whole and has not expired." : e.message;
           err.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Sign in";
@@ -210,7 +258,7 @@ export function createGitHub(API) {
   }
   async function signOut() {
     if (!(await API.confirmDialog({ title: "Sign out of GitHub", message: "Dexna forgets your token. Projects stay linked to their repositories, so you can sign in again later. To revoke the token itself, delete it on GitHub.", okLabel: "Sign out" }))) return;
-    auth = null; try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
+    auth = null; myRepos = null; try { localStorage.removeItem(TOKEN_KEY); } catch (_) {}
     API.toast("Signed out of GitHub", "ok"); changed();
   }
   const needAuth = async () => auth || ((await signIn()) && auth);
@@ -225,7 +273,7 @@ export function createGitHub(API) {
   }
 
   /* ---------- pull ---------- */
-  async function pull({ quiet = false } = {}) {
+  async function pull({ quiet = false, silent = false } = {}) {
     const p = API.project, g = p?.github;
     if (!g) return API.toast("This project is not linked to GitHub. Open a repository, or publish this project.", "warn");
     API.setStatusFlash?.(`Pulling from ${g.owner}/${g.repo}…`);
@@ -261,7 +309,7 @@ export function createGitHub(API) {
       g.head = head; g.synced = Date.now();
       API.persist(); changed();
       const parts = [updated && `${updated} updated`, added && `${added} added`, remove.length && `${remove.length} removed`].filter(Boolean);
-      API.toast(`Pulled ${g.owner}/${g.repo}: ${parts.length ? parts.join(", ") : "nothing to change here"}.` + (conflicts.length ? ` Kept your version of ${conflicts.slice(0, 4).join(", ")}${conflicts.length > 4 ? ` and ${conflicts.length - 4} more` : ""}, also changed on GitHub; pushing will replace GitHub's.` : ""), conflicts.length ? "warn" : "ok", conflicts.length ? 10000 : 4000);
+      if (!silent) API.toast(`Pulled ${g.owner}/${g.repo}: ${parts.length ? parts.join(", ") : "nothing to change here"}.` + (conflicts.length ? ` Kept your version of ${conflicts.slice(0, 4).join(", ")}${conflicts.length > 4 ? ` and ${conflicts.length - 4} more` : ""}, also changed on GitHub; pushing will replace GitHub's.` : ""), conflicts.length ? "warn" : "ok", conflicts.length ? 10000 : 4000);
       return { updated, added, removed: remove.length, conflicts };
     } catch (e) { API.toast(e.message, "error", 7000); return null; }
   }
@@ -316,42 +364,112 @@ export function createGitHub(API) {
   }
 
   /* ---------- publish ---------- */
+  /* ---------- publish: a new repository, set up like GitHub's own form ---------- */
+  let templates = null; // { gitignore: [names], licenses: [{ key, name }] }, fetched once
+  const loadTemplates = () => (templates ||= Promise.all([
+    gh("/gitignore/templates").catch(() => []),
+    gh("/licenses").catch(() => []),
+  ]).then(([gitignore, licenses]) => ({ gitignore, licenses })));
+  /** A .gitignore template that fits the project's files. */
+  function suggestIgnore(paths) {
+    const has = (re) => paths.some((p) => re.test(p));
+    if (has(/\.py$|\.ipynb$/)) return "Python";
+    if (has(/(^|\/)package\.json$|\.(ts|tsx|jsx)$/)) return "Node";
+    if (has(/\.java$|\.kt$/)) return "Java";
+    if (has(/\.cs$|\.fs$|\.vb$/)) return "VisualStudio";
+    if (has(/\.go$/)) return "Go";
+    if (has(/\.rs$/)) return "Rust";
+    if (has(/\.(c|cpp|cc|h|hpp)$/)) return "C++";
+    if (has(/\.rb$/)) return "Ruby";
+    if (has(/\.swift$/)) return "Swift";
+    if (has(/\.dart$/)) return "Dart";
+    if (has(/\.lua$/)) return "Lua";
+    return "";
+  }
+
   async function publish() {
     const p = API.project;
     if (!p) return;
     if (p.github) return API.toast(`This project is already on GitHub: ${p.github.owner}/${p.github.repo}`, "info");
     if (!(await needAuth())) return null;
+    const paths = Object.keys({ ...API.currentFiles(), ...(API.assetFiles?.() || {}) });
+    const readme = paths.find((f) => /^readme(\.md|\.txt|\.rst)?$/i.test(f));
+    const slugName = (p.name || "my-project").trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "my-project";
+
     return new Promise((resolve) => {
-      const name = h("input", { value: (p.name || "my-project").trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "my-project", spellcheck: "false" });
-      const priv = h("input", { type: "checkbox", checked: true });
+      const owner = h("select", {}, h("option", { value: "" }, auth.login));
+      gh("/user/orgs").then((orgs) => { for (const o of orgs) owner.append(h("option", { value: o.login }, o.login)); }).catch(() => {}); // listed when the token may read organizations
+      const name = h("input", { value: slugName, spellcheck: "false" });
+      const desc = h("input", { placeholder: "Optional", spellcheck: "true" });
+      const vis = (v, label, note) => h("label", { class: "gh-radio" }, h("input", { type: "radio", name: "gh-vis", value: v, checked: v === "private" }), h("span", {}, h("b", {}, label), h("span", { class: "muted small" }, note)));
+      const visPublic = vis("public", "Public", "Anyone on the internet can see it. You choose who can commit.");
+      const visPrivate = vis("private", "Private", "Only you, and people you invite, can see it.");
+      // README: the project's own, or one written here
+      const addReadme = h("input", { type: "checkbox", checked: true, disabled: !!readme });
+      let edited = false;
+      const readmeText = h("textarea", { class: "gh-readme", rows: 6, spellcheck: "true" });
+      const fillReadme = () => { if (!edited) readmeText.value = `# ${name.value.trim() || slugName}\n` + (desc.value.trim() ? `\n${desc.value.trim()}\n` : ""); };
+      fillReadme();
+      readmeText.addEventListener("input", () => { edited = true; });
+      name.addEventListener("input", fillReadme); desc.addEventListener("input", fillReadme);
+      addReadme.addEventListener("change", () => { readmeText.classList.toggle("hidden", !addReadme.checked); });
+      const ignore = h("select", {}, h("option", { value: "" }, "None"));
+      const license = h("select", {}, h("option", { value: "" }, "None"));
+      const suggested = suggestIgnore(paths);
+      loadTemplates().then(({ gitignore, licenses }) => {
+        for (const t of gitignore) ignore.append(h("option", { value: t, selected: t === suggested }, t));
+        for (const l of licenses) license.append(h("option", { value: l.key }, l.name));
+      });
+      const hasIgnore = paths.includes(".gitignore"), hasLicense = paths.some((f) => /^(licen[cs]e|copying)(\.md|\.txt)?$/i.test(f));
       const err = h("p", { class: "gh-err hidden" });
-      const btn = h("button", { class: "btn primary" }, "Publish");
+      const btn = h("button", { class: "btn primary" }, "Create repository");
+      const field = (label, input, note) => h("label", { class: "gh-field" }, h("span", {}, label), input, note ? h("span", { class: "muted small" }, note) : null);
+
       const go = async () => {
-        btn.disabled = true; btn.textContent = "Publishing…"; err.classList.add("hidden");
+        const repoName = name.value.trim();
+        if (!repoName) return name.focus();
+        btn.disabled = true; btn.textContent = "Creating…"; err.classList.add("hidden");
         try {
-          const repo = await gh("/user/repos", { method: "POST", body: { name: name.value.trim(), private: priv.checked, auto_init: true, description: "" } });
+          const isPrivate = visPrivate.querySelector("input").checked;
+          const body = { name: repoName, description: desc.value.trim(), private: isPrivate, auto_init: true };
+          if (ignore.value && !hasIgnore) body.gitignore_template = ignore.value;
+          if (license.value && !hasLicense) body.license_template = license.value;
+          const repo = await gh(owner.value ? `/orgs/${encodeURIComponent(owner.value)}/repos` : "/user/repos", { method: "POST", body });
           const branch = repo.default_branch || "main";
           let head = null;
-          for (let i = 0; i < 6 && !head; i++) { try { head = await headOf(repo.owner.login, repo.name, branch); } catch (_) { await new Promise((r) => setTimeout(r, 700)); } } // a new repository takes a moment
+          for (let i = 0; i < 8 && !head; i++) { try { head = await headOf(repo.owner.login, repo.name, branch); } catch (_) { await new Promise((r) => setTimeout(r, 700)); } } // a new repository takes a moment
           if (!head) throw new Error("The repository was created, but GitHub has not set it up yet. Try Push in a moment.");
-          p.github = { owner: repo.owner.login, repo: repo.name, branch, sub: "", private: !!repo.private, head, base: {}, modes: {}, synced: Date.now() };
-          API.persist(); API.closeModal(); changed();
-          const r = await push(`Add ${p.name || repo.name} from Dexna`);
-          if (r) API.toast(`Published to github.com/${repo.full_name}${repo.private ? " (private)" : ""}`, "ok", 6000);
+          const proj = API.project;
+          proj.github = { owner: repo.owner.login, repo: repo.name, branch, sub: "", private: !!repo.private, head: null, base: {}, modes: {}, synced: Date.now() };
+          // bring in what GitHub made (README, LICENSE, .gitignore); the project's own files win
+          await pull({ silent: true });
+          if (!readme) {
+            if (!addReadme.checked) API.removeFiles(["README.md"].filter((f) => API.currentFiles()[f] != null));
+            else if (readmeText.value.trim()) API.writeFiles({ "README.md": readmeText.value.endsWith("\n") ? readmeText.value : readmeText.value + "\n" });
+          }
+          myRepos = null; API.persist(); API.closeModal(); changed();
+          const r = await push(`Add ${proj.name || repo.name} from Dexna`);
+          if (r) API.toast(`Created github.com/${repo.full_name}${repo.private ? " (private)" : ""} and pushed the project`, "ok", 6000);
           resolve(r);
         } catch (e) {
-          err.textContent = e.status === 422 && /name already exists/i.test(e.message) ? "You already have a repository with that name. Pick another." : e.message;
-          err.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Publish";
+          err.textContent = e.status === 422 && /already exists/i.test(e.message) ? `${owner.value || auth.login} already has a repository called ${name.value.trim()}. Pick another name.` : e.message;
+          err.classList.remove("hidden"); btn.disabled = false; btn.textContent = "Create repository";
         }
       };
       btn.addEventListener("click", go);
       name.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
-      API.openModal(h("div", { class: "modal gh-modal" },
-        h("div", { class: "modal-head" }, "Publish to GitHub"),
+      API.openModal(h("div", { class: "modal gh-modal gh-publish" },
+        h("div", { class: "modal-head" }, "Create a new repository"),
         h("div", { class: "modal-body" },
-          h("p", {}, `Creates a new repository under ${auth.login} with this project's files, and links the project to it so you can push and pull.`),
-          h("label", { class: "gh-field" }, h("span", {}, "Repository name"), name),
-          h("label", { class: "si-check" }, priv, h("span", {}, "Private (only you, and people you invite, can see it)")),
+          h("p", { class: "muted small" }, "GitHub makes the repository, then Dexna pushes this project's files to it and links the two, so you can pull and push later."),
+          h("div", { class: "gh-row" }, field("Owner", owner), h("span", { class: "gh-slash" }, "/"), field("Repository name", name)),
+          field("Description", desc),
+          h("div", { class: "gh-vis" }, visPublic, visPrivate),
+          h("div", { class: "gh-sub" }, "Initialize with"),
+          h("label", { class: "si-check" }, addReadme, h("span", {}, readme ? `README: this project's ${readme} is used` : "Add a README file")),
+          readme ? null : readmeText,
+          field(".gitignore", hasIgnore ? h("span", { class: "muted small" }, "This project's .gitignore is used.") : ignore, hasIgnore ? null : "Files Git should not track, from GitHub's templates." + (suggested ? ` ${suggested} fits this project.` : "")),
+          field("License", hasLicense ? h("span", { class: "muted small" }, "This project already has a license file.") : license, hasLicense ? null : "Tells others what they may do with your code. MIT and Apache 2.0 let them do almost anything."),
           err),
         h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => { API.closeModal(); resolve(null); } }, "Cancel"), btn)), () => resolve(null));
       setTimeout(() => name.select(), 50);

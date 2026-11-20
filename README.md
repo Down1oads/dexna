@@ -215,10 +215,10 @@ Multiple projects, upload files or import a ZIP, **open a GitHub repository** (F
 Source Control has a **GitHub** section, and every action is also in the command palette (`GitHub: ...`).
 
 - **Sign in** with a personal access token: Dexna explains how to make one (a fine-grained token with Contents: Read and write on the repositories you choose). There is no Dexna server: the browser talks to GitHub directly, and the token is kept in this browser only, never in exported settings, profiles or share links.
-- **Open** any repository your token can see, private ones included. A project opened from a branch stays linked to it.
+- **Open** from a list of your repositories (most recently pushed first; type to filter by name, description or language), or type `owner/name`, paste a link, or type a username to list that person's or organization's public repositories. Private repositories work when signed in. A project opened from a branch stays linked to it.
 - **Pull** brings in what changed on GitHub. Files you changed here are never overwritten: if a file changed on both sides, your version is kept and Dexna says which files; pushing then replaces GitHub's version.
 - **Commit and Push** sends your changes (edited, new and deleted files, images included) as one commit, with a message Dexna suggests. If GitHub has newer commits, Dexna asks you to pull first.
-- **Publish** creates a new repository (private or public) from any project and links the project to it.
+- **Publish** creates a new repository from any project, like GitHub's own form: the owner (you or one of your organizations), name, description, public or private, a README (written right there, or the project's own), a `.gitignore` template (one that fits the project's languages is suggested) and a license. Dexna then pushes the project to it and links the two.
 
 ## Images and other binary files
 

@@ -1260,3 +1260,17 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .asset-img { max-width: 100%; max-height: 60vh; image-rendering: auto; }
 .asset-view audio { width: 100%; }
 .asset-font { flex-direction: column; align-items: flex-start; gap: 10px; padding: 12px; }
+.gh-publish { width: min(620px, calc(100vw - 32px)); }
+.gh-publish .modal-body { max-height: 72vh; overflow: auto; }
+.gh-row { display: flex; align-items: flex-end; gap: 8px; }
+.gh-row .gh-field:last-child { flex: 1; }
+.gh-slash { padding-bottom: 16px; color: var(--fg-dim); font-size: 18px; }
+.gh-modal select, .gh-modal .gh-field input, .gh-readme { width: 100%; box-sizing: border-box; }
+.gh-readme { font-family: var(--mono, monospace); font-size: 12px; resize: vertical; margin: 4px 0 10px; }
+.gh-readme.hidden { display: none; }
+.gh-vis { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 12px; padding: 8px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.gh-radio { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.gh-radio > span { display: flex; flex-direction: column; }
+.gh-sub { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+.gh-radio input[type=radio], .gh-publish .si-check input[type=checkbox] { width: auto; flex: none; margin: 3px 0 0; }
+.gh-radio > span { flex: 1; min-width: 0; }
