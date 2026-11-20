@@ -58,6 +58,7 @@ const b64text = (b64) => { const bin = atob(b64.replace(/\n/g, "")), bytes = new
 export function createGitHub(API) {
   const { h } = API;
   let auth = null; // { token, login }
+  const drafts = {}; // project id -> the commit message being written
   try { auth = JSON.parse(localStorage.getItem(TOKEN_KEY) || "null"); } catch (_) { auth = null; }
   const changed = () => { document.dispatchEvent(new Event("dexna:github")); };
 
@@ -495,16 +496,37 @@ export function createGitHub(API) {
         h("div", { class: "gh-acts" }, auth ? btn("Publish to GitHub…", "upload", publish, "primary") : btn("Sign in…", "user", signIn, "primary"), btn("Open a repository…", "download", ask)));
     }
     const status = h("div", { class: "muted small gh-status" }, "Checking for changes…");
+    // the commit message for GitHub: a summary line and an optional description, kept while you type
+    const draft = (drafts[p.id] ||= { summary: "", body: "" });
+    const summary = h("input", { class: "gh-msg", value: draft.summary, placeholder: "Summary (required)", spellcheck: "true", "aria-label": "Commit summary" });
+    const body = h("textarea", { class: "gh-desc", rows: 2, placeholder: "Description (optional)", spellcheck: "true", "aria-label": "Commit description" });
+    body.value = draft.body;
+    summary.addEventListener("input", () => { draft.summary = summary.value; });
+    body.addEventListener("input", () => { draft.body = body.value; });
+    let suggested = "";
+    const send = async () => {
+      const title = summary.value.trim() || suggested, rest = body.value.trim();
+      if (!title) return API.toast("Nothing to push: the project matches GitHub", "info");
+      const r = await push(rest ? `${title}\n\n${rest}` : title);
+      if (r?.sha) { draft.summary = ""; draft.body = ""; changed(); }
+    };
+    for (const el of [summary, body]) el.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); send(); } });
+    const pushBtn = btn("Commit and Push", "upload", send, "primary");
     localState(p).then((st) => {
       const n = st.edited.length + st.removed.length;
       status.textContent = (n ? `${n} file${n === 1 ? "" : "s"} changed since the last pull or push.` : "In step with GitHub as of the last pull or push.") + (g.synced ? ` Synced ${API.ago(g.synced)}.` : "");
+      suggested = n ? autoMessage(st) : "";
+      summary.placeholder = suggested ? `Summary (empty uses "${suggested}")` : "Summary";
+      pushBtn.disabled = !n;
     }).catch(() => { status.textContent = ""; });
     const url = `https://github.com/${g.owner}/${g.repo}` + (g.sub || g.branch ? `/tree/${encPath(g.branch)}${g.sub ? "/" + encPath(g.sub) : ""}` : "");
     return h("div", { class: "gh-box" }, head,
       h("div", { class: "gh-repo" }, h("a", { href: url, target: "_blank", rel: "noopener", title: "Open on GitHub" }, `${g.owner}/${g.repo}${g.sub ? "/" + g.sub : ""}`), h("span", { class: "gh-branch" }, icon("branch"), g.branch),
         h("button", { class: "btn icon sm", title: "Unlink from GitHub", onclick: unlink }, icon("close"))),
       status,
-      h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? btn("Push…", "upload", () => push(), "primary") : btn("Sign in to push…", "user", signIn, "primary")));
+      auth ? h("div", { class: "gh-commit" }, summary, body) : null,
+      h("div", { class: "gh-acts" }, btn("Pull", "download", () => pull()), auth ? pushBtn : btn("Sign in to push…", "user", signIn, "primary")),
+      auth ? h("div", { class: "muted small" }, "Ctrl+Enter commits and pushes. The Commit button below only saves a snapshot in this browser.") : null);
   }
 
   return {

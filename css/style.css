@@ -66,6 +66,7 @@ kbd {
 .btn.icon.sm:hover { background: var(--bg-hover); }
 .btn.wide { width: 100%; justify-content: center; }
 .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.12); } /* keep the accent on hover (the plain hover colour above would win) */
 .link { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; text-align: left; }
 .link:hover { text-decoration: underline; }
 .toggle:where(:not(.monaco-editor *, .monaco-menu-container *)) {
@@ -1274,3 +1275,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .gh-sub { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
 .gh-radio input[type=radio], .gh-publish .si-check input[type=checkbox] { width: auto; flex: none; margin: 3px 0 0; }
 .gh-radio > span { flex: 1; min-width: 0; }
+.gh-commit { display: flex; flex-direction: column; gap: 6px; }
+.gh-commit .gh-msg, .gh-commit .gh-desc { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; }
+.gh-commit .gh-desc { resize: vertical; min-height: 38px; }
