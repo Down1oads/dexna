@@ -562,6 +562,99 @@ def _rel(path):
     return path[len(PROJECT) + 1:] if path.startswith(PROJECT + "/") else path
 
 
+class _Values:
+    """For Run with Inline Values: the last value each assignment gave, and how often its line ran."""
+
+    LIMIT = 300000  # trace steps; past this the program runs on untraced
+
+    def __init__(self):
+        self.targets = {}  # file -> {line: [names assigned there]}
+        self.vals = {}     # relative file -> {line: [text, times]}
+        self.pending = {}  # frame id -> (file, line, values before) waiting for the line to finish
+        self.loose = set()  # for/with lines: Python visits them again without assigning (loop end, with exit)
+        self.steps = 0
+
+    def _targets(self, filename):
+        t = self.targets.get(filename)
+        if t is None:
+            t = {}
+            try:
+                with open(filename) as fh:
+                    tree = ast.parse(fh.read())
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Assign):
+                        tg = node.targets
+                    elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+                        tg = [node.target]
+                    elif isinstance(node, (ast.For, ast.AsyncFor)):
+                        tg = [node.target]
+                        self.loose.add((filename, node.lineno))
+                    elif isinstance(node, (ast.With, ast.AsyncWith)):
+                        tg = [i.optional_vars for i in node.items if i.optional_vars is not None]
+                        self.loose.add((filename, node.lineno))
+                    elif isinstance(node, ast.NamedExpr):
+                        tg = [node.target]
+                    else:
+                        continue
+                    names = t.setdefault(node.lineno, [])
+                    for x in tg:
+                        for n in ast.walk(x):
+                            if isinstance(n, ast.Name) and n.id not in names:
+                                names.append(n.id)
+            except Exception:
+                pass
+            self.targets[filename] = t
+        return t
+
+    def _capture(self, frame, filename, line, before):
+        names = self.targets.get(filename, {}).get(line, ())
+        loc = frame.f_locals
+        if before is not None and all(loc.get(n, _Values) is b for n, b in zip(names, before)):
+            return  # a for/with line that assigned nothing this time
+        parts = []
+        for n in names:
+            if n in loc:
+                try:
+                    parts.append(f"{n} = {_repr.repr(loc[n])}")
+                except Exception:
+                    parts.append(f"{n} = ?")
+        if parts:
+            slot = self.vals.setdefault(_rel(filename), {}).setdefault(str(line), ["", 0])
+            slot[0] = ", ".join(parts)[:160]
+            slot[1] += 1
+
+    def tracer(self, frame, event, arg):
+        if not frame.f_code.co_filename.startswith(PROJECT + "/"):
+            return None
+        return self.local
+
+    def local(self, frame, event, arg):
+        self.steps += 1
+        if self.steps > self.LIMIT:
+            sys.settrace(None)
+            return None
+        key = id(frame)
+        prev = self.pending.get(key)
+        if prev is not None and event == "line" and frame.f_lineno == prev[1]:
+            return self.local  # still on that line (a comprehension inside it): wait until the line is done
+        self.pending.pop(key, None)
+        if prev is not None:
+            self._capture(frame, *prev)
+        if event == "line":
+            fn = frame.f_code.co_filename
+            t = self._targets(fn)
+            if frame.f_lineno in t:
+                before = None
+                if (fn, frame.f_lineno) in self.loose:
+                    loc = frame.f_locals
+                    before = [loc.get(n, _Values) for n in t[frame.f_lineno]]
+                self.pending[key] = (fn, frame.f_lineno, before)
+        return self.local
+
+    def report(self):
+        return {"files": self.vals, "truncated": self.steps > self.LIMIT}
+
+
 class _Coverage:
     """Which lines of the project's own files ran (sys.monitoring, so it costs little)."""
 
@@ -683,7 +776,7 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
         pass
     ok = True
     t0 = time.perf_counter()
-    cov = prof = None
+    cov = prof = vals = None
     try:
         code = compile(src, full, "exec")
         if debug:
@@ -693,6 +786,13 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
             cov = _Coverage()
             with cov:
                 exec(code, ns)
+        elif mode == "values":
+            vals = _Values()
+            sys.settrace(vals.tracer)
+            try:
+                exec(code, ns)
+            finally:
+                sys.settrace(None)
         elif mode == "profile":
             try:
                 import cProfile as _prof_mod
@@ -723,6 +823,8 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
         try:
             if cov is not None:
                 extra["coverage"] = cov.report()
+            if vals is not None:
+                extra["values"] = vals.report()
             if prof is not None:
                 extra["profile"] = _profile_rows(prof)
         except Exception as e:

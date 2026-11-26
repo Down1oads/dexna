@@ -1389,3 +1389,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .qr-box { background: #fff; padding: 8px; border-radius: 8px; }
 .qr-box svg { display: block; width: 100%; height: auto; image-rendering: pixelated; }
 .qr-text { word-break: break-all; margin-top: 8px; }
+
+/* Run with Inline Values */
+.dx-inline-value { color: color-mix(in srgb, var(--accent) 70%, var(--fg-dim)) !important; font-style: italic; opacity: .9; }

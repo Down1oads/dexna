@@ -485,6 +485,29 @@ async function showQr(text, title = "Scan to open") {
     h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => downloadBlob(new Blob([svg], { type: "image/svg+xml" }), "qr-code.svg") }, "Download"), h("button", { class: "btn primary", onclick: () => closeOverlay?.() }, "Close"))));
 }
 
+/* ---------- Run with Inline Values: each assignment's last value, at the end of its line ---------- */
+let inlineValues = { files: {} }; const valueDecos = new Map();
+function paintInlineValues(path) {
+  const m = models.get(path);
+  if (!m) return;
+  const vals = inlineValues.files[path] || {};
+  valueDecos.set(path, m.deltaDecorations(valueDecos.get(path) || [], Object.entries(vals).filter(([ln]) => +ln <= m.getLineCount()).map(([ln, [text, times]]) => ({
+    range: new monaco.Range(+ln, m.getLineMaxColumn(+ln), +ln, m.getLineMaxColumn(+ln)),
+    options: { after: { content: `   ${text}${times > 1 ? `   (ran ${times} times)` : ""}`, inlineClassName: "dx-inline-value" }, showIfCollapsed: true, hoverMessage: { value: "Value after the last time this line ran (Run with Inline Values)" } },
+  }))));
+}
+function showInlineValues(v) {
+  clearInlineValues();
+  inlineValues = v;
+  for (const p of Object.keys(v.files || {})) paintInlineValues(p);
+  const n = Object.values(v.files || {}).reduce((s, f) => s + Object.keys(f).length, 0);
+  toast(n ? `Showing the values of ${n} line${n === 1 ? "" : "s"}. Editing a file clears its values.${v.truncated ? " (The program ran long, so only its start was traced.)" : ""}` : "No assignments ran, so there are no values to show", n ? "ok" : "info", 5000);
+}
+function clearInlineValues(path) {
+  for (const [p, ids] of valueDecos) if (!path || p === path) { models.get(p)?.deltaDecorations(ids, []); valueDecos.delete(p); if (path) delete inlineValues.files[p]; }
+  if (!path) inlineValues = { files: {} };
+}
+
 function setupEditorInserts(ed) {
   ed.onContextMenu((e) => {
     if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !currentPath()?.endsWith(".py")) return;
@@ -986,6 +1009,7 @@ function onModelChange(path, model, ev) {
   lspWriters.get(path)();
   if (path.endsWith(".py")) { scheduleLint(path); scheduleCells(path); }
   if (path === currentPath()) scheduleOutline();
+  if (valueDecos.has(path)) clearInlineValues(path);
   if (path === "requirements.txt") { clearTimeout(reqTimer); reqTimer = setTimeout(() => syncRequirements(), 1500); }
   if (REF_LANGS.test(path)) { if (!refLinters.has(path)) refLinters.set(path, debounce(() => lintRefs(path), 500)); refLinters.get(path)(); }
 }
@@ -2722,6 +2746,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" 
     else { terminal.system(`Process exited with an error after ${secs}s`, "stderr"); markRuntimeError(state.runStderr); }
     applyFileChanges(res.changes);
     if (res.coverage) devtools?.showCoverage(res.coverage, path);
+    if (res.values) showInlineValues(res.values);
     if (res.profile) devtools?.showProfile(res.profile, path, res.time);
     $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)} ${secs}s</span>`;
   } catch (e) {
@@ -4798,6 +4823,8 @@ const COMMANDS = [
   { id: "project-map", label: "Project Map", cat: "View", run: () => showProjectMap(API) },
   { id: "history-replay", label: "Replay File History…", cat: "File", run: () => showReplay(API) },
   { id: "qr-code", label: "Show QR Code for Text or Link…", cat: "View", run: async () => { const sel = editor?.getModel() && !editor.getSelection().isEmpty() ? editor.getModel().getValueInRange(editor.getSelection()) : ""; const t = sel || (await promptDialog({ title: "QR code", message: "Any text or link, to open on a phone.", placeholder: "https://…", okLabel: "Show" })); if (t) showQr(t.trim()); } },
+  { id: "run-values", label: "Run with Inline Values", cat: "Run", run: () => { const p = currentPath(); if (!p?.endsWith(".py")) return toast("Inline values are for Python files", "info"); runFile({ path: p, mode: "values" }); } },
+  { id: "values-clear", label: "Clear Inline Values", cat: "Run", run: () => clearInlineValues() },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
   { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {
@@ -5037,7 +5064,7 @@ const MENUS = {
   File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "history-replay", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
-  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
+  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-values", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["project-map", "-", "explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "app-install", "offline-info", "offline-clear", "-", "about"],
 };
