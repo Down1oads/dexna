@@ -164,6 +164,9 @@ Built with [WebLLM](https://github.com/mlc-ai/web-llm) and [Qwen2.5-Coder](https
 - **Run on save** (Settings > Editor, or Run > Toggle Run on Save): Ctrl+S also runs the file. **Run tests on save** (Settings > Editor) runs the project's Python tests each time you save a Python file.
 - **Save code as an image** (File menu or right-click): a PNG of the selection or file in your theme's colours, to download or copy.
 - **Zen mode** (Ctrl+K Z): just the code, centred. Esc twice leaves.
+- **Project Map** (View menu): every file as a dot (coloured by language, sized by length) and an arrow for each import, link, style sheet, script and image one file uses from another, Python imports included. Hover a file to light up its links, click to open it, scroll to zoom, drag to move; files linked to nothing are listed.
+- **Replay File History** (File menu): plays back a file's Local History versions one after another, lighting up what each version added or changed. Drag the slider or use the arrow keys, pick the speed, and restore any version.
+- **QR codes**: the Share dialog makes a QR code of the project link (and offers a short `?github=` link for projects on GitHub), to open it on a phone; **Show QR Code** does the same for any selected text or link.
 - **Project statistics** (View menu): files, lines of code, comments and blank lines per language, and the largest files.
 - Cursor style, relative line numbers and smooth caret animation in Settings.
 

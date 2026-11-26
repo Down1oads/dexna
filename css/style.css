@@ -1350,3 +1350,42 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 /* breakpoints with a condition (a ring) and logpoints (a blue diamond) */
 .dx-bp.cond { background: radial-gradient(circle, var(--bg) 0 2.2px, var(--err) 2.8px) !important; }
 .dx-bp.log { background: #60a5fa !important; border-radius: 1px; transform: rotate(45deg) scale(.82); }
+
+/* Project map */
+.pm-modal { width: min(1100px, calc(100vw - 32px)); }
+.pm-svg { width: 100%; height: min(64vh, 640px); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; cursor: grab; touch-action: none; }
+.pm-svg:active { cursor: grabbing; }
+.pm-edge { stroke: var(--fg-faint, #888); stroke-width: 1.1; opacity: .55; transition: opacity .15s; }
+.pm-arrowhead { fill: var(--fg-faint, #888); }
+.pm-node { cursor: pointer; }
+.pm-node circle { stroke-width: 1.5; transition: transform .15s; }
+.pm-node.asset circle { stroke-dasharray: 2 2; }
+.pm-node.alone circle { opacity: .55; }
+.pm-label { font: 11px var(--ui-font, system-ui); fill: var(--fg-dim); text-anchor: middle; pointer-events: none; }
+.pm-svg.focusing .pm-edge { opacity: .08; }
+.pm-svg.focusing .pm-edge.on { opacity: 1; stroke: var(--accent); stroke-width: 1.8; }
+.pm-svg.focusing .pm-node { opacity: .25; }
+.pm-svg.focusing .pm-node.on { opacity: 1; }
+.pm-node:hover circle, .pm-node:focus circle { transform: scale(1.25); }
+.pm-node:focus { outline: none; }
+.pm-node:focus .pm-label, .pm-node:hover .pm-label { fill: var(--fg); font-weight: 600; }
+.pm-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; align-items: center; }
+.pm-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+.pm-legend i.ring { border: 1.5px dashed var(--fg-dim); }
+/* History replay */
+.rp-modal { width: min(980px, calc(100vw - 32px)); }
+.rp-editor { height: min(56vh, 560px); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.rp-bar-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.rp-bar-row .btn { display: inline-flex; align-items: center; gap: 5px; }
+.rp-bar-row .btn svg { width: 13px; height: 13px; }
+.rp-slider { flex: 1; accent-color: var(--accent); }
+.rp-speed { width: auto; }
+.rp-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; font-size: 12px; }
+.rp-changed { background: color-mix(in srgb, #3fb950 16%, transparent); }
+.rp-bar { background: #3fb950; width: 3px !important; margin-left: 3px; }
+.rp-hint { margin-right: auto; }
+/* QR codes */
+.qr-modal { width: min(380px, calc(100vw - 32px)); }
+.qr-box { background: #fff; padding: 8px; border-radius: 8px; }
+.qr-box svg { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.qr-text { word-break: break-all; margin-top: 8px; }

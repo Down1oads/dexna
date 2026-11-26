@@ -23,6 +23,8 @@ import { createPro } from "./pro.js";
 import { createGitHub } from "./github.js";
 import { createPatch, applyPatch } from "./patch.js";
 import { planUpdates, brokenRefs } from "./refs.js";
+import { showProjectMap } from "./projmap.js";
+import { showReplay } from "./replay.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
@@ -460,6 +462,27 @@ function formatTableAtCursor() {
   const lines = []; for (let n = a; n <= b; n++) lines.push(m.getLineContent(n));
   const out = formatMdTable(lines).join("\n");
   editor.executeEdits("dexna-table", [{ range: new monaco.Range(a, 1, b, m.getLineMaxColumn(b)), text: out }]);
+}
+
+/* ---------- QR codes, to open a link on a phone ---------- */
+let qrLib = null;
+const loadQr = () => (qrLib ||= new Promise((ok, fail) => { if (window.qrcode) return ok(window.qrcode); const s = h("script", { src: cfg.libs.qrcode }); s.onload = () => ok(window.qrcode); s.onerror = () => { qrLib = null; fail(new Error("the QR code library did not load")); }; document.head.append(s); }));
+/** An SVG QR code for the text, or null when it is too long for one. */
+async function qrSvg(text) {
+  const qrcode = await loadQr();
+  if (new TextEncoder().encode(text).length > 2900) return null;
+  const q = qrcode(0, "L"); q.addData(unescape(encodeURIComponent(text)), "Byte"); q.make();
+  const n = q.getModuleCount(), pad = 4, cells = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) cells.push(`M${c + pad},${r + pad}h1v1h-1z`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n + pad * 2} ${n + pad * 2}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${cells.join("")}" fill="#000"/></svg>`;
+}
+async function showQr(text, title = "Scan to open") {
+  let svg;
+  try { svg = await qrSvg(text); } catch (e) { return toast("Could not make a QR code: " + e.message, "error"); }
+  if (!svg) return toast("That is too long for a QR code (about 2,900 characters at most)", "warn", 6000);
+  openModal(h("div", { class: "modal qr-modal" }, h("div", { class: "modal-head" }, title),
+    h("div", { class: "modal-body" }, h("div", { class: "qr-box", html: svg }), h("p", { class: "muted small qr-text" }, text.length > 120 ? text.slice(0, 117) + "…" : text)),
+    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => downloadBlob(new Blob([svg], { type: "image/svg+xml" }), "qr-code.svg") }, "Download"), h("button", { class: "btn primary", onclick: () => closeOverlay?.() }, "Close"))));
 }
 
 function setupEditorInserts(ed) {
@@ -4598,7 +4621,8 @@ async function shareProject() {
   openModal(h("div", { class: "modal" }, h("div", { class: "modal-head" }, "Share project"),
     h("div", { class: "modal-body" }, h("p", {}, `Anyone with this link gets a copy of "${project.name}" (${Object.keys(project.files).length} files, ${(url.length / 1024).toFixed(1)} KB link). The code is stored in the link itself, nothing is uploaded.`), input,
       url.length > 60000 ? h("p", { style: { color: "var(--warn)", marginTop: "8px" } }, "This link is very long and may not work everywhere. Consider downloading a ZIP instead.") : null),
-    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => closeOverlay() }, "Close"), copy)));
+    project.github && !project.github.private ? h("p", { class: "muted small", style: { marginTop: "8px" } }, "This project is on GitHub, so a short link works too: ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); const s = `${location.origin}${location.pathname}?github=${encodeURIComponent(`${project.github.owner}/${project.github.repo}${project.github.sub ? `/tree/${project.github.branch}/${project.github.sub}` : ""}`)}`; input.value = s; input.select(); } }, "use the GitHub link"), " (it opens the repository as it is on GitHub).") : null,
+    h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => closeOverlay() }, "Close"), h("button", { class: "btn", title: "A QR code of this link, to open it on a phone", onclick: () => showQr(input.value, "Scan to open the project") }, "QR code"), copy)));
   input.select();
 }
 
@@ -4771,6 +4795,9 @@ const COMMANDS = [
   { id: "bp-cond", label: "Add Conditional Breakpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "cond") },
   { id: "bp-log", label: "Add Logpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "log") },
   { id: "md-table", label: "Markdown: Format Table", cat: "Text", kb: "shift+alt+t", run: formatTableAtCursor },
+  { id: "project-map", label: "Project Map", cat: "View", run: () => showProjectMap(API) },
+  { id: "history-replay", label: "Replay File History…", cat: "File", run: () => showReplay(API) },
+  { id: "qr-code", label: "Show QR Code for Text or Link…", cat: "View", run: async () => { const sel = editor?.getModel() && !editor.getSelection().isEmpty() ? editor.getModel().getValueInRange(editor.getSelection()) : ""; const t = sel || (await promptDialog({ title: "QR code", message: "Any text or link, to open on a phone.", placeholder: "https://…", okLabel: "Show" })); if (t) showQr(t.trim()); } },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
   { id: "req-write", label: "Python: Write requirements.txt", cat: "Run", run: async () => {
@@ -5007,11 +5034,11 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
+  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "history-replay", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
+  View: ["project-map", "-", "explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "app-install", "offline-info", "offline-clear", "-", "about"],
 };
 function buildMenus() {
