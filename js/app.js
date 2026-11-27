@@ -25,6 +25,7 @@ import { createPatch, applyPatch } from "./patch.js";
 import { planUpdates, brokenRefs } from "./refs.js";
 import { showProjectMap } from "./projmap.js";
 import { showReplay } from "./replay.js";
+import { createCodeTools } from "./codetools.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
 import { THEMES, THEME_BY_ID, DEFAULT_DARK, DEFAULT_LIGHT, uiVars, ansiPalette, monacoTheme, registerCustomTheme } from "./themes.js";
@@ -71,7 +72,7 @@ const DEFAULT_SETTINGS = {
   theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
-  runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
+  numberHover: true, runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
   bgEffect: "none", bgSolid: "#1e4fd8", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
   accentColor: "", uiFont: "plex", editorFont: "jetbrains", lineHeight: 0,
   sidebarSide: "left", panelSide: "bottom", showActivityBar: true, showStatusBar: true, density: "normal", uiFontSize: 13, fileIcons: "color", activityHidden: [],
@@ -118,6 +119,7 @@ let nbTextMode = null; // a notebook opened as plain JSON instead
 const cursesView = createCursesView({ reply: (t) => kernel?.reply(t), host: () => document.querySelector('.panel-view[data-panel="terminal"]') });
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
+let codeTools = null; // regex tester, JSON to types, unused code, align, number hover (codetools.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
 let power = null; // split editor, snippets, clipboard and local history, run on save (power.js)
 
@@ -2708,7 +2710,7 @@ async function kernelReady() {
   }
 }
 
-async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" } = {}) {
+async function runFile({ debug = false, stopOnEntry = false, path, mode = "run", runTo = null } = {}) {
   if (state.busy) return toast("A program is already running. Press Shift+F5 to stop it.", "warn");
   path ||= getRunTarget();
   if (!path) return toast("Create a file to run first, or start a project from Home.", "warn");
@@ -2740,7 +2742,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run" 
     await ensurePackages();
     await kernel.call("sync", { files: filesForPython(), dirs: project.dirs });
     const sources = Object.entries(project.files).filter(([p]) => p.endsWith(".py")).map(([, c]) => c);
-    const res = await kernel.call("run", { path, debug, stopOnEntry, breakpoints: project.breakpoints, sources, autoInstall: settings.autoInstall, opts });
+    const res = await kernel.call("run", { path, debug, stopOnEntry, breakpoints: runTo ? { ...project.breakpoints, [runTo.file]: [...(project.breakpoints[runTo.file] || []), runTo.line] } : project.breakpoints, sources, autoInstall: settings.autoInstall, opts });
     const secs = res.time.toFixed(res.time < 10 ? 3 : 1);
     if (res.ok) terminal.system(`Process finished in ${secs}s`, "ok");
     else { terminal.system(`Process exited with an error after ${secs}s`, "stderr"); markRuntimeError(state.runStderr); }
@@ -4277,6 +4279,7 @@ const SETTINGS_SCHEMA = [
   { key: "fontSize", cat: "Appearance", label: "Font size", desc: "Editor text size in pixels. You can also zoom with Ctrl+= and Ctrl+-.", type: "number", min: 10, max: 30 },
   { key: "fontLigatures", cat: "Appearance", label: "Font ligatures", desc: "Join characters like => and != into single symbols (JetBrains Mono).", type: "bool" },
   { key: "minimap", cat: "Appearance", label: "Minimap", desc: "Show a small overview of the file on the right edge.", type: "bool" },
+  { key: "numberHover", cat: "Editor", label: "Describe numbers on hover", desc: "Hover a Unix timestamp to see the date, or a number to see it in hex, binary and octal.", type: "bool" },
   { key: "stickyScroll", cat: "Appearance", label: "Sticky scroll", desc: "Keep the current class or function header pinned at the top while you scroll.", type: "bool" },
   { key: "bracketColors", cat: "Appearance", label: "Bracket pair colors", desc: "Color matching brackets so nested ones are easy to tell apart.", type: "bool" },
   { key: "cursorStyle", cat: "Appearance", label: "Cursor style", desc: "How the text cursor is drawn.", type: "select", options: [["line", "Line"], ["block", "Block"], ["underline", "Underline"], ["line-thin", "Thin line"], ["block-outline", "Block outline"]] },
@@ -4761,6 +4764,14 @@ const COMMANDS = [
   { id: "run", label: "Run File", cat: "Run", kb: "f5", run: () => (dbg.paused ? dbgResume("continue") : runFile()) },
   { id: "run2", label: "Run File", cat: "Run", kb: "ctrl+enter", hidden: true, when: (e) => !e.target.closest?.(".console-input, .term"), run: () => runFile() },
   { id: "debug", label: "Start Debugging", cat: "Run", kb: "f6", run: () => runFile({ debug: true }) },
+  { id: "run-to-cursor", label: "Run to Cursor", cat: "Debug", kb: "ctrl+f10", run: () => {
+    const p = currentPath(), pos = editor?.getPosition(), m = editor?.getModel();
+    if (!p || !pos || !p.endsWith(".py")) return toast("Run to Cursor works in Python files", "info");
+    const text = m.getLineContent(pos.lineNumber).trim();
+    if (!text || text.startsWith("#")) return toast("Put the cursor on a line of code and try again", "info");
+    if (dbg.paused) return dbgResume(`to:${p}:${pos.lineNumber}`);
+    runFile({ debug: true, runTo: { file: p, line: pos.lineNumber } });
+  } },
   { id: "debug-entry", label: "Debug (Stop on Entry)", cat: "Run", run: () => runFile({ debug: true, stopOnEntry: true }) },
   { id: "stop", label: "Stop", cat: "Run", kb: "shift+f5", run: stopExecution },
   { id: "restart", label: "Restart Python Kernel", cat: "Run", run: () => (state.busy ? restartKernel("requested") : restartKernel()) },
@@ -4902,6 +4913,8 @@ power = createPower(API);
 COMMANDS.push(...power.commands);
 more = createMore(API);
 COMMANDS.push(...more.commands);
+codeTools = createCodeTools(API);
+COMMANDS.push(...codeTools.commands);
 look = createLook(API);
 COMMANDS.push(...look.commands);
 plus = createPlus(API);
@@ -5062,9 +5075,9 @@ function quickOpen(prefix = "") {
 
 const MENUS = {
   File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "history-replay", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
-  Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
+  Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "align", "regex-tester", "json-types", "find-unused", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
-  Run: ["run", "debug", "debug-entry", "run-sel", "stop", "-", "run-settings", "run-values", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
+  Run: ["run", "debug", "debug-entry", "run-to-cursor", "run-sel", "stop", "-", "run-settings", "run-values", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["project-map", "-", "explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "app-install", "offline-info", "offline-clear", "-", "about"],
 };
@@ -5281,6 +5294,7 @@ async function boot() {
   prefs.updateStatus();
   power.onEditorReady();
   more.onEditorReady();
+  codeTools.onEditorReady();
   plus.onReady();
   tweaks.apply(); // again, now that every status bar item exists
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
@@ -5321,6 +5335,8 @@ window.dexna = {
   github,
   referenceTo: (from, to) => referenceTo(from, to),
   removeFiles: (files) => removeFiles(files),
+  writeFiles: (changes) => applyFileChanges(changes, { silent: true }),
+  openFile: (path) => openFile(path),
   fx: () => fx,
   lsp: (method, args) => lspCall(method, args),
   kernel: () => kernel,

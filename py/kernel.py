@@ -412,6 +412,7 @@ class Debugger:
         self.conds = conds or {}  # {file: {"line": {"cond": "i == 5", "log": "i is {i}"}}}
         self.mode = "step" if stop_on_entry else "continue"
         self.target = 0
+        self.runto = None  # (file, line) to stop at once (Run to Cursor)
 
     def _hit(self, frame, fn, ln):
         """Should this breakpoint stop? A condition must be true; a logpoint prints and goes on."""
@@ -459,7 +460,9 @@ class Debugger:
             fn = _rel(frame.f_code.co_filename)
             ln = frame.f_lineno
             stop = False
-            if ln in self.bps.get(fn, ()) and self._hit(frame, fn, ln):
+            if self.runto == (fn, ln):
+                stop = True
+            elif ln in self.bps.get(fn, ()) and self._hit(frame, fn, ln):
                 stop = True
             elif self.mode == "step":
                 stop = True
@@ -502,7 +505,11 @@ class Debugger:
             break
         if cmd == "stop":
             raise KeyboardInterrupt("debugger stopped")
-        self.mode = cmd
+        if cmd.startswith("to:"):
+            f, _, l = cmd[3:].rpartition(":")
+            self.runto, self.mode = (f, int(l)), "continue"
+        else:
+            self.runto, self.mode = None, cmd
         self.target = self._depth(frame)
         post("resumed", "")
 
