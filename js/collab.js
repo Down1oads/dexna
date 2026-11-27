@@ -8,7 +8,9 @@
 // project goes through it. The relay can be changed in Settings.
 
 const COLORS = ["#e5484d", "#3e63dd", "#30a46c", "#f76b15", "#8e4ec6", "#12a594", "#d6409f", "#ab6400", "#0090ff", "#7c66dc"];
-const STUN = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
+/** The same servers the official PeerJS library uses: a STUN server, and PeerJS's free TURN relays, which carry the
+ * connection when a network (a school's, say) does not allow a direct one. */
+const STUN = [{ urls: "stun:stun.l.google.com:19302" }, { urls: ["turn:eu-0.turn.peerjs.com:3478", "turn:us-0.turn.peerjs.com:3478"], username: "peerjs", credential: "peerjsp" }];
 /** "turn:host:3478 user pass" (from Settings) to an ICE server, or null. Exported for tests. */
 export function parseTurn(s) { const [urls, username, credential] = String(s || "").trim().split(/\s+/); return /^turns?:/.test(urls || "") ? { urls, username, credential } : null; }
 const DIRECT_WAIT = 7000; // how long a direct connection gets before the lobby server carries the traffic
@@ -59,11 +61,13 @@ const logs = [];
 export function log(text) { const t = new Date(); logs.push(`${t.toTimeString().slice(0, 8)}.${String(t.getMilliseconds()).padStart(3, "0")}  ${text}`); if (logs.length > 120) logs.shift(); logListeners.forEach((f) => f()); }
 const logListeners = new Set();
 /** A repeating timer that keeps its pace in a background tab (timers in a worker are not slowed down like the page's). */
+const liveTickers = new Set();
 function ticker(ms, fn) {
   try {
     const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms})`], { type: "text/javascript" }));
     const w = new Worker(url); URL.revokeObjectURL(url); w.onmessage = fn;
-    return () => w.terminate();
+    liveTickers.add(w); // held here, or the browser may collect the worker and the ticks stop
+    return () => { w.terminate(); liveTickers.delete(w); };
   } catch (_) { const t = setInterval(fn, ms); return () => clearInterval(t); }
 }
 
@@ -139,6 +143,61 @@ class Relay {
   close() { this.stopBeat?.(); this.closed = true; try { this.ws.onclose = null; this.ws.close(); } catch (_) {} }
 }
 
+/* ---------- the backup lobby service: ntfy.sh, a free message service over plain web requests ----------
+ * School filters that cut the lobby server's WebSocket often let ordinary web requests through. A lobby listens on
+ * a topic named after its code; a guest posts its join request there and listens on a topic of its own for the
+ * answer. Only the short join messages go this way; the project itself goes over the direct connection. */
+class Mailbox {
+  constructor(base) { this.base = base.replace(/\/+$/, ""); this.subs = new Set(); }
+  async publish(topic, obj) {
+    const r = await fetch(`${this.base}/${topic}`, { method: "POST", body: await packCode(obj), cache: "no-store" });
+    if (!r.ok) throw new Error(`the backup lobby service said ${r.status}`);
+  }
+  /** Listens to a topic; calls back with each message's object. Reconnects (with what was missed) until stopped. */
+  listen(topic, fn) {
+    const sub = { stop: false, ctl: null, last: null, fails: 0 };
+    this.subs.add(sub);
+    const run = async () => {
+      while (!sub.stop) {
+        sub.ctl = new AbortController();
+        try {
+          const r = await fetch(`${this.base}/${topic}/json${sub.last ? `?since=${sub.last}` : ""}`, { signal: sub.ctl.signal, cache: "no-store" });
+          if (!r.ok) throw new Error("status " + r.status);
+          sub.open?.(); sub.fails = 0;
+          const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+          for (;;) {
+            const { value, done } = await rd.read(); if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let i; while ((i = buf.indexOf("\n")) >= 0) {
+              const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (!line) continue;
+              let ev; try { ev = JSON.parse(line); } catch (_) { continue; }
+              if (ev.event === "open") sub.open?.();
+              if (ev.event !== "message") continue;
+              sub.last = ev.id;
+              try { fn(await unpackCode(ev.message)); } catch (_) {}
+            }
+          }
+        } catch (e) { if (sub.stop) return; sub.fails++; sub.failed?.(e); }
+        if (!sub.stop) await new Promise((r) => setTimeout(r, Math.min(30000, 1000 * 2 ** Math.min(sub.fails, 5))));
+      }
+    };
+    run();
+    return { ready: new Promise((ok, fail) => { sub.open = () => { sub.open = null; ok(); }; sub.failed = (e) => { if (sub.open) { sub.open = null; fail(e); } }; }), stop: () => { sub.stop = true; sub.ctl?.abort(); this.subs.delete(sub); } };
+  }
+  close() { for (const s of [...this.subs]) { s.stop = true; s.ctl?.abort(); } this.subs.clear(); }
+  /** Can this network use it? Listens to a fresh topic, posts to it, and waits for the post to come back. */
+  async works(ms = 8000) {
+    const topic = "dexna_check_" + rand(12, "abcdefghijklmnopqrstuvwxyz0123456789");
+    let got; const back = new Promise((ok) => { got = ok; });
+    const l = this.listen(topic, (o) => o.k === "check" && got(true));
+    try {
+      await Promise.race([l.ready, new Promise((_, f) => setTimeout(() => f(new Error("no answer")), ms))]);
+      await this.publish(topic, { k: "check" });
+      return await Promise.race([back, new Promise((ok) => setTimeout(() => ok(false), ms))]);
+    } catch (_) { return false; } finally { l.stop(); }
+  }
+}
+
 export function createCollab(A) {
   const { h, toast, LS } = A;
   let Y = null, S = null, seq = 0;
@@ -146,6 +205,54 @@ export function createCollab(A) {
   const relayUrl = () => (A.settings.collabRelay || A.cfg.collabRelay || "wss://0.peerjs.com/peerjs?key=peerjs").trim();
   const esc = (s) => String(s).replace(/[\\"\n]/g, " ");
   const isHost = () => S?.role === "host";
+  /* the official PeerJS client talks to the lobby server exactly the way the server expects */
+  let PJ = null;
+  const loadPeerJs = () => (PJ ||= new Promise((ok, fail) => {
+    if (window.peerjs?.Peer) return ok(window.peerjs);
+    const s = document.createElement("script"); s.src = new URL("./vendor/peerjs.min.js", import.meta.url).href;
+    s.onload = () => ok(window.peerjs); s.onerror = () => { PJ = null; fail(new Error("Could not load the connection library")); };
+    document.head.append(s);
+  }));
+  function serverOpts() {
+    const u = new URL(relayUrl().replace(/^ws/, "http"));
+    return { host: u.hostname, port: +(u.port || (u.protocol === "https:" ? 443 : 80)), secure: u.protocol === "https:", path: u.pathname.replace(/peerjs\/?$/, "") || "/", key: u.searchParams.get("key") || "peerjs" };
+  }
+  /** A PeerJS peer with this id, once the lobby server has accepted it. */
+  async function openPeer(id, token) {
+    const { Peer } = await loadPeerJs();
+    return new Promise((ok, fail) => {
+      const p = new Peer(id, { ...serverOpts(), ...(token ? { token } : {}), config: ice(), debug: 0 });
+      const t = setTimeout(() => { p.destroy(); fail(new Error("The lobby server did not answer")); }, 12000);
+      p.once("open", () => { clearTimeout(t); log(`lobby server: connected as ${id.replace(/^dexna(lobby|guest|test)/, "")}`); ok(p); });
+      p.once("error", (e) => { clearTimeout(t); p.destroy(); fail(Object.assign(new Error(e.type === "unavailable-id" ? "That lobby code is in use" : "Could not reach the lobby server"), { taken: e.type === "unavailable-id" })); });
+    });
+  }
+  /** Keeps this side registered with the lobby server: every 3 seconds (on a timer background tabs do not slow down),
+   * if it is not connected it reconnects, and if the library gave up on it (it destroys a peer whose first connection
+   * fails) it makes a new one with the same id and token, so the lobby keeps its code. */
+  function keepOpen(who, rebuild) {
+    let down = false, rebuilding = false;
+    const stop = ticker(3000, async () => {
+      if (!S) return stop();
+      const p = S.pj; if (!p) return;
+      if (p.open && !p.destroyed) { if (down) { down = false; log("lobby server: reachable again"); if (who === "host") { S.relayDown = false; ui(); } } return; }
+      if (!down) { down = true; log("lobby server: disconnected, reconnecting"); if (who === "host") { S.relayDown = true; ui(); } }
+      if (p.destroyed) {
+        if (rebuilding) return; rebuilding = true;
+        try { const np = await rebuild(); if (!S || S.pj !== p) { np.destroy(); return; } S.pj = np; } catch (e) { log("lobby server: " + e.message); } finally { rebuilding = false; }
+        return;
+      }
+      try { if (!p.disconnected) p.disconnect(); p.reconnect(); } catch (_) {}
+    });
+    S.stopKeep = stop;
+  }
+  const mailboxUrl = () => { const v = (A.settings.collabMailbox ?? "").trim(); return v === "off" ? null : v || A.cfg.collabMailbox || "https://ntfy.sh"; };
+  const lobbyTopic = (code) => `dexna_lobby_${code}`;
+  /** Sends a join answer (or "wait" / "no") back the way the request came. */
+  function reply(src, via, payload) {
+    if (via === "mail") { S.mail?.publish(lobbyTopic(S.code) + "_" + src, { k: "ANSWER", p: payload }).catch((e) => log("backup lobby service: could not answer: " + e.message)); return; }
+    S.relay?.send("ANSWER", src, payload);
+  }
   const ice = () => { const t = parseTurn(A.settings.collabTurn); return { iceServers: t ? [...STUN, t] : STUN }; };
   const hostId = () => "dexnalobby" + S.code;
 
@@ -181,7 +288,7 @@ export function createCollab(A) {
   function onRelayed(src, p) {
     if (isHost()) {
       const peer = S.peers.get(src); if (!peer || peer.cid !== p.cid) return;
-      if (p.x === "open") { if (!peer.relayMode) { log(`${peer.name}: going through the lobby server`); useRelay(peer); } S.relay.send("CANDIDATE", src, { cid: p.cid, x: "ok" }); return; }
+      if (p.x === "open") { if (!S.relay) return; if (!peer.relayMode) { log(`${peer.name}: going through the lobby server`); useRelay(peer); } S.relay.send("CANDIDATE", src, { cid: p.cid, x: "ok" }); return; }
       if (p.x === "d" && peer.relayMode) return deliver(peer, p);
       if (p.x === "close") return peerGone(peer, true);
     } else {
@@ -238,6 +345,7 @@ export function createCollab(A) {
   const emit = (msg, fast = false) => { if (!S) return; if (isHost()) broadcast(msg, null, fast); else if (S.hostPeer) sendJson(S.hostPeer, msg, fast); };
 
   function hookChannel(peer, ch) {
+    if (!ch) return; // a connection that was given up on
     ch.binaryType = "arraybuffer";
     if (ch.label === "fast") { peer.fast = ch; ch.onmessage = (e) => { try { handle(peer, JSON.parse(e.data)); } catch (_) {} }; return; }
     peer.ch = ch;
@@ -272,15 +380,22 @@ export function createCollab(A) {
     if (!A.project) return;
     await loadYjs();
     const key = "collabLobby:" + A.project.id;
-    let saved = LS.get(key, null), relay = null, code = saved?.code || rand(6);
+    let saved = LS.get(key, null), relay = null, code = saved?.code || rand(6), relayErr = null, mail = null;
+    const mbUrl = noServer ? null : mailboxUrl();
+    const mailOk = mbUrl ? new Mailbox(mbUrl).works().catch(() => false) : Promise.resolve(false);
+    let pj = null;
     for (let tries = 0; !noServer; tries++) {
       code = saved?.code || rand(6);
       const token = saved?.token || rand(16, "abcdefghijklmnopqrstuvwxyz0123456789");
-      relay = new Relay(relayUrl(), "dexnalobby" + code, token);
-      try { await relay.open(); LS.set(key, { code, token }); break; }
-      catch (e) { if (e.taken && tries < 4) { saved = null; continue; } throw e; }
+      try { pj = await openPeer("dexnalobby" + code, token); LS.set(key, { code, token }); break; }
+      catch (e) { pj = null; if (e.taken && tries < 4) { saved = null; continue; } relayErr = e; break; }
     }
-    S = { role: "host", code, relay, me: { id: "host", name, color: COLORS[0] }, peers: new Map(), remote: {}, people: {}, pending: [], cands: new Map(),
+    relay = null;
+    if (!pj && !noServer) LS.set(key, { code, token: saved?.token || rand(16, "abcdefghijklmnopqrstuvwxyz0123456789") });
+    if (!noServer && (await mailOk)) { mail = new Mailbox(mbUrl); log("backup lobby service: works on this network"); }
+    else if (!noServer) log("backup lobby service: blocked on this network");
+    if (!noServer && !pj && !mail) throw new Error((relayErr?.message || "The lobby servers are blocked").replace(/\. Try another network.*$/, "") + ". The backup lobby service is blocked too");
+    S = { role: "host", code, relay, pj, mail, noServer, me: { id: "host", name, color: COLORS[0] }, peers: new Map(), remote: {}, people: {}, pending: [], cands: new Map(),
       defaultEdit: edit, ask, locked: false, chat: [], term: [], unread: 0, shareMouse: true, shareRun: true, following: null, applying: false, projectId: A.project.id, docId: rand(12), nextColor: 1 };
     S.doc = new Y.Doc();
     S.doc.transact(() => {
@@ -291,11 +406,15 @@ export function createCollab(A) {
       meta.set("docId", S.docId);
     }, LOCAL);
     if (relay) {
-      relay.on("OFFER", onOffer).on("CANDIDATE", onCandidate).on("LEAVE", (src) => { const p = S?.peers.get(src); if (p) peerGone(p); }).on("CLOSED", () => reopenRelay());
+      relay.on("OFFER", (src, p) => onOffer(src, { ...p, via: "relay" })).on("CANDIDATE", onCandidate).on("LEAVE", (src) => { const p = S?.peers.get(src); if (p) peerGone(p); }).on("CLOSED", () => reopenRelay());
       keepReachable();
-    } else log("lobby opened without the lobby server: invite people with codes");
+    }
+    const bindHost = (p) => { p.on("connection", onConn); p.on("error", (e) => log("lobby server: " + (e.type || e.message))); return p; };
+    if (pj) { bindHost(pj); keepOpen("host", async () => bindHost(await openPeer("dexnalobby" + code, LS.get(key, null)?.token))); }
+    if (mail) S.mailSub = mail.listen(lobbyTopic(code), (m) => { if (m.k === "OFFER" && m.p?.from) onOffer("mail_" + m.p.from, { ...m.p, via: "mail" }); });
+    if (noServer) log("lobby opened without a lobby server: invite people with codes");
     bindDoc(); attach(); ui(); startWatchdog();
-    toast(relay ? `Lobby ${showCode(code)} is open. Share the code or the link.` : "Lobby open. Invite people with an invite code.", "ok", 5000);
+    toast(pj || mail ? `Lobby ${showCode(code)} is open. Share the code or the link.` : "Lobby open. Invite people with an invite code.", "ok", 5000);
   }
   let reopening = false;
   async function reopenRelay() {
@@ -334,14 +453,14 @@ export function createCollab(A) {
   function onOffer(src, p) {
     if (!S || !isHost() || !p.sdp) return;
     const same = S.peers.get(src);
-    if (same && same.cid === p.cid) { if (same.answer) S.relay.send("ANSWER", src, { cid: p.cid, sdp: same.answer }); return; } // a repeat of an offer already being answered
+    if (same && same.cid === p.cid) { if (same.answer) reply(src, p.via, { cid: p.cid, sdp: same.answer }); return; } // a repeat of an offer already being answered
     log(`${p.name || "someone"} asked to join`);
-    if (S.locked) return S.relay.send("ANSWER", src, { cid: p.cid, deny: "The lobby is locked. Ask the host to unlock it." });
-    if (count() >= MAX_PEOPLE && !S.peers.has(src)) return S.relay.send("ANSWER", src, { cid: p.cid, deny: `The lobby is full (${MAX_PEOPLE} people).` });
+    if (S.locked) return reply(src, p.via, { cid: p.cid, deny: "The lobby is locked. Ask the host to unlock it." });
+    if (count() >= MAX_PEOPLE && !S.peers.has(src)) return reply(src, p.via, { cid: p.cid, deny: `The lobby is full (${MAX_PEOPLE} people).` });
     const known = [...S.peers.values()].some((x) => x.src === src) || S.admitted?.has(src);
     if (S.ask && !known) {
       S.pending = S.pending.filter((x) => x.src !== src); S.pending.push({ src, p, name: String(p.name || "Someone").slice(0, 24) });
-      S.relay.send("ANSWER", src, { cid: p.cid, wait: true });
+      reply(src, p.via, { cid: p.cid, wait: true });
       toast(`${p.name || "Someone"} wants to join. Open the Live panel to let them in.`, "info", 6000); ui(); badge(); return;
     }
     accept(src, p);
@@ -349,9 +468,9 @@ export function createCollab(A) {
   async function accept(src, p) {
     const old = S.peers.get(src); if (old) { old.gone = true; try { old.pc.close(); } catch (_) {} S.peers.delete(src); }
     (S.admitted ||= new Set()).add(src);
-    const pc = new RTCPeerConnection(ice()), peer = { id: src, src, cid: p.cid, pc, name: String(p.name || "Guest").slice(0, 24), edit: S.defaultEdit, active: false };
+    const pc = new RTCPeerConnection(ice()), peer = { id: src, src, cid: p.cid, pc, via: p.via, name: String(p.name || "Guest").slice(0, 24), edit: S.defaultEdit, active: false };
     S.peers.set(src, peer);
-    pc.onicecandidate = (e) => e.candidate && S?.relay.send("CANDIDATE", src, { cid: p.cid, c: e.candidate.toJSON() });
+    pc.onicecandidate = (e) => e.candidate && p.via === "relay" && S?.relay?.send("CANDIDATE", src, { cid: p.cid, c: e.candidate.toJSON() }); // through the backup service, the answer carries them all
     pc.ondatachannel = (e) => hookChannel(peer, e.channel);
     pc.onconnectionstatechange = () => { if (pc.connectionState === "failed" && peer.open && !peer.relayMode) peerGone(peer); }; // before it opens, the guest may still switch to the lobby server
     pc.oniceconnectionstatechange = () => log(`${peer.name}: connection ${pc.iceConnectionState}`);
@@ -360,10 +479,36 @@ export function createCollab(A) {
       for (const c of S.cands.get(src)?.filter((x) => x.cid === p.cid) || []) pc.addIceCandidate(c.c).catch(() => {});
       S.cands.delete(src);
       const ans = await pc.createAnswer(); await pc.setLocalDescription(ans);
-      peer.answer = ans.sdp;
-      S.relay.send("ANSWER", src, { cid: p.cid, sdp: ans.sdp });
+      if (p.via === "mail") await waitIce(pc, 4000);
+      peer.answer = pc.localDescription.sdp;
+      reply(src, p.via, { cid: p.cid, sdp: peer.answer });
       log(`answered ${peer.name}`);
     } catch (e) { log(`could not answer ${peer.name}: ${e.message}`); S.peers.delete(src); }
+  }
+  /** A guest's connection through the official client: "dexna" carries everything, "fast" the mouse. */
+  function onConn(conn) {
+    if (!S || !isHost()) { try { conn.close(); } catch (_) {} return; }
+    const src = conn.peer;
+    conn.on("iceStateChanged", (st) => log(`${conn.metadata?.name || "guest"}: connection ${st}`));
+    conn.on("open", () => {
+      if (!S) return;
+      if (conn.label === "fast") { const p = S.peers.get(src); if (p) hookChannel(p, conn.dataChannel); else (S.fastWait ||= new Map()).set(src, conn); return; }
+      const deny = (text) => { try { conn.dataChannel.send(JSON.stringify({ t: "deny", text })); } catch (_) {} setTimeout(() => conn.close(), 600); log("turned away: " + text); };
+      const old = S.peers.get(src); if (old && !old.gone) { old.gone = true; try { old.pc?.close(); } catch (_) {} S.peers.delete(src); }
+      if (S.locked) return deny("The lobby is locked. Ask the host to unlock it.");
+      if (count() >= MAX_PEOPLE) return deny(`The lobby is full (${MAX_PEOPLE} people).`);
+      const peer = { id: src, src, cid: conn.connectionId, pc: conn.peerConnection, via: "pj", name: String(conn.metadata?.name || "Guest").slice(0, 24), edit: S.defaultEdit, active: false };
+      S.peers.set(src, peer);
+      log(`${peer.name} connected`);
+      if (S.ask && !S.admitted?.has(src)) {
+        peer.pending = true; S.pending = S.pending.filter((x) => x.src !== src); S.pending.push({ src, name: peer.name, pj: true });
+        toast(`${peer.name} wants to join. Open the Live panel to let them in.`, "info", 6000); badge();
+      } else (S.admitted ||= new Set()).add(src);
+      hookChannel(peer, conn.dataChannel);
+      if (peer.pending) sendJson(peer, { t: "wait" });
+      const fast = S.fastWait?.get(src); if (fast) { S.fastWait.delete(src); hookChannel(peer, fast.dataChannel); }
+      ui();
+    });
   }
   function onCandidate(src, p) {
     if (!S) return;
@@ -377,7 +522,13 @@ export function createCollab(A) {
   function admit(src, yes) {
     const r = S.pending.find((x) => x.src === src); if (!r) return;
     S.pending = S.pending.filter((x) => x !== r);
-    if (yes) accept(src, r.p); else S.relay.send("ANSWER", src, { cid: r.p.cid, deny: "The host did not let you in." });
+    if (r.pj) {
+      const peer = S.peers.get(src);
+      if (peer && yes) { (S.admitted ||= new Set()).add(src); peer.pending = false; if (peer.hello) handle(peer, peer.hello); }
+      else if (peer) { sendJson(peer, { t: "deny", text: "The host did not let you in." }); setTimeout(() => peerGone(peer), 500); }
+      ui(); badge(); return;
+    }
+    if (yes) accept(src, r.p); else reply(src, r.p.via, { cid: r.p.cid, deny: "The host did not let you in." });
     ui(); badge();
   }
 
@@ -424,8 +575,15 @@ export function createCollab(A) {
     let render = null; const lines = () => out;
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     // 1. the lobby server
-    try { const r = new Relay(relayUrl(), "dexnatest" + rand(10, "abcdefghijklmnopqrstuvwxyz0123456789"), rand(16)); await r.open(); r.close(); say(true, "The lobby server works: lobby codes and links work on this network."); }
-    catch (e) { say(false, "The lobby server is blocked or cut off: " + e.message.replace(/\. Try another network.*$/, "") + "."); }
+    try {
+      const ab = "abcdefghijklmnopqrstuvwxyz0123456789", a = await openPeer("dexnatest" + rand(12, ab)), b = await openPeer("dexnatest" + rand(12, ab));
+      const ok = await new Promise((res) => { b.on("connection", (c) => c.on("open", () => res(true))); a.connect(b.id, { serialization: "raw" }); setTimeout(() => res(false), 15000); });
+      a.destroy(); b.destroy();
+      say(ok ? true : null, ok ? "The lobby server works, and a test connection through it opened: lobby codes work on this network." : "The lobby server answers, but a test connection did not open.");
+    } catch (e) { say(false, "The lobby server is blocked or cut off: " + e.message + "."); }
+    // 1b. the backup lobby service
+    const mb = mailboxUrl();
+    if (mb) { const ok = await new Mailbox(mb).works(); say(ok, ok ? "The backup lobby service works: 6-character lobby codes work on this network." : "The backup lobby service is blocked too."); }
     // 2. direct connections inside this computer (turned off by some managed Chromebooks)
     let local = false;
     try {
@@ -443,40 +601,91 @@ export function createCollab(A) {
       pc.onicecandidate = (e) => { const m = /typ (\w+)/.exec(e.candidate?.candidate || ""); if (m) kinds.add(m[1]); };
       await pc.setLocalDescription(await pc.createOffer()); await waitIce(pc, 5000); pc.close();
       const pub = kinds.has("srflx") || kinds.has("relay");
-      say(pub ? true : null, pub ? "Direct connections can go out to the internet (friends on other networks can connect)." : "Direct connections cannot go out to the internet from this network, so only people on the same Wi-Fi can connect directly.");
-    } catch (_) {}
+      say(pub ? true : null, pub ? "Connections can reach other networks (directly or through a relay), so friends anywhere can connect." : "Connections cannot reach other networks from here, so only people on the same Wi-Fi can connect.");
+    } catch (_) { say(false, "Connections to other networks are not possible in this browser."); }
     return lines;
   }
 
   /* =================== a guest: joining a lobby =================== */
   async function joinLobby(code, name) {
     await loadYjs();
-    const relay = new Relay(relayUrl(), "dexnaguest" + rand(12, "abcdefghijklmnopqrstuvwxyz0123456789"), rand(16, "abcdefghijklmnopqrstuvwxyz0123456789"));
+    const me = rand(12, "abcdefghijklmnopqrstuvwxyz0123456789");
     startWatchdog();
-    S = { role: "guest", code, relay, me: { id: null, name, color: COLORS[1] }, peers: new Map(), remote: {}, people: {}, chat: [], term: [], unread: 0, shareMouse: true, shareRun: true, following: null, applying: false, joining: true, status: "Connecting…" };
+    S = { role: "guest", code, relay: null, pj: null, mailId: me, me: { id: null, name, color: COLORS[1] }, peers: new Map(), remote: {}, people: {}, chat: [], term: [], unread: 0, shareMouse: true, shareRun: true, following: null, applying: false, joining: true, status: "Connecting…" };
     ui();
-    await relay.open();
-    relay.on("ANSWER", onAnswer).on("CANDIDATE", onCandidate).on("EXPIRE", () => failJoin("No lobby with that code is open right now. Check the code, or ask the host to open it again.")).on("CLOSED", () => { if (S?.hostPeer?.relayMode) peerGone(S.hostPeer); });
+    const s = S, mbUrl = mailboxUrl();
+    // both services at once: whichever this network lets through
+    const tok = rand(16, "abcdefghijklmnopqrstuvwxyz0123456789");
+    const [r1, r2] = await Promise.allSettled([
+      openPeer("dexnaguest" + me, tok),
+      mbUrl ? (async () => { const m = new Mailbox(mbUrl), l = m.listen(lobbyTopic(code) + "_mail_" + me, (o) => { if (o.k === "ANSWER") onAnswer("mail", { ...o.p, via: "mail" }); }); await Promise.race([l.ready, new Promise((_, f) => setTimeout(() => f(new Error("no answer")), 8000))]); s.mailSub = l; return m; })() : Promise.reject(new Error("off")),
+    ]);
+    if (S !== s) { if (r1.status === "fulfilled") r1.value.destroy(); return; }
+    S.pj = r1.status === "fulfilled" ? r1.value : null;
+    S.mail = r2.status === "fulfilled" ? r2.value : null;
+    log(`lobby services: ${S.pj ? "main works" : "main blocked"}, ${S.mail ? "backup works" : "backup blocked"}`);
+    if (!S.pj && !S.mail) { const e = r1.reason?.message || "The lobby servers are blocked"; S = null; ui(); throw new Error(e.replace(/\. Try another network.*$/, "") + ". The backup lobby service is blocked too. Ask the host for an invite code (Host with invite codes), or try Check my network."); }
+    const bindGuest = (p) => { p.on("error", (e) => {
+      log("lobby server: " + (e.type || e.message));
+      if (e.type !== "peer-unavailable" || !S || S.connecting?.via !== "pj" || S.connecting.open) return;
+      if (S.mail) { S.mainSaidNo = true; log("the main lobby server does not know this code, trying the backup"); connectMail(); }
+      else failJoin("No lobby with that code is open right now. Check the code, or ask the host to open it again.");
+    }); return p; };
+    if (S.pj) { bindGuest(S.pj); keepOpen("guest", async () => bindGuest(await openPeer("dexnaguest" + me, tok))); }
     await connect();
   }
   async function connect() {
     if (!S || isHost()) return;
-    if (S.relay.ws?.readyState !== 1) { const r = new Relay(relayUrl(), S.relay.id, S.relay.token); r.handlers = S.relay.handlers; await r.open(); S.relay = r; }
+    if (S.pj && !S.pj.destroyed && !S.pj.disconnected) return connectPj();
+    if (S.mail) return connectMail();
+    throw new Error("Not connected to a lobby service");
+  }
+  /** Joining through the official client: two connections to the lobby's id, opened by the lobby server. */
+  function connectPj(again = false) {
+    clearTimeout(S.answerTimer); clearTimeout(S.retryPj);
+    for (const c of S.connecting?.conns || []) { try { c.close(); } catch (_) {} }
+    const peer = { id: "host", cid: rand(10), pc: null, active: true, via: "pj" };
+    S.connecting = peer; S.peers.set("host", peer);
+    const c1 = S.pj.connect(hostId(), { label: "dexna", serialization: "raw", reliable: true, metadata: { name: S.me.name } });
+    const c2 = S.pj.connect(hostId(), { label: "fast", serialization: "raw", reliable: false });
+    peer.conns = [c1, c2];
+    log(again ? `asked again to join ${showCode(S.code)}` : `asked to join ${showCode(S.code)}`);
+    if (!again) S.retryPj = setTimeout(() => { if (S?.connecting === peer && !peer.open && !S.waiting && !c1.peerConnection?.remoteDescription) connectPj(true); }, 8000); // nothing back at all: the request may have been lost
+    c1.on("iceStateChanged", (st) => log(`host: connection ${st}`));
+    c1.on("open", () => { if (S?.connecting !== peer) return; peer.pc = c1.peerConnection; peer.answered = true; clearTimeout(S.answerTimer); hookChannel(peer, c1.dataChannel); });
+    c2.on("open", () => { if (S?.connecting === peer) hookChannel(peer, c2.dataChannel); });
+    c1.on("close", () => { if (peer.open) peerGone(peer); });
+    S.answerTimer = setTimeout(() => {
+      if (!S || S.connecting !== peer || peer.open || S.waiting) return;
+      if (S.mail) { log("no connection through the main lobby server yet, trying the backup"); return connectMail(); }
+      failJoin(`Could not connect to lobby ${showCode(S.code)}. Check the code and that the host has it open, or try Check my network.`);
+    }, again ? 17000 : 25000);
+  }
+  async function connectMail() {
+    if (!S || isHost()) return;
+    for (const c of S.connecting?.conns || []) { try { c.close(); } catch (_) {} }
+    if (S.relay && S.relay.ws?.readyState !== 1) { const r = new Relay(relayUrl(), S.relay.id, S.relay.token); r.handlers = S.relay.handlers; try { await r.open(); S.relay = r; } catch (e) { if (!S.mail) throw e; log("main lobby server: " + e.message); } }
     S.viaRelay = false; clearTimeout(S.directTimer); clearTimeout(S.relayTimer);
     const cid = rand(10), pc = new RTCPeerConnection(ice()), peer = { id: "host", cid, pc, active: true };
     S.connecting = peer; S.candQ = [];
     hookChannel(peer, pc.createDataChannel("dexna"));
     hookChannel(peer, pc.createDataChannel("fast", { ordered: false, maxRetransmits: 0 }));
-    pc.onicecandidate = (e) => e.candidate && S?.relay.send("CANDIDATE", "dexnalobby" + S.code, { cid, c: e.candidate.toJSON() });
+    pc.onicecandidate = (e) => e.candidate && S?.relay?.ok && S.relay.send("CANDIDATE", "dexnalobby" + S.code, { cid, c: e.candidate.toJSON() });
     pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") { if (peer.open) peerGone(peer); else fallBack(peer); } };
     pc.oniceconnectionstatechange = () => log(`host: connection ${pc.iceConnectionState}`);
     await pc.setLocalDescription(await pc.createOffer());
     const offer = { cid, sdp: pc.localDescription.sdp, name: S.me.name };
-    const ask = (n) => { if (!S || S.connecting !== peer || peer.answered || S.waiting) return; if (S.relay.ok) S.relay.send("OFFER", hostId(), offer); log(n ? `asked again to join ${showCode(S.code)}` : `asked to join ${showCode(S.code)}`); };
-    ask(0);
+    const ask = (n) => { if (!S || S.connecting !== peer || peer.answered || S.waiting) return; if (S.relay?.ok) S.relay.send("OFFER", hostId(), offer); log(n ? `asked again to join ${showCode(S.code)}` : `asked to join ${showCode(S.code)}`); };
+    if (S.relay?.ok) ask(0);
+    // through the backup service: one message with everything in it, once the ways to reach us are known
+    if (S.mail) (async () => {
+      await waitIce(pc, 4000);
+      const post = () => S?.mail && S.connecting === peer && !peer.answered && S.mail.publish(lobbyTopic(S.code), { k: "OFFER", p: { cid, sdp: pc.localDescription.sdp, name: S.me.name, from: S.mailId } }).then(() => log(`asked to join ${showCode(S.code)} (backup service)`)).catch((e) => log("backup lobby service: " + e.message));
+      await post(); setTimeout(post, 9000); // once more, in case it was missed
+    })();
     clearTimeout(S.answerTimer); clearInterval(S.askTimer);
     let n = 0; S.askTimer = setInterval(() => { if (++n > 4) return clearInterval(S.askTimer); ask(n); }, 4000); // in case the first one was lost
-    S.answerTimer = setTimeout(() => { clearInterval(S.askTimer); if (S && !S.waiting && !peer.answered && S.connecting === peer) failJoin(`Lobby ${showCode(S.code)} did not answer. Check that the host still has Dexna open with this code showing in the Live panel, then try again.`); }, 22000);
+    S.answerTimer = setTimeout(() => { clearInterval(S.askTimer); if (S && !S.waiting && !peer.answered && S.connecting === peer) failJoin(S.mainSaidNo ? "No lobby with that code is open right now. Check the code, or ask the host to open it again." : `Lobby ${showCode(S.code)} did not answer. Check that the host still has Dexna open with this code showing in the Live panel, then try again.`); }, S.mainSaidNo ? 12000 : 22000);
   }
   async function onAnswer(src, p) {
     const peer = S?.connecting; if (!peer || p.cid !== peer.cid || peer.answered) return;
@@ -490,12 +699,13 @@ export function createCollab(A) {
     S.candQ = [];
     S.peers.set("host", peer);
     clearTimeout(S.directTimer);
-    S.directTimer = setTimeout(() => fallBack(peer), DIRECT_WAIT);
+    peer.via = p.via;
+    S.directTimer = setTimeout(() => { if (p.via === "relay") fallBack(peer); else if (!peer.open) { log("no direct connection"); failJoin("Found the lobby, but your computers could not connect directly. Your network or Chromebook may block direct connections: try Check my network."); } }, p.via === "relay" ? DIRECT_WAIT : 15000);
   }
   function failJoin(msg) {
     if (!S || isHost()) return;
     if (S.projectId && !S.ended) { S.status = "Reconnecting…"; ui(); return scheduleReconnect(); } // was in already: keep trying
-    toast(msg, "warn", 7000); log("gave up: " + msg); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(s.askTimer); clearInterval(watchdog); s.relay?.close(); try { s.connecting?.pc.close(); } catch (_) {}
+    toast(msg, "warn", 7000); log("gave up: " + msg); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(s.askTimer); clearInterval(watchdog); s.stopKeep?.(); s.relay?.close(); s.pj?.destroy(); s.mailSub?.stop(); s.mail?.close(); try { s.connecting?.pc.close(); } catch (_) {}
     joinError = msg; ui();
   }
   let joinError = "";
@@ -516,6 +726,7 @@ export function createCollab(A) {
       switch (m.t) {
         case "hello": {
           if (peer.active) return;
+          if (peer.pending) { peer.hello = m; return; } // waits for the host to let them in
           peer.name = String(m.name || peer.name || "Guest").slice(0, 24);
           const used = new Set([S.me.color, ...active().map((p) => p.color)]); peer.color = COLORS.find((c) => !used.has(c)) || COLORS[S.nextColor++ % COLORS.length];
           sendJson(peer, { t: "welcome", id: peer.id, color: peer.color, edit: peer.edit, project: A.project.name, host: S.me.name, hostColor: S.me.color, code: S.code, docId: S.docId, chat: S.chat.slice(-60), rejoin: m.docId === S.docId });
@@ -534,6 +745,8 @@ export function createCollab(A) {
     } else {
       switch (m.t) {
         case "welcome": return onWelcome(peer, m);
+        case "wait": if (!S.waiting) log("waiting for the host to let you in"); S.waiting = true; clearTimeout(S.answerTimer); S.status = "Waiting for the host to let you in…"; return ui();
+        case "deny": S.ended = !S.projectId; return failJoin(m.text || "The host did not let you in.");
         case "roster": S.people = {}; for (const r of m.roster) if (r.id !== S.me.id) S.people[r.id] = r; S.locked = m.locked; { const mine = m.roster.find((r) => r.id === S.me.id); if (mine && mine.edit === !!S.readOnly) setReadOnly(!mine.edit, true); } renderRemote(); ui(); return;
         case "pres": case "mouse": remote(m); return;
         case "chat": addChat(m.msg); return;
@@ -557,7 +770,7 @@ export function createCollab(A) {
       renderRemote(); dots(); ui();
     } else if (peer === S.hostPeer || peer === S.connecting) {
       S.hostPeer = null;
-      if (!S.relay && !S.ended && S.projectId) { toast("The connection to the host was lost. Your copy of the project is kept; join again with a new invite code.", "warn", 8000); return endSession(); }
+      if (S.manual && !S.ended && S.projectId) { toast("The connection to the host was lost. Your copy of the project is kept; join again with a new invite code.", "warn", 8000); return endSession(); }
       if (!S.ended && S.projectId) { S.status = "Reconnecting…"; S.remote = {}; clearPointers(); renderRemote(); dots(); ui(); scheduleReconnect(); }
     }
   }
@@ -894,7 +1107,7 @@ export function createCollab(A) {
     if (s.readOnly) ed()?.updateOptions({ readOnly: false });
     for (const p of s.peers.values()) { p.gone = true; try { p.pc.close(); } catch (_) {} }
     try { s.connecting?.pc.close(); } catch (_) {}
-    s.relay?.close(); try { s.doc?.destroy(); } catch (_) {}
+    s.stopKeep?.(); s.relay?.close(); s.pj?.destroy(); s.mailSub?.stop(); s.mail?.close(); try { s.doc?.destroy(); } catch (_) {}
     ui();
   }
 
@@ -926,7 +1139,7 @@ export function createCollab(A) {
     const s = document.getElementById("sb-collab");
     if (s) {
       if (!S || S.joining) s.classList.add("hidden");
-      else { s.classList.remove("hidden"); const n = people(); s.textContent = `Live ${S.relay ? showCode(S.code) + " " : ""}· ${n} ${n === 1 ? "person" : "people"}${S.readOnly ? " · view only" : ""}${S.status ? " · " + S.status : ""}`; }
+      else { s.classList.remove("hidden"); const n = people(); s.textContent = `Live ${S.code && !S.noServer ? showCode(S.code) + " " : ""}· ${n} ${n === 1 ? "person" : "people"}${S.readOnly ? " · view only" : ""}${S.status ? " · " + S.status : ""}`; }
     }
     document.querySelector('#activitybar [data-view="live"]')?.classList.toggle("lv-on", !!S && !S.joining);
     stylesheet(); badge(); renderPanel();
@@ -1014,8 +1227,8 @@ export function createCollab(A) {
   function renderHead() {
     if (!els.head) return;
     const code = showCode(S.code), link = linkFor(S.code);
-    const inviteBtn = isHost() ? h("button", { class: "btn sm" + (S.relay ? "" : " primary"), title: "An invite code works with no server, on networks that block the lobby server", onclick: showInvite }, S.relay ? "Invite with a code" : "Invite someone") : null;
-    if (!S.relay) {
+    const inviteBtn = isHost() ? h("button", { class: "btn sm" + (!S.noServer ? "" : " primary"), title: "An invite code works with no server, on networks that block the lobby server", onclick: showInvite }, !S.noServer ? "Invite with a long code" : "Invite someone") : null;
+    if (S.noServer || S.manual) {
       els.head.replaceChildren(
         h("div", { class: "lv-codebox" }, h("div", { class: "muted small" }, isHost() ? "Your lobby (no server)" : `${S.host?.name || "Host"}'s lobby`), h("div", { class: "lv-nocode" }, isHost() ? "People join with an invite code" : "Connected with an invite code"), isHost() ? h("div", { class: "lv-row" }, inviteBtn) : null),
         h("div", { class: "lv-state small" }, isHost() ? `${count()} of ${MAX_PEOPLE} people · directly connected, no server` : (S.readOnly ? "You can watch but not edit" : "Connected, you can edit") + " · directly, no server"));
@@ -1100,8 +1313,8 @@ export function createCollab(A) {
       h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: (e) => copy(`Dexna network check, ${navigator.userAgent}\n${logs.filter((l) => l.includes("check:")).join("\n")}`, e.currentTarget) }, "Copy results"), h("button", { class: "btn primary", onclick: () => A.closeModal() }, "Close"))));
     const out = []; await networkCheck(out);
     list.replaceChildren(...out.map(([ok, text]) => h("div", { class: "lv-check-row" }, h("span", { class: "lv-mark " + (ok === true ? "yes" : ok === false ? "no" : "maybe") }, ok === true ? "Yes" : ok === false ? "No" : "Limited"), h("span", {}, text))));
-    const [server, local, internet] = out.map((x) => x[0]);
-    verdict.textContent = server ? "Use lobby codes: they work here." : local ? (internet ? "Use invite codes (Host with invite codes): they need no server and should work here." : "Use invite codes (Host with invite codes), with everyone on the same Wi-Fi, like the same school network.") : "Live cannot connect from this device on this network, because direct connections are turned off here. A personal device, or a home network or phone hotspot, will work.";
+    const server = out[0][0] || (out.length > 3 && out[1][0]), [local, internet] = out.slice(-2).map((x) => x[0]);
+    verdict.textContent = server && local ? "Use 6-character lobby codes: they work here." : !local ? "Live cannot connect from this device on this network, because direct connections are turned off here. A personal device, or a home network or phone hotspot, will work." : local ? (internet ? "Use invite codes (Host with invite codes): they need no server and should work here." : "Use invite codes (Host with invite codes), with everyone on the same Wi-Fi, like the same school network.") : "Live cannot connect from this device on this network, because direct connections are turned off here. A personal device, or a home network or phone hotspot, will work.";
   }
 
   function onEditorReady() {
