@@ -662,6 +662,111 @@ class _Values:
         return {"files": self.vals, "truncated": self.steps > self.LIMIT}
 
 
+class _Tee:
+    """Passes output through and notes which recorded step it came after (for Time Travel)."""
+
+    def __init__(self, inner, trace, stream):
+        self._inner, self._trace, self._stream = inner, trace, stream
+
+    def write(self, s):
+        if len(self._trace.out) < 4000:
+            self._trace.out.append([len(self._trace.steps), str(s)[:2000], self._stream])
+        return self._inner.write(s)
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+
+class _Trace:
+    """For Time Travel: every line that runs, with the variables that changed, to scrub through afterwards."""
+
+    LIMIT = 5000  # steps; past this the program runs on unrecorded
+
+    def __init__(self):
+        self.steps = []
+        self.out = []
+        self.last = {}    # frame id -> the variables as last recorded
+        self.serial = {}  # frame id -> small number for that call
+        self.depth = {}
+        self.raised = {}  # frame id -> the exception passing through it
+        self.stopped = False
+        self.count = 0
+
+    def _snap(self, frame):
+        module = frame.f_code.co_name == "<module>"
+        d = {}
+        for k, v in list(frame.f_locals.items()):
+            if k.startswith("__") or (module and k.startswith("_")):
+                continue
+            if isinstance(v, (types.ModuleType, types.FunctionType, types.BuiltinFunctionType, type)):
+                continue
+            try:
+                d[k] = _repr.repr(v)[:90]
+            except Exception:
+                d[k] = "?"
+            if len(d) >= 40:
+                break
+        return d
+
+    def _add(self, frame, event, line, ret=None):
+        if len(self.steps) >= self.LIMIT:
+            self.stopped = True
+            sys.settrace(None)
+            return
+        key = id(frame)
+        snap = self._snap(frame)
+        old = self.last.get(key, {})
+        step = {"k": self.serial.get(key, 0), "f": _rel(frame.f_code.co_filename), "l": line, "d": self.depth.get(key, 0),
+                "n": frame.f_code.co_name, "e": event}
+        changed = {k: v for k, v in snap.items() if old.get(k) != v}
+        gone = [k for k in old if k not in snap]
+        if changed:
+            step["v"] = changed
+        if gone:
+            step["x"] = gone
+        if ret is not None:
+            step["r"] = ret
+        self.last[key] = snap
+        self.steps.append(step)
+
+    def tracer(self, frame, event, arg):
+        if self.stopped or not frame.f_code.co_filename.startswith(PROJECT + "/"):
+            return None
+        key = id(frame)
+        self.count += 1
+        self.serial[key] = self.count
+        parent = id(frame.f_back) if frame.f_back is not None else None
+        self.depth[key] = self.depth.get(parent, -1) + 1
+        self.last[key] = {}
+        self._add(frame, "call", frame.f_code.co_firstlineno)
+        return self.local
+
+    def local(self, frame, event, arg):
+        if self.stopped:
+            return None
+        key = id(frame)
+        if event == "line":
+            self.raised.pop(key, None)  # it was caught
+            self._add(frame, "line", frame.f_lineno)
+        elif event == "return":
+            if key in self.raised:  # the call ended because of the exception
+                self._add(frame, "exception", frame.f_lineno, self.raised.pop(key))
+            else:
+                try:
+                    r = _repr.repr(arg)[:90]
+                except Exception:
+                    r = "?"
+                self._add(frame, "return", frame.f_lineno, r)
+            for d in (self.last, self.serial, self.depth):
+                d.pop(key, None)
+        elif event == "exception":
+            self.raised[key] = f"{arg[0].__name__}: {arg[1]}"[:200]
+        return self.local
+
+    def report(self):
+        return {"steps": self.steps, "out": self.out, "truncated": self.stopped}
+
+
 class _Coverage:
     """Which lines of the project's own files ran (sys.monitoring, so it costs little)."""
 
@@ -783,7 +888,7 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
         pass
     ok = True
     t0 = time.perf_counter()
-    cov = prof = vals = None
+    cov = prof = vals = trace = None
     try:
         code = compile(src, full, "exec")
         if debug:
@@ -793,6 +898,16 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
             cov = _Coverage()
             with cov:
                 exec(code, ns)
+        elif mode == "trace":
+            trace = _Trace()
+            real_out, real_err = sys.stdout, sys.stderr
+            sys.stdout, sys.stderr = _Tee(real_out, trace, "out"), _Tee(real_err, trace, "err")
+            sys.settrace(trace.tracer)
+            try:
+                exec(code, ns)
+            finally:
+                sys.settrace(None)
+                sys.stdout, sys.stderr = real_out, real_err
         elif mode == "values":
             vals = _Values()
             sys.settrace(vals.tracer)
@@ -832,6 +947,8 @@ def _dexna_run(path, debug, breakpoints_json, stop_on_entry, opts_json="{}"):
                 extra["coverage"] = cov.report()
             if vals is not None:
                 extra["values"] = vals.report()
+            if trace is not None:
+                extra["trace"] = trace.report()
             if prof is not None:
                 extra["profile"] = _profile_rows(prof)
         except Exception as e:

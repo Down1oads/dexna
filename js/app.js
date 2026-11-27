@@ -25,6 +25,7 @@ import { createPatch, applyPatch } from "./patch.js";
 import { planUpdates, brokenRefs } from "./refs.js";
 import { showProjectMap } from "./projmap.js";
 import { showReplay } from "./replay.js";
+import { showTimeTravel } from "./timetravel.js";
 import { createCodeTools } from "./codetools.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
@@ -2719,7 +2720,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run",
   if (!lang) return toast(`Dexna can't run ${basename(path)}. Help > Languages lists the languages it runs.`, "warn");
   if (lang !== "python") {
     if (debug) return toast("The debugger works with Python files only.", "warn");
-    if (mode !== "run") return toast(`${mode === "coverage" ? "Coverage" : "The profiler"} works with Python files only.`, "warn");
+    if (mode !== "run") return toast(`${{ coverage: "Coverage", values: "Inline Values", trace: "Time Travel" }[mode] || "The profiler"} works with Python files only.`, "warn");
     if (lang === "web") return runWeb(path);
     if (isOnline(lang)) return runOnlineFile(path, ONLINE_BY_ID[lang]);
     return runOther(path, lang);
@@ -2729,7 +2730,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run",
   showPanel("terminal");
   if (settings.clearOnRun) terminal.clear();
   const opts = { ...(devtools?.runOptions(path) || {}), mode: debug ? "run" : mode, bpConds: project.bpConds || {} };
-  const what = debug ? "Debugging" : mode === "coverage" ? "Running with coverage" : mode === "profile" ? "Profiling" : "Running";
+  const what = debug ? "Debugging" : mode === "trace" ? "Recording" : mode === "coverage" ? "Running with coverage" : mode === "profile" ? "Profiling" : "Running";
   terminal.separator(`${what} ${path}${opts.args?.length ? " " + opts.args.join(" ") : ""} at ${new Date().toLocaleTimeString()}`);
   sink = terminal;
   state.runStderr = "";
@@ -2749,6 +2750,7 @@ async function runFile({ debug = false, stopOnEntry = false, path, mode = "run",
     applyFileChanges(res.changes);
     if (res.coverage) devtools?.showCoverage(res.coverage, path);
     if (res.values) showInlineValues(res.values);
+    if (res.trace) showTimeTravel(API, res.trace, path);
     if (res.profile) devtools?.showProfile(res.profile, path, res.time);
     $("#sb-run").innerHTML = `${iconSvg(res.ok ? "check" : "error")}<span>${esc(path)} ${secs}s</span>`;
   } catch (e) {
@@ -4835,6 +4837,7 @@ const COMMANDS = [
   { id: "history-replay", label: "Replay File History…", cat: "File", run: () => showReplay(API) },
   { id: "qr-code", label: "Show QR Code for Text or Link…", cat: "View", run: async () => { const sel = editor?.getModel() && !editor.getSelection().isEmpty() ? editor.getModel().getValueInRange(editor.getSelection()) : ""; const t = sel || (await promptDialog({ title: "QR code", message: "Any text or link, to open on a phone.", placeholder: "https://…", okLabel: "Show" })); if (t) showQr(t.trim()); } },
   { id: "run-values", label: "Run with Inline Values", cat: "Run", run: () => { const p = currentPath(); if (!p?.endsWith(".py")) return toast("Inline values are for Python files", "info"); runFile({ path: p, mode: "values" }); } },
+  { id: "run-trace", label: "Run with Time Travel (Record and Replay)", cat: "Run", run: () => { const p = currentPath(); if (!p?.endsWith(".py")) return toast("Time Travel records Python files", "info"); runFile({ path: p, mode: "trace" }); } },
   { id: "values-clear", label: "Clear Inline Values", cat: "Run", run: () => clearInlineValues() },
   { id: "md-toc", label: "Markdown: Insert or Update Table of Contents", cat: "Text", run: insertToc },
   { id: "preview-size", label: "Preview: Change Size (Phone, Tablet, Laptop)…", cat: "View", run: choosePreviewSize },
@@ -5077,7 +5080,7 @@ const MENUS = {
   File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "history-replay", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "align", "regex-tester", "json-types", "find-unused", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
-  Run: ["run", "debug", "debug-entry", "run-to-cursor", "run-sel", "stop", "-", "run-settings", "run-values", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
+  Run: ["run", "debug", "debug-entry", "run-to-cursor", "run-sel", "stop", "-", "run-settings", "run-values", "run-trace", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
   View: ["project-map", "-", "explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "app-install", "offline-info", "offline-clear", "-", "about"],
 };
