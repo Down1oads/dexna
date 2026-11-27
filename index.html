@@ -78,6 +78,8 @@
         <svg viewBox="0 0 24 24"><path d="M14.5 3.5a4.5 4.5 0 0 0-4.2 6.1L4.2 15.7a2.1 2.1 0 0 0 3 3l6.1-6.1a4.5 4.5 0 0 0 6.1-4.2l-2.6 2.6-3-.7-.7-3z"/></svg></button>
       <button data-view="assistant" title="Assistant (Ctrl+Alt+I)">
         <svg viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4.5 3.5V17H6a2 2 0 0 1-2-2z"/><path d="M8.5 9.5h7M8.5 12.5h4.5"/></svg></button>
+      <button data-view="live" title="Live: code together in a private lobby">
+        <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.1c2.6.2 4.5 2 4.5 4.9"/></svg><span class="ab-badge hidden"></span></button>
       <div class="spacer"></div>
       <button data-view="settings" title="Settings (Ctrl+,)">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
@@ -149,6 +151,11 @@
       <section class="view" data-view="assistant">
         <div class="view-title">Assistant</div>
         <div id="ai-root" class="ai-root"></div>
+      </section>
+
+      <section class="view" data-view="live">
+        <div class="view-title">Live</div>
+        <div id="live-root" class="live-root"></div>
       </section>
 
       <section class="view" data-view="tools">
@@ -262,6 +269,7 @@
 <script>window.DEXNA_CONFIG = {
   pyodide: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/",
   monaco: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/",
+  collabRelay: "wss://0.peerjs.com/peerjs?key=peerjs",
   libs: {
     wasmoon: "https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/dist/",
     sqlite: "https://cdn.jsdelivr.net/npm/@sqlite.org/sqlite-wasm@3.46.1-build4/sqlite-wasm/jswasm/",

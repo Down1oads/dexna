@@ -75,7 +75,7 @@ const DEFAULT_SETTINGS = {
   theme: DEFAULT_DARK, darkTheme: DEFAULT_DARK, lightTheme: DEFAULT_LIGHT, fontSize: 14, fontLigatures: true, tabSize: 4, wordWrap: false, minimap: true,
   stickyScroll: true, renderWhitespace: "selection", lineLength: 88, formatOnSave: false,
   autoLint: true, autoInstall: true, clearOnRun: false, bracketColors: true, inlineplots: true, onlineRunners: false,
-  numberHover: true, runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
+  numberHover: true, collabRelay: "", runOnSave: false, localHistory: true, clipboardHistory: true, colorSwatches: true,
   bgEffect: "none", bgSolid: "#1e4fd8", bgIntensity: 60, bgSpeed: 40, glass: 70, glassBlur: false, bgImageBlur: 0, cursorEffect: "none", corners: "default",
   accentColor: "", uiFont: "plex", editorFont: "jetbrains", lineHeight: 0,
   sidebarSide: "left", panelSide: "bottom", showActivityBar: true, showStatusBar: true, density: "normal", uiFontSize: 13, fileIcons: "color", activityHidden: [],
@@ -585,7 +585,7 @@ function makeProject(tpl, name) {
   };
 }
 
-const persistProject = debounce(() => {
+const persistProjectSoon = debounce(() => {
   if (!project) return;
   project.updated = Date.now();
   // files with unsaved edits are stored as they were when last saved
@@ -596,12 +596,13 @@ const persistProject = debounce(() => {
   if (meta) { meta.name = project.name; meta.updated = project.updated; }
   LS.set("projects", projectsIndex);
   LS.set("current", project.id);
-  collab?.onFilesChanged();
   extras?.onFilesChanged();
   power?.onFilesChanged();
   devtools?.onFilesChanged();
   plus?.onFilesChanged();
 }, 400);
+/** Saves the project soon; a Live lobby hears about the change straight away. */
+const persistProject = Object.assign((...a) => { collab?.onFilesChanged(); return persistProjectSoon(...a); }, { flush: () => persistProjectSoon.flush() });
 
 /* =====================================================================
  * Toasts, menus & dialogs
@@ -4287,6 +4288,7 @@ const SETTINGS_SCHEMA = [
   { key: "fontSize", cat: "Appearance", label: "Font size", desc: "Editor text size in pixels. You can also zoom with Ctrl+= and Ctrl+-.", type: "number", min: 10, max: 30 },
   { key: "fontLigatures", cat: "Appearance", label: "Font ligatures", desc: "Join characters like => and != into single symbols (JetBrains Mono).", type: "bool" },
   { key: "minimap", cat: "Appearance", label: "Minimap", desc: "Show a small overview of the file on the right edge.", type: "bool" },
+  { key: "collabRelay", cat: "Editor", label: "Lobby server (Live)", desc: "The server that introduces browsers to each other for Live lobbies. Leave empty for the free public PeerJS server. Any PeerJS server works, like one you run yourself (wss://your.host/peerjs?key=peerjs).", type: "text" },
   { key: "numberHover", cat: "Editor", label: "Describe numbers on hover", desc: "Hover a Unix timestamp to see the date, or a number to see it in hex, binary and octal.", type: "bool" },
   { key: "stickyScroll", cat: "Appearance", label: "Sticky scroll", desc: "Keep the current class or function header pinned at the top while you scroll.", type: "bool" },
   { key: "bracketColors", cat: "Appearance", label: "Bracket pair colors", desc: "Color matching brackets so nested ones are easy to tell apart.", type: "bool" },
@@ -4688,7 +4690,7 @@ function setView(view, { toggle = false } = {}) {
   if (layout.view === "packages" && layout.sidebar) { renderPackagesView(); if (!installedPkgs.length) refreshPackages(); }
   if (layout.view === "outline") renderOutline();
   if (layout.view === "assistant" && layout.sidebar) assistant?.show();
-  if (layout.sidebar) extras?.onView(layout.view);
+  if (layout.sidebar) { extras?.onView(layout.view); collab?.onView(layout.view); }
   saveLayout();
 }
 $$("#activitybar [data-view]").forEach((b) => (b.onclick = () => (b.dataset.view === "settings" ? (settingsOpen ? closePage("settings") : showSettings(true)) : setView(b.dataset.view, { toggle: true }))));
@@ -4965,6 +4967,12 @@ pro = createPro(API);
 COMMANDS.push(...pro.commands);
 const github = createGitHub(API);
 API.githubPanel = () => github.panel();
+API.githubSignedIn = () => github.signedIn;
+API.commitDirty = () => commitDirty();
+API.showQr = (text, title) => showQr(text, title);
+API.runCommand = (id) => cmdById(id)?.run();
+Object.defineProperty(API, "terminal", { get: () => terminal });
+API.refreshProjectUi = () => { for (const p of models.keys()) renderBreakpointDecos(p); renderBreakpointList(); renderTree(); renderTabs(); renderPackagesView(); updateRunTarget(); github.statusBranch(); markBpsDirty(); };
 COMMANDS.push(...github.commands);
 const offline = createOffline(API);
 COMMANDS.push(...offline.commands);
@@ -5034,6 +5042,7 @@ async function saveCommand() {
   commitDirty();
   persistProject.flush();
   setStatusFlash(settings.runOnSave ? "Saved, running" : "Saved locally");
+  collab?.onSaved();
   tweaks?.onSaved();
   power?.onSave();
   if (settings.testsOnSave && currentPath()?.endsWith(".py") && !state.busy) cmdById("tests-run-all")?.run();
@@ -5350,6 +5359,8 @@ window.dexna = {
   removeFiles: (files) => removeFiles(files),
   writeFiles: (changes) => applyFileChanges(changes, { silent: true }),
   openFile: (path) => openFile(path),
+  api: API,
+  collab: () => collab,
   fx: () => fx,
   lsp: (method, args) => lspCall(method, args),
   kernel: () => kernel,
