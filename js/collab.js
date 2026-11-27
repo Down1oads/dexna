@@ -32,6 +32,19 @@ const toB64 = (u) => { let s = ""; for (let i = 0; i < u.length; i += 0x8000) s 
 const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 
+/* ---------- what happened while connecting, to show (and copy) when something goes wrong ---------- */
+const logs = [];
+export function log(text) { const t = new Date(); logs.push(`${t.toTimeString().slice(0, 8)}.${String(t.getMilliseconds()).padStart(3, "0")}  ${text}`); if (logs.length > 120) logs.shift(); logListeners.forEach((f) => f()); }
+const logListeners = new Set();
+/** A repeating timer that keeps its pace in a background tab (timers in a worker are not slowed down like the page's). */
+function ticker(ms, fn) {
+  try {
+    const url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms})`], { type: "text/javascript" }));
+    const w = new Worker(url); URL.revokeObjectURL(url); w.onmessage = fn;
+    return () => w.terminate();
+  } catch (_) { const t = setInterval(fn, ms); return () => clearInterval(t); }
+}
+
 /* ---------- the relay: a PeerJS server, used only to pass connection offers between browsers ---------- */
 class Relay {
   constructor(url, id, token) { this.url = url; this.id = id; this.token = token; this.handlers = {}; }
@@ -44,18 +57,22 @@ class Relay {
       try { this.ws = new WebSocket(u); } catch (e) { return finish(fail, new Error("Could not reach the lobby server")); }
       this.ws.onmessage = (e) => {
         let m; try { m = JSON.parse(e.data); } catch (_) { return; }
-        if (m.type === "OPEN") { this.beat = setInterval(() => this.raw({ type: "HEARTBEAT" }), 5000); return finish(ok); }
+        if (m.type === "OPEN") { this.stopBeat?.(); this.stopBeat = ticker(5000, () => this.raw({ type: "HEARTBEAT" })); log(`lobby server: connected as ${this.id.replace(/^dexna(lobby|guest)/, "")}`); return finish(ok); }
+        if (m.src === this.id && m.payload?.x === "self") { this.lastSelf = Date.now(); this.echoes = true; return; }
         if (m.type === "ID-TAKEN") return finish(fail, Object.assign(new Error("taken"), { taken: true }));
         if (m.type === "ERROR") return finish(fail, new Error(m.payload?.msg || "The lobby server refused the connection"));
         this.handlers[m.type]?.(m.src, m.payload || {});
       };
-      this.ws.onerror = () => finish(fail, new Error("Could not reach the lobby server"));
-      this.ws.onclose = () => { clearInterval(this.beat); if (done) this.handlers.CLOSED?.(); finish(fail, new Error("The lobby server closed the connection")); };
+      this.ws.onerror = () => { log("lobby server: connection error"); finish(fail, new Error("Could not reach the lobby server")); };
+      this.ws.onclose = (e) => { this.stopBeat?.(); log(`lobby server: disconnected (${e?.code || "?"})`); if (done) this.handlers.CLOSED?.(); finish(fail, new Error("The lobby server closed the connection")); };
     });
   }
   raw(m) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(m)); }
   send(type, dst, payload) { this.raw({ type, dst, payload }); }
-  close() { clearInterval(this.beat); this.closed = true; try { this.ws.onclose = null; this.ws.close(); } catch (_) {} }
+  get ok() { return this.ws?.readyState === 1; }
+  /** Sends a note to itself through the server: if it does not come back, the connection is dead even if it looks open. */
+  selfCheck() { this.send("CANDIDATE", this.id, { x: "self" }); }
+  close() { this.stopBeat?.(); this.closed = true; try { this.ws.onclose = null; this.ws.close(); } catch (_) {} }
 }
 
 export function createCollab(A) {
@@ -92,6 +109,7 @@ export function createCollab(A) {
   function fallBack(peer) {
     if (!S || isHost() || peer.relayMode || peer.open || S.connecting !== peer) return;
     S.status = "Direct connection blocked, connecting through the lobby server…"; ui();
+    log("no direct connection yet, asking to go through the lobby server");
     S.relay.send("CANDIDATE", hostId(), { cid: peer.cid, x: "open" });
     clearTimeout(S.relayTimer);
     S.relayTimer = setTimeout(() => { if (S && S.connecting === peer && !peer.open) failJoin("Could not connect to the lobby. Check your internet connection and try again."); }, 12000);
@@ -99,7 +117,7 @@ export function createCollab(A) {
   function onRelayed(src, p) {
     if (isHost()) {
       const peer = S.peers.get(src); if (!peer || peer.cid !== p.cid) return;
-      if (p.x === "open") { if (!peer.relayMode) useRelay(peer); S.relay.send("CANDIDATE", src, { cid: p.cid, x: "ok" }); return; }
+      if (p.x === "open") { if (!peer.relayMode) { log(`${peer.name}: going through the lobby server`); useRelay(peer); } S.relay.send("CANDIDATE", src, { cid: p.cid, x: "ok" }); return; }
       if (p.x === "d" && peer.relayMode) return deliver(peer, p);
       if (p.x === "close") return peerGone(peer, true);
     } else {
@@ -171,7 +189,7 @@ export function createCollab(A) {
       }
       handle(peer, m);
     };
-    const opened = () => { if (peer.open) return; peer.open = true; if (!isHost()) { S.hostPeer = peer; sendJson(peer, { t: "hello", name: S.me.name, docId: S.docId || null }); } };
+    const opened = () => { if (peer.open) return; peer.open = true; log(`${isHost() ? peer.name || "guest" : "host"}: connected${peer.relayMode ? " through the lobby server" : " directly"}`); if (!isHost()) { S.hostPeer = peer; sendJson(peer, { t: "hello", name: S.me.name, docId: S.docId || null }); } };
     ch.onopen = opened; if (ch.readyState === "open") opened();
     ch.onclose = () => peerGone(peer);
   }
@@ -209,22 +227,49 @@ export function createCollab(A) {
       meta.set("docId", S.docId);
     }, LOCAL);
     relay.on("OFFER", onOffer).on("CANDIDATE", onCandidate).on("LEAVE", (src) => { const p = S?.peers.get(src); if (p) peerGone(p); }).on("CLOSED", () => reopenRelay());
+    keepReachable();
     bindDoc(); attach(); ui(); startWatchdog();
     toast(`Lobby ${showCode(code)} is open. Share the code or the link.`, "ok", 5000);
   }
+  let reopening = false;
   async function reopenRelay() {
-    if (!S || !isHost() || S.relay.closed) return;
-    for (let i = 0; i < 20 && S && isHost(); i++) {
-      await new Promise((r) => setTimeout(r, Math.min(15000, 1000 * 2 ** i)));
-      if (!S) return;
-      const saved = LS.get("collabLobby:" + S.projectId, null), r = new Relay(relayUrl(), "dexnalobby" + S.code, saved?.token || rand(16));
-      r.handlers = S.relay.handlers;
-      try { await r.open(); S.relay = r; ui(); return; } catch (_) {}
-    }
+    if (!S || !isHost() || S.relay.closed || reopening) return;
+    reopening = true; S.relayDown = true; ui();
+    try {
+      for (let i = 0; i < 40 && S && isHost(); i++) {
+        await new Promise((r) => setTimeout(r, Math.min(10000, 500 * 2 ** i)));
+        if (!S) return;
+        const saved = LS.get("collabLobby:" + S.projectId, null), r = new Relay(relayUrl(), "dexnalobby" + S.code, saved?.token || rand(16));
+        r.handlers = S.relay.handlers;
+        try { await r.open(); S.relay = r; r.lastSelf = Date.now(); S.relayDown = false; log("lobby server: the lobby is reachable again"); ui(); return; } catch (e) { log("lobby server: reconnect failed: " + e.message); }
+      }
+    } finally { reopening = false; }
+  }
+  /** Every 20 seconds (and when the tab comes back or the network returns) the host checks the lobby server can still
+   * reach it, and reconnects if not. Without this a lobby can look open while nobody is able to join. */
+  let stopReach = null;
+  function keepReachable() {
+    stopReach?.();
+    const check = () => {
+      if (!S || !isHost()) return stopReach?.();
+      const r = S.relay;
+      if (!r.ok) { if (!reopening) { log("lobby server: not connected, reconnecting"); reopenRelay(); } return; }
+      // only once this server has shown that it passes these notes back
+      if (r.echoes && Date.now() - r.lastSelf > 50000) { log("lobby server: stopped answering, reconnecting"); try { r.ws.close(); } catch (_) {} return; }
+      r.selfCheck();
+    };
+    S.relay.lastSelf = Date.now(); S.relay.selfCheck();
+    const stopTick = ticker(20000, check);
+    const now = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", now); addEventListener("online", check);
+    stopReach = () => { stopTick(); document.removeEventListener("visibilitychange", now); removeEventListener("online", check); stopReach = null; };
   }
   const count = () => 1 + active().length;
   function onOffer(src, p) {
     if (!S || !isHost() || !p.sdp) return;
+    const same = S.peers.get(src);
+    if (same && same.cid === p.cid) { if (same.answer) S.relay.send("ANSWER", src, { cid: p.cid, sdp: same.answer }); return; } // a repeat of an offer already being answered
+    log(`${p.name || "someone"} asked to join`);
     if (S.locked) return S.relay.send("ANSWER", src, { cid: p.cid, deny: "The lobby is locked. Ask the host to unlock it." });
     if (count() >= MAX_PEOPLE && !S.peers.has(src)) return S.relay.send("ANSWER", src, { cid: p.cid, deny: `The lobby is full (${MAX_PEOPLE} people).` });
     const known = [...S.peers.values()].some((x) => x.src === src) || S.admitted?.has(src);
@@ -243,11 +288,16 @@ export function createCollab(A) {
     pc.onicecandidate = (e) => e.candidate && S?.relay.send("CANDIDATE", src, { cid: p.cid, c: e.candidate.toJSON() });
     pc.ondatachannel = (e) => hookChannel(peer, e.channel);
     pc.onconnectionstatechange = () => { if (pc.connectionState === "failed" && peer.open && !peer.relayMode) peerGone(peer); }; // before it opens, the guest may still switch to the lobby server
-    await pc.setRemoteDescription({ type: "offer", sdp: p.sdp });
-    for (const c of S.cands.get(src)?.filter((x) => x.cid === p.cid) || []) pc.addIceCandidate(c.c).catch(() => {});
-    S.cands.delete(src);
-    const ans = await pc.createAnswer(); await pc.setLocalDescription(ans);
-    S.relay.send("ANSWER", src, { cid: p.cid, sdp: ans.sdp });
+    pc.oniceconnectionstatechange = () => log(`${peer.name}: connection ${pc.iceConnectionState}`);
+    try {
+      await pc.setRemoteDescription({ type: "offer", sdp: p.sdp });
+      for (const c of S.cands.get(src)?.filter((x) => x.cid === p.cid) || []) pc.addIceCandidate(c.c).catch(() => {});
+      S.cands.delete(src);
+      const ans = await pc.createAnswer(); await pc.setLocalDescription(ans);
+      peer.answer = ans.sdp;
+      S.relay.send("ANSWER", src, { cid: p.cid, sdp: ans.sdp });
+      log(`answered ${peer.name}`);
+    } catch (e) { log(`could not answer ${peer.name}: ${e.message}`); S.peers.delete(src); }
   }
   function onCandidate(src, p) {
     if (!S) return;
@@ -286,15 +336,21 @@ export function createCollab(A) {
     hookChannel(peer, pc.createDataChannel("fast", { ordered: false, maxRetransmits: 0 }));
     pc.onicecandidate = (e) => e.candidate && S?.relay.send("CANDIDATE", "dexnalobby" + S.code, { cid, c: e.candidate.toJSON() });
     pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") { if (peer.open) peerGone(peer); else fallBack(peer); } };
+    pc.oniceconnectionstatechange = () => log(`host: connection ${pc.iceConnectionState}`);
     await pc.setLocalDescription(await pc.createOffer());
-    S.relay.send("OFFER", "dexnalobby" + S.code, { cid, sdp: pc.localDescription.sdp, name: S.me.name });
-    clearTimeout(S.answerTimer);
-    S.answerTimer = setTimeout(() => { if (S && !S.waiting && !peer.open && S.connecting === peer) failJoin("The lobby did not answer. The host may have closed it."); }, 20000);
+    const offer = { cid, sdp: pc.localDescription.sdp, name: S.me.name };
+    const ask = (n) => { if (!S || S.connecting !== peer || peer.answered || S.waiting) return; if (S.relay.ok) S.relay.send("OFFER", hostId(), offer); log(n ? `asked again to join ${showCode(S.code)}` : `asked to join ${showCode(S.code)}`); };
+    ask(0);
+    clearTimeout(S.answerTimer); clearInterval(S.askTimer);
+    let n = 0; S.askTimer = setInterval(() => { if (++n > 4) return clearInterval(S.askTimer); ask(n); }, 4000); // in case the first one was lost
+    S.answerTimer = setTimeout(() => { clearInterval(S.askTimer); if (S && !S.waiting && !peer.answered && S.connecting === peer) failJoin(`Lobby ${showCode(S.code)} did not answer. Check that the host still has Dexna open with this code showing in the Live panel, then try again.`); }, 22000);
   }
   async function onAnswer(src, p) {
-    const peer = S?.connecting; if (!peer || p.cid !== peer.cid) return;
-    if (p.deny) return failJoin(p.deny);
-    if (p.wait) { S.waiting = true; S.status = "Waiting for the host to let you in…"; return ui(); }
+    const peer = S?.connecting; if (!peer || p.cid !== peer.cid || peer.answered) return;
+    if (p.deny) { log("the host said no: " + p.deny); return failJoin(p.deny); }
+    if (p.wait) { if (!S.waiting) log("waiting for the host to let you in"); S.waiting = true; clearInterval(S.askTimer); S.status = "Waiting for the host to let you in…"; return ui(); }
+    peer.answered = true; clearInterval(S.askTimer); clearTimeout(S.answerTimer);
+    log("the host answered, connecting directly");
     S.waiting = false; S.status = S.projectId ? "Reconnecting…" : "Connecting…"; ui();
     await peer.pc.setRemoteDescription({ type: "answer", sdp: p.sdp });
     for (const c of S.candQ.filter((x) => x.cid === peer.cid)) peer.pc.addIceCandidate(c.c).catch(() => {});
@@ -306,7 +362,7 @@ export function createCollab(A) {
   function failJoin(msg) {
     if (!S || isHost()) return;
     if (S.projectId && !S.ended) { S.status = "Reconnecting…"; ui(); return scheduleReconnect(); } // was in already: keep trying
-    toast(msg, "warn", 7000); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(watchdog); s.relay.close(); try { s.connecting?.pc.close(); } catch (_) {}
+    toast(msg, "warn", 7000); log("gave up: " + msg); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(s.askTimer); clearInterval(watchdog); s.relay.close(); try { s.connecting?.pc.close(); } catch (_) {}
     joinError = msg; ui();
   }
   let joinError = "";
@@ -694,7 +750,7 @@ export function createCollab(A) {
   function endSession() {
     if (!S) return;
     const s = S; S = null;
-    clearTimeout(s.retry); clearTimeout(s.answerTimer); clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(watchdog);
+    clearTimeout(s.retry); clearTimeout(s.answerTimer); clearInterval(s.askTimer); clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(watchdog); stopReach?.();
     for (const l of listeners) l.dispose(); listeners = [];
     document.removeEventListener("mousemove", onMouseMove, true); document.removeEventListener("mouseleave", onMouseLeave);
     clearTimeout(idleTimer); clearTimeout(mouseTimer); collection?.clear(); collection = null;
@@ -715,6 +771,15 @@ export function createCollab(A) {
   const copy = async (text, btn) => { try { await navigator.clipboard.writeText(text); } catch (_) { const t = Object.assign(h("textarea"), { value: text }); document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); } if (btn) { const o = btn.textContent; btn.textContent = "Copied"; setTimeout(() => (btn.textContent = o), 1200); } };
   const avatar = (p) => h("span", { class: "lv-av", style: { background: p.color }, title: p.name }, (p.name || "?").trim().charAt(0).toUpperCase());
   const myName = () => LS.get("collabName", "") || A.settings.greetingName || "";
+  /** The connection log, folded away, with a Copy button: what to send when something does not work. */
+  function detailsBox(open = false) {
+    const pre = h("pre", { class: "lv-log-text" });
+    const fill = () => { pre.textContent = logs.length ? logs.join("\n") : "Nothing yet."; pre.scrollTop = pre.scrollHeight; };
+    const box = h("details", { class: "lv-log", open: open || null }, h("summary", {}, "Connection details"), pre,
+      h("button", { class: "btn sm", onclick: (e) => copy(`Dexna Live, ${navigator.userAgent}\n${logs.join("\n")}`, e.currentTarget) }, "Copy"));
+    fill(); logListeners.add(() => { if (!document.body.contains(box)) return; fill(); });
+    return box;
+  }
   const people = () => (!S ? 0 : isHost() ? count() : 1 + Object.keys(S.people).length);
   let els = {};
   function badge() {
@@ -773,12 +838,12 @@ export function createCollab(A) {
         h("label", { class: "lv-check" }, ask, "Ask me before letting someone in"),
         create,
         h("button", { class: "btn lv-link", onclick: () => A.runCommand?.("gh-open") }, gh ? "Use a different GitHub repository…" : "Start from a GitHub repository…")),
-      err,
+      err, logs.length ? detailsBox(!!err.textContent) : null,
       h("p", { class: "muted small lv-foot" }, "Lobbies are private: only people with the code or link can join. Your browsers connect to each other directly; a lobby server only introduces them."));
   }
   function joiningView() {
     return h("div", { class: "lv-idle" }, h("div", { class: "lv-hero" }, h("div", { class: "lv-hero-t" }, `Joining ${showCode(S.code)}`), h("div", { class: "lv-wait" }, h("span", { class: "lv-spin" }), S.status || "Connecting…")),
-      h("button", { class: "btn", onclick: () => { const s = S; S = null; s.relay?.close(); try { s.connecting?.pc.close(); } catch (_) {} ui(); } }, "Cancel"));
+      h("button", { class: "btn", onclick: () => { const s = S; S = null; clearTimeout(s.answerTimer); clearInterval(s.askTimer); s.relay?.close(); try { s.connecting?.pc.close(); } catch (_) {} ui(); } }, "Cancel"), detailsBox());
   }
   function liveView() {
     els.head = h("div", { class: "lv-head" });
@@ -798,6 +863,7 @@ export function createCollab(A) {
       h("div", { class: "lv-sec" }, "Live run output"), els.term,
       h("label", { class: "lv-check" }, mouse, "Show my mouse to the others"),
       h("label", { class: "lv-check" }, run, "Share my run output"),
+      detailsBox(),
       h("button", { class: "btn danger lv-leave", onclick: () => { const host = isHost(); leave(); toast(host ? "You closed the lobby" : "You left the lobby. Your copy of the project is kept.", "info"); } }, isHost() ? "Close the lobby" : "Leave the lobby"));
     setTimeout(() => { renderChat(); renderTerm(); }, 0);
     return node;
@@ -808,7 +874,7 @@ export function createCollab(A) {
     els.head.replaceChildren(
       h("div", { class: "lv-codebox" }, h("div", { class: "muted small" }, isHost() ? "Your lobby" : `${S.host?.name || "Host"}'s lobby`), h("div", { class: "lv-code" }, code),
         h("div", { class: "lv-row" }, h("button", { class: "btn sm", onclick: (e) => copy(code, e.currentTarget) }, "Copy code"), h("button", { class: "btn sm", onclick: (e) => copy(link, e.currentTarget) }, "Copy link"), A.showQr ? h("button", { class: "btn sm", onclick: () => A.showQr(link, `Scan to join ${code}`) }, "QR") : null)),
-      h("div", { class: "lv-state small" + (S.status ? " warn" : "") }, S.status || (isHost() ? `${count()} of ${MAX_PEOPLE} people${S.locked ? " · locked" : ""}${S.ask ? " · you let people in" : ""}` : (S.readOnly ? "You can watch but not edit" : "Connected, you can edit") + (S.viaRelay ? " · through the lobby server, as a direct connection was blocked" : " · directly"))),
+      h("div", { class: "lv-state small" + (S.status || (isHost() && S.relayDown) ? " warn" : "") }, S.status || (isHost() && S.relayDown ? "Reconnecting to the lobby server, so nobody can join this moment…" : isHost() ? `${count()} of ${MAX_PEOPLE} people${S.locked ? " · locked" : ""}${S.ask ? " · you let people in" : ""}` : (S.readOnly ? "You can watch but not edit" : "Connected, you can edit") + (S.viaRelay ? " · through the lobby server, as a direct connection was blocked" : " · directly"))),
       isHost() ? h("div", { class: "lv-row" },
         h("button", { class: "btn sm" + (S.locked ? " primary" : ""), title: "Stop new people from joining", onclick: () => { S.locked = !S.locked; sendRoster(); ui(); } }, S.locked ? "Locked" : "Lock"),
         h("button", { class: "btn sm" + (S.ask ? " primary" : ""), title: "Ask before letting someone in", onclick: () => { S.ask = !S.ask; LS.set("collabAsk", S.ask); ui(); } }, S.ask ? "Asking first" : "Ask first")) : "");

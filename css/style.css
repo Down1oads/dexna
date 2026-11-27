@@ -1575,3 +1575,6 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .lv-acts:empty { display: none; }
 .lv-repo-none { display: block; margin-top: 12px; }
 .lv-code-in::placeholder { letter-spacing: .08em; }
+.lv-log { margin-top: 10px; font-size: 12px; }
+.lv-log summary { cursor: pointer; color: var(--fg-dim); }
+.lv-log-text { max-height: 160px; overflow: auto; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font: 11px/1.4 var(--code-font, monospace); white-space: pre-wrap; }
