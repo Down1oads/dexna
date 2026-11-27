@@ -681,7 +681,7 @@ export function createCollab(A) {
       err.textContent = ""; join.disabled = true;
       try { await joinLobby(c, n); } catch (e) { const s = S; S = null; s?.relay?.close(); joinError = e.message; ui(); }
     };
-    join.onclick = doJoin; code.onkeydown = (e) => e.key === "Enter" && doJoin();
+    join.onclick = doJoin; code.onkeydown = (e) => { if (e.key === "Enter") doJoin(); };
     els.code = code; els.name = name;
     const gh = A.project?.github;
     return h("div", { class: "lv-idle" },
