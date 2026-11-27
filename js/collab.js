@@ -45,33 +45,75 @@ function ticker(ms, fn) {
   } catch (_) { const t = setInterval(fn, ms); return () => clearInterval(t); }
 }
 
-/* ---------- the relay: a PeerJS server, used only to pass connection offers between browsers ---------- */
+/* ---------- the relay: a PeerJS server, used only to pass connection offers between browsers ----------
+ * Messages travel as one opaque string (base64), so nothing in them looks like a call being set up: some school
+ * and office networks cut a connection the moment they see that. When it connects, the relay tries the ways the
+ * server can pass a message on, sending a note to itself, and keeps the first one that arrives intact. */
+const WAYS = ["CANDIDATE", "LEAVE", "EXPIRE", "OFFER"]; // CANDIDATE first: only it gets "nobody has that code" back from the server
+const pack = (o) => "~" + toB64(new TextEncoder().encode(JSON.stringify(o)));
+const unpack = (s) => JSON.parse(new TextDecoder().decode(fromB64(s.slice(1))));
 class Relay {
   constructor(url, id, token) { this.url = url; this.id = id; this.token = token; this.handlers = {}; }
   on(type, fn) { this.handlers[type] = fn; return this; }
-  open(timeout = 9000) {
+  /** One WebSocket to the server, resolved once it says OPEN. */
+  socket(timeout = 9000) {
     return new Promise((ok, fail) => {
       const u = this.url + (this.url.includes("?") ? "&" : "?key=peerjs&") + `id=${encodeURIComponent(this.id)}&token=${this.token}`;
       let done = false; const finish = (f, v) => { if (!done) { done = true; clearTimeout(t); f(v); } };
-      const t = setTimeout(() => { finish(fail, new Error("The lobby server did not answer")); try { this.ws.close(); } catch (_) {} }, timeout);
-      try { this.ws = new WebSocket(u); } catch (e) { return finish(fail, new Error("Could not reach the lobby server")); }
-      this.ws.onmessage = (e) => {
+      const t = setTimeout(() => { finish(fail, new Error("The lobby server did not answer")); try { ws.close(); } catch (_) {} }, timeout);
+      let ws; try { ws = this.ws = new WebSocket(u); } catch (e) { return finish(fail, new Error("Could not reach the lobby server")); }
+      ws.onmessage = (e) => {
         let m; try { m = JSON.parse(e.data); } catch (_) { return; }
-        if (m.type === "OPEN") { this.stopBeat?.(); this.stopBeat = ticker(5000, () => this.raw({ type: "HEARTBEAT" })); log(`lobby server: connected as ${this.id.replace(/^dexna(lobby|guest)/, "")}`); return finish(ok); }
-        if (m.src === this.id && m.payload?.x === "self") { this.lastSelf = Date.now(); this.echoes = true; return; }
+        if (m.type === "OPEN") { this.stopBeat?.(); this.stopBeat = ticker(5000, () => this.raw({ type: "HEARTBEAT" })); return finish(ok); }
         if (m.type === "ID-TAKEN") return finish(fail, Object.assign(new Error("taken"), { taken: true }));
         if (m.type === "ERROR") return finish(fail, new Error(m.payload?.msg || "The lobby server refused the connection"));
-        this.handlers[m.type]?.(m.src, m.payload || {});
+        let k = m.type, p = m.payload || {};
+        if (typeof m.payload === "string" && m.payload[0] === "~") { try { const o = unpack(m.payload); k = o.k; p = o.p || {}; } catch (_) { return; } }
+        else if (m.type === "EXPIRE") k = "EXPIRE"; // the server's own note: nobody has that code
+        else if (m.payload && typeof m.payload === "object" && m.payload.x === "self") k = "SELF";
+        if (k === "SELF" && m.src === this.id) { this.lastSelf = Date.now(); this.echoes = true; this.gotSelf?.(); return; }
+        this.handlers[k]?.(m.src, p);
       };
-      this.ws.onerror = () => { log("lobby server: connection error"); finish(fail, new Error("Could not reach the lobby server")); };
-      this.ws.onclose = (e) => { this.stopBeat?.(); log(`lobby server: disconnected (${e?.code || "?"})`); if (done) this.handlers.CLOSED?.(); finish(fail, new Error("The lobby server closed the connection")); };
+      ws.onerror = () => { log("lobby server: connection error"); finish(fail, new Error("Could not reach the lobby server")); };
+      ws.onclose = (e) => {
+        this.stopBeat?.(); this.closedNow?.();
+        if (!this.probing) log(`lobby server: disconnected (${e?.code || "?"})`);
+        if (done && !this.probing && ws === this.ws) this.handlers.CLOSED?.();
+        finish(fail, new Error("The lobby server closed the connection"));
+      };
     });
   }
+  /** Connects, and finds a way of sending that the server (and the network on the way) lets through. */
+  async open() {
+    const saved = (() => { try { return JSON.parse(localStorage.getItem("dexna:collabWay")); } catch (_) { return null; } })();
+    const order = [...new Set([saved, ...WAYS].filter((w) => WAYS.includes(w)))];
+    this.probing = true;
+    try {
+      for (const way of order) {
+        if (this.ws?.readyState !== 1) await this.socket();
+        const ok = await new Promise((done) => {
+          const t = setTimeout(() => done(false), 2500);
+          this.gotSelf = () => { clearTimeout(t); done(true); };
+          this.closedNow = () => { clearTimeout(t); done(false); };
+          this.way = way; this.send("SELF", this.id, {});
+        });
+        this.gotSelf = this.closedNow = null;
+        if (ok && this.ws?.readyState === 1) {
+          // a note can arrive just before the connection is cut, so make sure it is still up a moment later
+          await new Promise((r) => setTimeout(r, 300));
+          if (this.ws?.readyState === 1) { try { localStorage.setItem("dexna:collabWay", JSON.stringify(way)); } catch (_) {} log(`lobby server: connected as ${this.id.replace(/^dexna(lobby|guest)/, "")}${way !== WAYS[0] ? ` (way ${way.toLowerCase()})` : ""}`); return; }
+        }
+        log(`lobby server: way ${way.toLowerCase()} did not get through${this.ws?.readyState === 1 ? "" : ", the connection was cut"}`);
+      }
+      try { this.ws?.close(); } catch (_) {}
+      throw new Error("Your network cuts the connection to the lobby server (school and work networks often do). Try another network, like a phone hotspot");
+    } finally { this.probing = false; }
+  }
   raw(m) { if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(m)); }
-  send(type, dst, payload) { this.raw({ type, dst, payload }); }
+  send(kind, dst, payload) { this.raw({ type: this.way || WAYS[0], dst, payload: pack({ k: kind, p: payload }) }); }
   get ok() { return this.ws?.readyState === 1; }
   /** Sends a note to itself through the server: if it does not come back, the connection is dead even if it looks open. */
-  selfCheck() { this.send("CANDIDATE", this.id, { x: "self" }); }
+  selfCheck() { this.send("SELF", this.id, {}); }
   close() { this.stopBeat?.(); this.closed = true; try { this.ws.onclose = null; this.ws.close(); } catch (_) {} }
 }
 
