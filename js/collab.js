@@ -32,6 +32,28 @@ const toB64 = (u) => { let s = ""; for (let i = 0; i < u.length; i += 0x8000) s 
 const fromB64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const stripAnsi = (s) => s.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 
+/* ---------- invite codes for connecting with no server at all: a connection description, compressed ---------- */
+const squeeze = async (Ctor, bytes) => { const s = new Ctor("deflate-raw"), w = s.writable.getWriter(); w.write(bytes); w.close(); return new Uint8Array(await new Response(s.readable).arrayBuffer()); };
+export async function packCode(obj) {
+  let out = new TextEncoder().encode(JSON.stringify(obj)), tag = "P";
+  if (typeof CompressionStream !== "undefined") { out = await squeeze(CompressionStream, out); tag = "Z"; }
+  return "DX" + tag + toB64(out).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+export async function unpackCode(code) {
+  code = String(code).replace(/\s+/g, "");
+  if (!code.startsWith("DX")) throw new Error("That is not a Dexna invite or reply code");
+  const tag = code[2]; let s = code.slice(3).replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "=";
+  let bytes; try { bytes = fromB64(s); if (tag === "Z") bytes = await squeeze(DecompressionStream, bytes); } catch (_) { throw new Error("That code is damaged or cut short. Copy all of it again."); }
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch (_) { throw new Error("That code is damaged or cut short. Copy all of it again."); }
+}
+/** Waits until the browser has found its ways to be reached (or a few seconds pass). */
+const waitIce = (pc, ms = 5000) => new Promise((ok) => {
+  if (pc.iceGatheringState === "complete") return ok();
+  const done = () => { pc.removeEventListener("icegatheringstatechange", chk); clearTimeout(t); ok(); };
+  const chk = () => pc.iceGatheringState === "complete" && done();
+  const t = setTimeout(done, ms); pc.addEventListener("icegatheringstatechange", chk);
+});
+
 /* ---------- what happened while connecting, to show (and copy) when something goes wrong ---------- */
 const logs = [];
 export function log(text) { const t = new Date(); logs.push(`${t.toTimeString().slice(0, 8)}.${String(t.getMilliseconds()).padStart(3, "0")}  ${text}`); if (logs.length > 120) logs.shift(); logListeners.forEach((f) => f()); }
@@ -149,7 +171,7 @@ export function createCollab(A) {
   }
   /** The guest asks for it after waiting for a direct connection; the host agrees if it knows the guest. */
   function fallBack(peer) {
-    if (!S || isHost() || peer.relayMode || peer.open || S.connecting !== peer) return;
+    if (!S || isHost() || !S.relay || peer.relayMode || peer.open || S.connecting !== peer) return;
     S.status = "Direct connection blocked, connecting through the lobby server…"; ui();
     log("no direct connection yet, asking to go through the lobby server");
     S.relay.send("CANDIDATE", hostId(), { cid: peer.cid, x: "open" });
@@ -246,12 +268,12 @@ export function createCollab(A) {
 
   /* =================== the host: a lobby =================== */
   async function loadYjs() { Y ||= await import("./vendor/yjs.js"); }
-  async function openLobby({ name, edit, ask }) {
+  async function openLobby({ name, edit, ask, noServer = false }) {
     if (!A.project) return;
     await loadYjs();
     const key = "collabLobby:" + A.project.id;
-    let saved = LS.get(key, null), relay, code;
-    for (let tries = 0; ; tries++) {
+    let saved = LS.get(key, null), relay = null, code = saved?.code || rand(6);
+    for (let tries = 0; !noServer; tries++) {
       code = saved?.code || rand(6);
       const token = saved?.token || rand(16, "abcdefghijklmnopqrstuvwxyz0123456789");
       relay = new Relay(relayUrl(), "dexnalobby" + code, token);
@@ -268,14 +290,16 @@ export function createCollab(A) {
       for (const k of SHARED_KEYS) if (A.project[k] !== undefined) meta.set(k, JSON.stringify(A.project[k]));
       meta.set("docId", S.docId);
     }, LOCAL);
-    relay.on("OFFER", onOffer).on("CANDIDATE", onCandidate).on("LEAVE", (src) => { const p = S?.peers.get(src); if (p) peerGone(p); }).on("CLOSED", () => reopenRelay());
-    keepReachable();
+    if (relay) {
+      relay.on("OFFER", onOffer).on("CANDIDATE", onCandidate).on("LEAVE", (src) => { const p = S?.peers.get(src); if (p) peerGone(p); }).on("CLOSED", () => reopenRelay());
+      keepReachable();
+    } else log("lobby opened without the lobby server: invite people with codes");
     bindDoc(); attach(); ui(); startWatchdog();
-    toast(`Lobby ${showCode(code)} is open. Share the code or the link.`, "ok", 5000);
+    toast(relay ? `Lobby ${showCode(code)} is open. Share the code or the link.` : "Lobby open. Invite people with an invite code.", "ok", 5000);
   }
   let reopening = false;
   async function reopenRelay() {
-    if (!S || !isHost() || S.relay.closed || reopening) return;
+    if (!S || !isHost() || !S.relay || S.relay.closed || reopening) return;
     reopening = true; S.relayDown = true; ui();
     try {
       for (let i = 0; i < 40 && S && isHost(); i++) {
@@ -357,6 +381,73 @@ export function createCollab(A) {
     ui(); badge();
   }
 
+  /* =================== no server: an invite code from the host, a reply code from the guest =================== */
+  async function manualInvite() {
+    if (!S || !isHost()) return null;
+    if (count() >= MAX_PEOPLE) throw new Error(`The lobby is full (${MAX_PEOPLE} people).`);
+    const id = "m" + rand(8, "abcdefghijklmnopqrstuvwxyz0123456789"), pc = new RTCPeerConnection(ice());
+    const peer = { id, src: id, cid: id, pc, name: "Guest", edit: S.defaultEdit, active: false, manual: true };
+    S.peers.set(id, peer);
+    hookChannel(peer, pc.createDataChannel("dexna"));
+    hookChannel(peer, pc.createDataChannel("fast", { ordered: false, maxRetransmits: 0 }));
+    pc.oniceconnectionstatechange = () => log(`invite ${id.slice(1, 5)}: connection ${pc.iceConnectionState}`);
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") peerGone(peer); };
+    await pc.setLocalDescription(await pc.createOffer()); await waitIce(pc);
+    const types = (pc.localDescription.sdp.match(/typ (host|srflx|relay)/g) || []).map((x) => x.slice(4));
+    log(`made an invite code (ways to reach this computer: ${types.join(", ") || "none"})`);
+    const code = await packCode({ v: 1, k: "invite", sdp: pc.localDescription.sdp, host: S.me.name, project: A.project.name });
+    return { peer, code, accept: async (reply) => {
+      const d = await unpackCode(reply);
+      if (d.k !== "reply") throw new Error(d.k === "invite" ? "That is an invite code. Paste the reply your friend sent back." : "That is not a reply code");
+      await pc.setRemoteDescription({ type: "answer", sdp: d.sdp }); log("got the reply code, connecting");
+    } };
+  }
+  async function joinManual(invite, name) {
+    const d = await unpackCode(invite);
+    if (d.k !== "invite") throw new Error(d.k === "reply" ? "That is a reply code. Paste the invite code the host sent you." : "That is not an invite code");
+    await loadYjs();
+    const pc = new RTCPeerConnection(ice()), peer = { id: "host", cid: "manual", pc, active: true, manual: true };
+    S = { role: "guest", code: "", relay: null, me: { id: null, name, color: COLORS[1] }, peers: new Map([["host", peer]]), remote: {}, people: {}, chat: [], term: [], unread: 0, shareMouse: true, shareRun: true, following: null, applying: false, joining: true, status: "Making your reply code…", manual: true, hostName: d.host };
+    S.connecting = peer; ui();
+    pc.ondatachannel = (e) => hookChannel(peer, e.channel);
+    pc.oniceconnectionstatechange = () => log(`host: connection ${pc.iceConnectionState}`);
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed" && !peer.open) { log("the direct connection failed"); S.status = "Could not connect directly. Your network or Chromebook may block direct connections: try Check my network."; S.failed = true; ui(); } };
+    await pc.setRemoteDescription({ type: "offer", sdp: d.sdp });
+    await pc.setLocalDescription(await pc.createAnswer()); await waitIce(pc);
+    S.reply = await packCode({ v: 1, k: "reply", sdp: pc.localDescription.sdp });
+    S.status = `Send this reply code back to ${d.host || "the host"}, then wait here.`; log("made a reply code"); ui();
+  }
+
+  /* =================== Check my network: what this network and browser allow =================== */
+  async function networkCheck(out) {
+    const say = (ok, text) => { out.push([ok, text]); log(`check: ${ok === true ? "yes" : ok === false ? "no" : "?"}, ${text}`); render?.(); };
+    let render = null; const lines = () => out;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    // 1. the lobby server
+    try { const r = new Relay(relayUrl(), "dexnatest" + rand(10, "abcdefghijklmnopqrstuvwxyz0123456789"), rand(16)); await r.open(); r.close(); say(true, "The lobby server works: lobby codes and links work on this network."); }
+    catch (e) { say(false, "The lobby server is blocked or cut off: " + e.message.replace(/\. Try another network.*$/, "") + "."); }
+    // 2. direct connections inside this computer (turned off by some managed Chromebooks)
+    let local = false;
+    try {
+      const a = new RTCPeerConnection(), b = new RTCPeerConnection();
+      a.onicecandidate = (e) => e.candidate && b.addIceCandidate(e.candidate).catch(() => {}); b.onicecandidate = (e) => e.candidate && a.addIceCandidate(e.candidate).catch(() => {});
+      const ch = a.createDataChannel("t"); const got = new Promise((ok) => { b.ondatachannel = (e) => { e.channel.onmessage = () => ok(true); }; });
+      ch.onopen = () => ch.send("hi");
+      await a.setLocalDescription(await a.createOffer()); await b.setRemoteDescription(a.localDescription); await b.setLocalDescription(await b.createAnswer()); await a.setRemoteDescription(b.localDescription);
+      local = await Promise.race([got, sleep(6000).then(() => false)]); a.close(); b.close();
+    } catch (_) { local = false; }
+    say(local, local ? "Direct (peer to peer) connections are allowed in this browser." : "This browser does not allow direct (peer to peer) connections. A school or work Chromebook can have them turned off.");
+    // 3. reaching the internet directly (what a connection between two networks needs)
+    try {
+      const pc = new RTCPeerConnection(ice()); pc.createDataChannel("t"); const kinds = new Set();
+      pc.onicecandidate = (e) => { const m = /typ (\w+)/.exec(e.candidate?.candidate || ""); if (m) kinds.add(m[1]); };
+      await pc.setLocalDescription(await pc.createOffer()); await waitIce(pc, 5000); pc.close();
+      const pub = kinds.has("srflx") || kinds.has("relay");
+      say(pub ? true : null, pub ? "Direct connections can go out to the internet (friends on other networks can connect)." : "Direct connections cannot go out to the internet from this network, so only people on the same Wi-Fi can connect directly.");
+    } catch (_) {}
+    return lines;
+  }
+
   /* =================== a guest: joining a lobby =================== */
   async function joinLobby(code, name) {
     await loadYjs();
@@ -404,7 +495,7 @@ export function createCollab(A) {
   function failJoin(msg) {
     if (!S || isHost()) return;
     if (S.projectId && !S.ended) { S.status = "Reconnecting…"; ui(); return scheduleReconnect(); } // was in already: keep trying
-    toast(msg, "warn", 7000); log("gave up: " + msg); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(s.askTimer); clearInterval(watchdog); s.relay.close(); try { s.connecting?.pc.close(); } catch (_) {}
+    toast(msg, "warn", 7000); log("gave up: " + msg); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(s.askTimer); clearInterval(watchdog); s.relay?.close(); try { s.connecting?.pc.close(); } catch (_) {}
     joinError = msg; ui();
   }
   let joinError = "";
@@ -466,6 +557,7 @@ export function createCollab(A) {
       renderRemote(); dots(); ui();
     } else if (peer === S.hostPeer || peer === S.connecting) {
       S.hostPeer = null;
+      if (!S.relay && !S.ended && S.projectId) { toast("The connection to the host was lost. Your copy of the project is kept; join again with a new invite code.", "warn", 8000); return endSession(); }
       if (!S.ended && S.projectId) { S.status = "Reconnecting…"; S.remote = {}; clearPointers(); renderRemote(); dots(); ui(); scheduleReconnect(); }
     }
   }
@@ -834,7 +926,7 @@ export function createCollab(A) {
     const s = document.getElementById("sb-collab");
     if (s) {
       if (!S || S.joining) s.classList.add("hidden");
-      else { s.classList.remove("hidden"); const n = people(); s.textContent = `Live ${showCode(S.code)} · ${n} ${n === 1 ? "person" : "people"}${S.readOnly ? " · view only" : ""}${S.status ? " · " + S.status : ""}`; }
+      else { s.classList.remove("hidden"); const n = people(); s.textContent = `Live ${S.relay ? showCode(S.code) + " " : ""}· ${n} ${n === 1 ? "person" : "people"}${S.readOnly ? " · view only" : ""}${S.status ? " · " + S.status : ""}`; }
     }
     document.querySelector('#activitybar [data-view="live"]')?.classList.toggle("lv-on", !!S && !S.joining);
     stylesheet(); badge(); renderPanel();
@@ -848,19 +940,25 @@ export function createCollab(A) {
   function idleView() {
     const name = h("input", { class: "lv-input lv-name", placeholder: "Your name", value: myName(), maxlength: 24, spellcheck: "false" });
     const edit = h("input", { type: "checkbox", checked: LS.get("collabEdit", true) }), ask = h("input", { type: "checkbox", checked: LS.get("collabAsk", false) });
-    const code = h("input", { class: "lv-input lv-code-in", placeholder: "K7M-2QX", spellcheck: "false", autocomplete: "off" });
+    const code = h("input", { class: "lv-input lv-code-in", placeholder: "K7M-2QX or invite code", spellcheck: "false", autocomplete: "off" });
     const err = h("div", { class: "lv-err" }, joinError); joinError = "";
     const nm = () => { const n = name.value.trim(); if (!n) { name.focus(); name.classList.add("bad"); err.textContent = "Type your name first, so the others know who you are."; return null; } LS.set("collabName", n); return n; };
     const create = h("button", { class: "btn primary lv-big" }, "Create a private lobby");
     create.onclick = async () => {
       const n = nm(); if (!n) return; LS.set("collabEdit", edit.checked); LS.set("collabAsk", ask.checked);
       create.disabled = true; create.textContent = "Opening…"; err.textContent = "";
-      try { await openLobby({ name: n, edit: edit.checked, ask: ask.checked }); } catch (e) { S = null; err.textContent = `${e.message}. Check your connection, or set another lobby server in Settings.`; create.disabled = false; create.textContent = "Create a private lobby"; }
+      try { await openLobby({ name: n, edit: edit.checked, ask: ask.checked }); } catch (e) { S = null; err.textContent = `${e.message}. You can still host with invite codes, which need no server.`; create.disabled = false; create.textContent = "Create a private lobby"; }
+    };
+    const noServer = h("button", { class: "btn lv-link", title: "For networks that block the lobby server: you send an invite code, your friend sends a reply code, and your computers connect directly" }, "Host with invite codes (no server)");
+    noServer.onclick = async () => {
+      const n = nm(); if (!n) return; LS.set("collabEdit", edit.checked);
+      try { await openLobby({ name: n, edit: edit.checked, ask: false, noServer: true }); setTimeout(showInvite, 50); } catch (e) { S = null; err.textContent = e.message; }
     };
     const join = h("button", { class: "btn primary" }, "Join");
     const doJoin = async () => {
       const n = nm(); if (!n) return; const c = normCode(code.value);
-      if (!c) { err.textContent = "That is not a lobby code. Codes look like K7M-2QX."; code.focus(); return; }
+      if (!c && code.value.trim().startsWith("DX")) { err.textContent = ""; try { await joinManual(code.value, n); } catch (e) { const s = S; S = null; try { s?.connecting?.pc.close(); } catch (_) {} joinError = e.message; ui(); } return; }
+      if (!c) { err.textContent = "That is not a lobby code. Codes look like K7M-2QX, invite codes start with DX."; code.focus(); return; }
       err.textContent = ""; join.disabled = true;
       try { await joinLobby(c, n); } catch (e) { const s = S; S = null; s?.relay?.close(); joinError = e.message; ui(); }
     };
@@ -878,13 +976,16 @@ export function createCollab(A) {
         h("div", { class: "muted small" }, `Shares ${A.project ? `"${A.project.name}"` : "this project"}${gh ? `, linked to ${gh.owner}/${gh.repo}` : ""}.`),
         h("label", { class: "lv-check" }, edit, "People can edit (untick for view only)"),
         h("label", { class: "lv-check" }, ask, "Ask me before letting someone in"),
-        create,
+        create, noServer,
         h("button", { class: "btn lv-link", onclick: () => A.runCommand?.("gh-open") }, gh ? "Use a different GitHub repository…" : "Start from a GitHub repository…")),
-      err, logs.length ? detailsBox(!!err.textContent) : null,
-      h("p", { class: "muted small lv-foot" }, "Lobbies are private: only people with the code or link can join. Your browsers connect to each other directly; a lobby server only introduces them."));
+      err, h("button", { class: "btn lv-link", onclick: showNetworkCheck }, "Check my network"), logs.length ? detailsBox(!!err.textContent) : null,
+      h("p", { class: "muted small lv-foot" }, "Lobbies are private: only people with the code or link can join. Your browsers connect to each other directly; a lobby server only introduces them. On networks that block it, host with invite codes instead: no server at all."));
   }
   function joiningView() {
-    return h("div", { class: "lv-idle" }, h("div", { class: "lv-hero" }, h("div", { class: "lv-hero-t" }, `Joining ${showCode(S.code)}`), h("div", { class: "lv-wait" }, h("span", { class: "lv-spin" }), S.status || "Connecting…")),
+    const reply = S.reply ? Object.assign(h("textarea", { class: "lv-input lv-codearea", readonly: true, rows: 4, onfocus: (e) => e.target.select() }), { value: S.reply }) : null;
+    return h("div", { class: "lv-idle" }, h("div", { class: "lv-hero" }, h("div", { class: "lv-hero-t" }, S.manual ? `Joining ${S.hostName || "the host"}` : `Joining ${showCode(S.code)}`), h("div", { class: "lv-wait" + (S.failed ? " bad" : "") }, S.failed ? null : h("span", { class: "lv-spin" }), S.status || "Connecting…")),
+      reply ? h("div", { class: "lv-card" }, h("div", { class: "lv-card-t" }, "Your reply code"), reply, h("div", { class: "lv-row" }, h("button", { class: "btn primary", onclick: (e) => copy(S.reply, e.currentTarget) }, "Copy reply code"))) : null,
+      S.failed ? h("button", { class: "btn lv-link", onclick: showNetworkCheck }, "Check my network") : null,
       h("button", { class: "btn", onclick: () => { const s = S; S = null; clearTimeout(s.answerTimer); clearInterval(s.askTimer); s.relay?.close(); try { s.connecting?.pc.close(); } catch (_) {} ui(); } }, "Cancel"), detailsBox());
   }
   function liveView() {
@@ -913,13 +1014,21 @@ export function createCollab(A) {
   function renderHead() {
     if (!els.head) return;
     const code = showCode(S.code), link = linkFor(S.code);
+    const inviteBtn = isHost() ? h("button", { class: "btn sm" + (S.relay ? "" : " primary"), title: "An invite code works with no server, on networks that block the lobby server", onclick: showInvite }, S.relay ? "Invite with a code" : "Invite someone") : null;
+    if (!S.relay) {
+      els.head.replaceChildren(
+        h("div", { class: "lv-codebox" }, h("div", { class: "muted small" }, isHost() ? "Your lobby (no server)" : `${S.host?.name || "Host"}'s lobby`), h("div", { class: "lv-nocode" }, isHost() ? "People join with an invite code" : "Connected with an invite code"), isHost() ? h("div", { class: "lv-row" }, inviteBtn) : null),
+        h("div", { class: "lv-state small" }, isHost() ? `${count()} of ${MAX_PEOPLE} people · directly connected, no server` : (S.readOnly ? "You can watch but not edit" : "Connected, you can edit") + " · directly, no server"));
+      els.pending.replaceChildren();
+      return;
+    }
     els.head.replaceChildren(
       h("div", { class: "lv-codebox" }, h("div", { class: "muted small" }, isHost() ? "Your lobby" : `${S.host?.name || "Host"}'s lobby`), h("div", { class: "lv-code" }, code),
         h("div", { class: "lv-row" }, h("button", { class: "btn sm", onclick: (e) => copy(code, e.currentTarget) }, "Copy code"), h("button", { class: "btn sm", onclick: (e) => copy(link, e.currentTarget) }, "Copy link"), A.showQr ? h("button", { class: "btn sm", onclick: () => A.showQr(link, `Scan to join ${code}`) }, "QR") : null)),
       h("div", { class: "lv-state small" + (S.status || (isHost() && S.relayDown) ? " warn" : "") }, S.status || (isHost() && S.relayDown ? "Reconnecting to the lobby server, so nobody can join this moment…" : isHost() ? `${count()} of ${MAX_PEOPLE} people${S.locked ? " · locked" : ""}${S.ask ? " · you let people in" : ""}` : (S.readOnly ? "You can watch but not edit" : "Connected, you can edit") + (S.viaRelay ? " · through the lobby server, as a direct connection was blocked" : " · directly"))),
       isHost() ? h("div", { class: "lv-row" },
         h("button", { class: "btn sm" + (S.locked ? " primary" : ""), title: "Stop new people from joining", onclick: () => { S.locked = !S.locked; sendRoster(); ui(); } }, S.locked ? "Locked" : "Lock"),
-        h("button", { class: "btn sm" + (S.ask ? " primary" : ""), title: "Ask before letting someone in", onclick: () => { S.ask = !S.ask; LS.set("collabAsk", S.ask); ui(); } }, S.ask ? "Asking first" : "Ask first")) : "");
+        h("button", { class: "btn sm" + (S.ask ? " primary" : ""), title: "Ask before letting someone in", onclick: () => { S.ask = !S.ask; LS.set("collabAsk", S.ask); ui(); } }, S.ask ? "Asking first" : "Ask first"), inviteBtn) : "");
     els.pending.replaceChildren(...(isHost() ? S.pending : []).map((r) => h("div", { class: "lv-req" }, h("span", {}, h("b", {}, r.name), " wants to join"), h("button", { class: "btn sm primary", onclick: () => admit(r.src, true) }, "Let in"), h("button", { class: "btn sm", onclick: () => admit(r.src, false) }, "Deny"))));
   }
   function renderPeople() {
@@ -959,6 +1068,40 @@ export function createCollab(A) {
     if (!els.term || !S) return;
     els.term.replaceChildren(...(S.term.length ? S.term.map((x) => x.head ? h("div", { class: "lv-term-h", style: { color: x.color } }, x.text) : h("span", { class: x.err ? "err" : "" }, x.text)) : [h("span", { class: "muted" }, "When anyone runs code, the output shows here.")]));
     els.term.scrollTop = els.term.scrollHeight;
+  }
+
+  /** Host: an invite code to send, and a box for the reply that comes back. */
+  async function showInvite() {
+    if (!S || !isHost()) return;
+    const status = h("div", { class: "lv-wait" }, h("span", { class: "lv-spin" }), "Making an invite code…");
+    const body = h("div", {}, status);
+    A.openModal(h("div", { class: "modal lv-invite" }, h("div", { class: "modal-head" }, "Invite someone with a code"), h("div", { class: "modal-body" }, body), h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: () => A.closeModal() }, "Close"))));
+    let inv; try { inv = await manualInvite(); } catch (e) { status.replaceChildren(e.message); return; }
+    const invite = Object.assign(h("textarea", { class: "lv-input lv-codearea", readonly: true, rows: 4, onfocus: (e) => e.target.select() }), { value: inv.code });
+    const reply = h("textarea", { class: "lv-input lv-codearea", rows: 4, placeholder: "Paste their reply code here (it starts with DX)" });
+    const msg = h("div", { class: "lv-err" }), go = h("button", { class: "btn primary" }, "Connect");
+    go.onclick = async () => { msg.textContent = ""; try { go.disabled = true; await inv.accept(reply.value); msg.className = "muted small"; msg.textContent = "Connecting…"; } catch (e) { go.disabled = false; msg.className = "lv-err"; msg.textContent = e.message; } };
+    const watch = setInterval(() => {
+      if (!document.body.contains(msg)) return clearInterval(watch);
+      if (inv.peer.active) { clearInterval(watch); msg.className = "lv-ok"; msg.textContent = `${inv.peer.name} joined. You can close this, or invite someone else.`; }
+      else if (inv.peer.pc.connectionState === "failed") { clearInterval(watch); msg.className = "lv-err"; msg.textContent = "Could not connect directly. One of your networks or Chromebooks blocks direct connections: try Check my network on both."; }
+    }, 300);
+    body.replaceChildren(
+      h("p", { class: "muted small" }, "No server is used: your computers connect directly. This works best when you are on the same Wi-Fi, like the same school network."),
+      h("div", { class: "lv-card-t" }, "1. Send this invite code to your friend"), invite,
+      h("div", { class: "lv-row" }, h("button", { class: "btn", onclick: (e) => copy(inv.code, e.currentTarget) }, "Copy invite code")),
+      h("div", { class: "lv-card-t", style: { marginTop: "12px" } }, "2. They paste it in Live > Join and send you back a reply code. Paste it here:"), reply,
+      h("div", { class: "lv-row" }, go), msg);
+  }
+  async function showNetworkCheck() {
+    const list = h("div", { class: "lv-check-list" }, h("div", { class: "lv-wait" }, h("span", { class: "lv-spin" }), "Checking, this takes about 15 seconds…"));
+    const verdict = h("div", { class: "lv-verdict" });
+    A.openModal(h("div", { class: "modal lv-invite" }, h("div", { class: "modal-head" }, "Check my network"), h("div", { class: "modal-body" }, list, verdict),
+      h("div", { class: "modal-foot" }, h("button", { class: "btn", onclick: (e) => copy(`Dexna network check, ${navigator.userAgent}\n${logs.filter((l) => l.includes("check:")).join("\n")}`, e.currentTarget) }, "Copy results"), h("button", { class: "btn primary", onclick: () => A.closeModal() }, "Close"))));
+    const out = []; await networkCheck(out);
+    list.replaceChildren(...out.map(([ok, text]) => h("div", { class: "lv-check-row" }, h("span", { class: "lv-mark " + (ok === true ? "yes" : ok === false ? "no" : "maybe") }, ok === true ? "Yes" : ok === false ? "No" : "Limited"), h("span", {}, text))));
+    const [server, local, internet] = out.map((x) => x[0]);
+    verdict.textContent = server ? "Use lobby codes: they work here." : local ? (internet ? "Use invite codes (Host with invite codes): they need no server and should work here." : "Use invite codes (Host with invite codes), with everyone on the same Wi-Fi, like the same school network.") : "Live cannot connect from this device on this network, because direct connections are turned off here. A personal device, or a home network or phone hotspot, will work.";
   }
 
   function onEditorReady() {

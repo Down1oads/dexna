@@ -1578,3 +1578,14 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .lv-log { margin-top: 10px; font-size: 12px; }
 .lv-log summary { cursor: pointer; color: var(--fg-dim); }
 .lv-log-text { max-height: 160px; overflow: auto; margin: 6px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font: 11px/1.4 var(--code-font, monospace); white-space: pre-wrap; }
+.lv-codearea { font: 11px/1.35 var(--code-font, monospace); resize: vertical; word-break: break-all; margin: 6px 0; }
+.lv-nocode { font-weight: 600; margin: 6px 0 8px; }
+.lv-invite { width: min(560px, calc(100vw - 32px)); }
+.lv-ok { color: #30a46c; font-size: 12px; margin-top: 8px; }
+.lv-wait.bad { color: var(--error, #f85149); }
+.lv-check-list { display: flex; flex-direction: column; gap: 8px; }
+.lv-check-row { display: flex; gap: 10px; align-items: baseline; }
+.lv-mark { flex: none; width: 56px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 0; color: #fff; }
+.lv-mark.yes { background: #30a46c; } .lv-mark.no { background: #e5484d; } .lv-mark.maybe { background: #d29922; }
+.lv-verdict { margin-top: 14px; padding: 10px; border: 1px solid var(--accent); border-radius: 8px; font-weight: 600; }
+.lv-verdict:empty { display: none; }
