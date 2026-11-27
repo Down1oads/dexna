@@ -26,6 +26,7 @@ import { planUpdates, brokenRefs } from "./refs.js";
 import { showProjectMap } from "./projmap.js";
 import { showReplay } from "./replay.js";
 import { showTimeTravel } from "./timetravel.js";
+import { showDataExplorer } from "./dataexplorer.js";
 import { createCodeTools } from "./codetools.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
@@ -4833,6 +4834,7 @@ const COMMANDS = [
   { id: "bp-cond", label: "Add Conditional Breakpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "cond") },
   { id: "bp-log", label: "Add Logpoint…", cat: "Debug", run: () => editor && editBreakpoint(currentPath(), editor.getPosition().lineNumber, "log") },
   { id: "md-table", label: "Markdown: Format Table", cat: "Text", kb: "shift+alt+t", run: formatTableAtCursor },
+  { id: "data-explorer", label: "Open in Data Explorer (CSV, TSV, JSON)", cat: "View", run: () => showDataExplorer(API) },
   { id: "project-map", label: "Project Map", cat: "View", run: () => showProjectMap(API) },
   { id: "history-replay", label: "Replay File History…", cat: "File", run: () => showReplay(API) },
   { id: "qr-code", label: "Show QR Code for Text or Link…", cat: "View", run: async () => { const sel = editor?.getModel() && !editor.getSelection().isEmpty() ? editor.getModel().getValueInRange(editor.getSelection()) : ""; const t = sel || (await promptDialog({ title: "QR code", message: "Any text or link, to open on a phone.", placeholder: "https://…", okLabel: "Show" })); if (t) showQr(t.trim()); } },
@@ -5081,7 +5083,7 @@ const MENUS = {
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "align", "regex-tester", "json-types", "find-unused", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-to-cursor", "run-sel", "stop", "-", "run-settings", "run-values", "run-trace", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
-  View: ["project-map", "-", "explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
+  View: ["project-map", "data-explorer", "-", "explorer", "find-files", "scm-view", "outline", "debug-view", "packages", "tools-view", "assistant", "-", "sidebar", "panel", "console", "shell", "notes", "problems", "error-lens", "todos", "bm-list", "-", "focus", "activity", "-", "layout-sidebar-side", "layout-panel-side", "layout-activitybar", "layout-statusbar", "-", "split", "md-preview", "zen", "stats", "-", "zoom-in", "zoom-out", "minimap", "wrap", "theme", "-", "look-pick", "bg-pick", "theme-new", "theme-picture", "theme-import", "-", "ambient-pick", "focus-mode", "typewriter"],
   Help: ["home", "language-guide", "shortcuts", "keys-change", "examples", "calc", "-", "settings-json", "project-settings", "profile-switch", "-", "app-install", "offline-info", "offline-clear", "-", "about"],
 };
 function buildMenus() {

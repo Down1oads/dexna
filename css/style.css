@@ -1460,3 +1460,48 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .tt-out { margin: 4px 0 0; padding: 6px 10px; max-height: 96px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: 12.5px var(--code-font, monospace); white-space: pre-wrap; }
 .tt-stderr { color: var(--error, #f85149); }
 .tt-slider { flex: 1; accent-color: var(--accent); }
+
+/* Data explorer */
+.de-modal { width: min(1340px, calc(100vw - 24px)); }
+.de-body { display: flex; flex-direction: column; gap: 8px; height: min(76vh, 740px); }
+.de-bar-top { display: flex; align-items: center; gap: 12px; }
+.de-search { flex: 0 0 280px; width: 280px; }
+.de-info { white-space: nowrap; }
+.de-spacer { flex: 1; }
+.de-main { flex: 1; min-height: 0; display: flex; gap: 10px; }
+.de-grid { flex: 1; min-width: 0; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.de-table { border-collapse: separate; border-spacing: 0; table-layout: fixed; font: 12.5px var(--code-font, monospace); width: max-content; min-width: 100%; }
+.de-table th, .de-table td { padding: 0 10px; height: 26px; line-height: 26px; border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 150px; max-width: 150px; text-align: left; }
+.de-table thead th { position: sticky; background: var(--bg-elev, var(--bg)); z-index: 2; font-weight: 600; cursor: pointer; user-select: none; }
+.de-table thead tr:first-child th { top: 0; }
+.de-table thead tr.de-filters th { top: 26px; padding: 0 3px; cursor: default; height: 30px; }
+.de-table th.sel { color: var(--accent); }
+.de-table td.sel { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.de-table .de-idx { width: 56px; max-width: 56px; text-align: right; color: var(--fg-dim); background: var(--bg-elev, var(--bg)); position: sticky; left: 0; z-index: 1; }
+.de-table thead .de-idx { z-index: 3; }
+.de-table td.n { text-align: right; }
+.de-table tbody tr:hover td { background: var(--bg-hover, rgba(128,128,128,.1)); }
+.de-type { margin-left: 6px; font-size: 10px; color: var(--fg-dim); font-weight: 400; }
+.de-mark { color: var(--accent); }
+.de-filter { width: 100%; height: 24px; font: 11.5px var(--code-font, monospace); padding: 0 6px; }
+.de-filter.bad { border-color: var(--error, #f85149); }
+.de-right { width: 320px; flex: none; display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--border); border-radius: 6px; }
+.de-tabs { display: flex; border-bottom: 1px solid var(--border); }
+.de-tab { flex: 1; background: none; border: 0; padding: 7px; color: var(--fg-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+.de-tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+.de-side { flex: 1; overflow: auto; padding: 10px; }
+.de-prof-h { font-size: 14px; }
+.de-facts { margin: 2px 0 8px; }
+.de-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-bottom: 10px; }
+.de-stats div { display: flex; flex-direction: column; }
+.de-sub { margin: 8px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--fg-dim); }
+.de-bar { display: flex; align-items: center; gap: 6px; padding: 1px 2px; font-size: 12px; border-radius: 3px; }
+.de-bar.pick { cursor: pointer; }
+.de-bar.pick:hover { background: var(--bg-hover, rgba(128,128,128,.14)); }
+.de-bar-l { width: 104px; flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.de-bar-t { flex: 1; height: 10px; background: color-mix(in srgb, var(--border) 50%, transparent); border-radius: 3px; overflow: hidden; }
+.de-bar-t i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.de-bar-n { width: 46px; text-align: right; flex: none; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.de-group-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.de-group-form select { max-width: 120px; }
+.de-group-foot { margin-top: 10px; }
