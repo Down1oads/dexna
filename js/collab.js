@@ -8,7 +8,10 @@
 // project goes through it. The relay can be changed in Settings.
 
 const COLORS = ["#e5484d", "#3e63dd", "#30a46c", "#f76b15", "#8e4ec6", "#12a594", "#d6409f", "#ab6400", "#0090ff", "#7c66dc"];
-const ICE = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }] };
+const STUN = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun.cloudflare.com:3478" }];
+/** "turn:host:3478 user pass" (from Settings) to an ICE server, or null. Exported for tests. */
+export function parseTurn(s) { const [urls, username, credential] = String(s || "").trim().split(/\s+/); return /^turns?:/.test(urls || "") ? { urls, username, credential } : null; }
+const DIRECT_WAIT = 7000; // how long a direct connection gets before the lobby server carries the traffic
 const ALPH = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const MAX_PEOPLE = 10;
 const MAX_ASSET = 3 * 1024 * 1024;
@@ -62,6 +65,68 @@ export function createCollab(A) {
   const relayUrl = () => (A.settings.collabRelay || A.cfg.collabRelay || "wss://0.peerjs.com/peerjs?key=peerjs").trim();
   const esc = (s) => String(s).replace(/[\\"\n]/g, " ");
   const isHost = () => S?.role === "host";
+  const ice = () => { const t = parseTurn(A.settings.collabTurn); return { iceServers: t ? [...STUN, t] : STUN }; };
+  const hostId = () => "dexnalobby" + S.code;
+
+  /* =================== when a direct connection is blocked: the lobby server carries the data =================== */
+  /** A stand-in for a data channel that sends through the lobby server's WebSocket. */
+  function relayChannel(peer, label) {
+    return { label, readyState: "open", bufferedAmount: 0, binaryType: "arraybuffer", relayed: true,
+      send(data) {
+        if (this.readyState !== "open" || !S) return;
+        const p = { cid: peer.cid, x: "d", l: label };
+        if (typeof data === "string") p.s = data; else p.b = toB64(data instanceof Uint8Array ? data : new Uint8Array(data));
+        S.relay.send("CANDIDATE", isHost() ? peer.src : hostId(), p);
+      },
+      close() { this.readyState = "closed"; } };
+  }
+  function useRelay(peer) {
+    for (const c of [peer.ch, peer.fast]) if (c && !c.relayed) { c.onopen = c.onclose = c.onmessage = null; }
+    try { peer.pc?.close(); } catch (_) {}
+    peer.relayMode = true; peer.open = false; peer.seen = Date.now();
+    peer.pc = { close() {}, connectionState: "relayed", remoteDescription: true, addIceCandidate: async () => {} };
+    hookChannel(peer, relayChannel(peer, "dexna"));
+    hookChannel(peer, relayChannel(peer, "fast"));
+  }
+  /** The guest asks for it after waiting for a direct connection; the host agrees if it knows the guest. */
+  function fallBack(peer) {
+    if (!S || isHost() || peer.relayMode || peer.open || S.connecting !== peer) return;
+    S.status = "Direct connection blocked, connecting through the lobby server…"; ui();
+    S.relay.send("CANDIDATE", hostId(), { cid: peer.cid, x: "open" });
+    clearTimeout(S.relayTimer);
+    S.relayTimer = setTimeout(() => { if (S && S.connecting === peer && !peer.open) failJoin("Could not connect to the lobby. Check your internet connection and try again."); }, 12000);
+  }
+  function onRelayed(src, p) {
+    if (isHost()) {
+      const peer = S.peers.get(src); if (!peer || peer.cid !== p.cid) return;
+      if (p.x === "open") { if (!peer.relayMode) useRelay(peer); S.relay.send("CANDIDATE", src, { cid: p.cid, x: "ok" }); return; }
+      if (p.x === "d" && peer.relayMode) return deliver(peer, p);
+      if (p.x === "close") return peerGone(peer, true);
+    } else {
+      const peer = S.connecting?.cid === p.cid ? S.connecting : S.hostPeer?.cid === p.cid ? S.hostPeer : null; if (!peer) return;
+      if (p.x === "ok" && !peer.relayMode) { clearTimeout(S.relayTimer); S.viaRelay = true; S.peers.set("host", peer); useRelay(peer); return; }
+      if (p.x === "d" && peer.relayMode) return deliver(peer, p);
+    }
+  }
+  function deliver(peer, p) {
+    peer.seen = Date.now();
+    const ch = p.l === "fast" ? peer.fast : peer.ch;
+    if (!ch?.onmessage) return;
+    ch.onmessage({ data: p.s != null ? p.s : fromB64(p.b).buffer });
+  }
+  // relayed connections have no "closed" event, so both sides say hello now and then and notice silence
+  let watchdog = null;
+  function startWatchdog() {
+    clearInterval(watchdog);
+    watchdog = setInterval(() => {
+      if (!S) return clearInterval(watchdog);
+      const now = Date.now();
+      for (const p of [...S.peers.values()]) if (p.relayMode && p.open) {
+        sendJson(p, { t: "ping" });
+        if (now - (p.seen || now) > 35000) peerGone(p, true);
+      }
+    }, 10000);
+  }
 
   /* =================== sending =================== */
   function sendJson(peer, msg, fast = false) {
@@ -144,7 +209,7 @@ export function createCollab(A) {
       meta.set("docId", S.docId);
     }, LOCAL);
     relay.on("OFFER", onOffer).on("CANDIDATE", onCandidate).on("LEAVE", (src) => { const p = S?.peers.get(src); if (p) peerGone(p); }).on("CLOSED", () => reopenRelay());
-    bindDoc(); attach(); ui();
+    bindDoc(); attach(); ui(); startWatchdog();
     toast(`Lobby ${showCode(code)} is open. Share the code or the link.`, "ok", 5000);
   }
   async function reopenRelay() {
@@ -173,11 +238,11 @@ export function createCollab(A) {
   async function accept(src, p) {
     const old = S.peers.get(src); if (old) { old.gone = true; try { old.pc.close(); } catch (_) {} S.peers.delete(src); }
     (S.admitted ||= new Set()).add(src);
-    const pc = new RTCPeerConnection(ICE), peer = { id: src, src, cid: p.cid, pc, name: String(p.name || "Guest").slice(0, 24), edit: S.defaultEdit, active: false };
+    const pc = new RTCPeerConnection(ice()), peer = { id: src, src, cid: p.cid, pc, name: String(p.name || "Guest").slice(0, 24), edit: S.defaultEdit, active: false };
     S.peers.set(src, peer);
     pc.onicecandidate = (e) => e.candidate && S?.relay.send("CANDIDATE", src, { cid: p.cid, c: e.candidate.toJSON() });
     pc.ondatachannel = (e) => hookChannel(peer, e.channel);
-    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") peerGone(peer); };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed" && peer.open && !peer.relayMode) peerGone(peer); }; // before it opens, the guest may still switch to the lobby server
     await pc.setRemoteDescription({ type: "offer", sdp: p.sdp });
     for (const c of S.cands.get(src)?.filter((x) => x.cid === p.cid) || []) pc.addIceCandidate(c.c).catch(() => {});
     S.cands.delete(src);
@@ -185,7 +250,9 @@ export function createCollab(A) {
     S.relay.send("ANSWER", src, { cid: p.cid, sdp: ans.sdp });
   }
   function onCandidate(src, p) {
-    if (!S || !p.c) return;
+    if (!S) return;
+    if (p.x) return onRelayed(src, p);
+    if (!p.c) return;
     const peer = isHost() ? S.peers.get(src) : S.hostPeer?.cid === p.cid ? S.hostPeer : S.connecting;
     if (peer && peer.cid === p.cid && peer.pc.remoteDescription) return peer.pc.addIceCandidate(p.c).catch(() => {});
     if (isHost()) { const q = S.cands.get(src) || []; q.push(p); S.cands.set(src, q.slice(-60)); }
@@ -202,20 +269,23 @@ export function createCollab(A) {
   async function joinLobby(code, name) {
     await loadYjs();
     const relay = new Relay(relayUrl(), "dexnaguest" + rand(12, "abcdefghijklmnopqrstuvwxyz0123456789"), rand(16, "abcdefghijklmnopqrstuvwxyz0123456789"));
+    startWatchdog();
     S = { role: "guest", code, relay, me: { id: null, name, color: COLORS[1] }, peers: new Map(), remote: {}, people: {}, chat: [], term: [], unread: 0, shareMouse: true, shareRun: true, following: null, applying: false, joining: true, status: "Connecting…" };
     ui();
     await relay.open();
-    relay.on("ANSWER", onAnswer).on("CANDIDATE", onCandidate).on("EXPIRE", () => failJoin("No lobby with that code is open right now. Check the code, or ask the host to open it again.")).on("CLOSED", () => {});
+    relay.on("ANSWER", onAnswer).on("CANDIDATE", onCandidate).on("EXPIRE", () => failJoin("No lobby with that code is open right now. Check the code, or ask the host to open it again.")).on("CLOSED", () => { if (S?.hostPeer?.relayMode) peerGone(S.hostPeer); });
     await connect();
   }
   async function connect() {
     if (!S || isHost()) return;
-    const cid = rand(10), pc = new RTCPeerConnection(ICE), peer = { id: "host", cid, pc, active: true };
+    if (S.relay.ws?.readyState !== 1) { const r = new Relay(relayUrl(), S.relay.id, S.relay.token); r.handlers = S.relay.handlers; await r.open(); S.relay = r; }
+    S.viaRelay = false; clearTimeout(S.directTimer); clearTimeout(S.relayTimer);
+    const cid = rand(10), pc = new RTCPeerConnection(ice()), peer = { id: "host", cid, pc, active: true };
     S.connecting = peer; S.candQ = [];
     hookChannel(peer, pc.createDataChannel("dexna"));
     hookChannel(peer, pc.createDataChannel("fast", { ordered: false, maxRetransmits: 0 }));
     pc.onicecandidate = (e) => e.candidate && S?.relay.send("CANDIDATE", "dexnalobby" + S.code, { cid, c: e.candidate.toJSON() });
-    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") peerGone(peer); };
+    pc.onconnectionstatechange = () => { if (pc.connectionState === "failed") { if (peer.open) peerGone(peer); else fallBack(peer); } };
     await pc.setLocalDescription(await pc.createOffer());
     S.relay.send("OFFER", "dexnalobby" + S.code, { cid, sdp: pc.localDescription.sdp, name: S.me.name });
     clearTimeout(S.answerTimer);
@@ -230,11 +300,13 @@ export function createCollab(A) {
     for (const c of S.candQ.filter((x) => x.cid === peer.cid)) peer.pc.addIceCandidate(c.c).catch(() => {});
     S.candQ = [];
     S.peers.set("host", peer);
+    clearTimeout(S.directTimer);
+    S.directTimer = setTimeout(() => fallBack(peer), DIRECT_WAIT);
   }
   function failJoin(msg) {
     if (!S || isHost()) return;
     if (S.projectId && !S.ended) { S.status = "Reconnecting…"; ui(); return scheduleReconnect(); } // was in already: keep trying
-    toast(msg, "warn", 7000); const s = S; S = null; s.relay.close(); try { s.connecting?.pc.close(); } catch (_) {}
+    toast(msg, "warn", 7000); const s = S; S = null; clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(watchdog); s.relay.close(); try { s.connecting?.pc.close(); } catch (_) {}
     joinError = msg; ui();
   }
   let joinError = "";
@@ -249,6 +321,8 @@ export function createCollab(A) {
   /* =================== messages =================== */
   function handle(peer, m) {
     if (!S) return;
+    peer.seen = Date.now();
+    if (m.t === "ping") return;
     if (isHost()) {
       switch (m.t) {
         case "hello": {
@@ -507,7 +581,8 @@ export function createCollab(A) {
   function onMouseMove(e) {
     if (!S || S.joining || !S.shareMouse) return;
     const t = performance.now(); clearTimeout(mouseTimer);
-    if (t - lastMouse < 30) { mouseTimer = setTimeout(() => onMouseMove(e), 34); return; }
+    const gap = S.viaRelay || [...S.peers.values()].some((p) => p.relayMode) ? 110 : 30;
+    if (t - lastMouse < gap) { mouseTimer = setTimeout(() => onMouseMove(e), gap + 4); return; }
     lastMouse = t;
     const ce = ed(), dom = ce?.getContainerDomNode?.(); let over = null;
     if (dom) { const r = dom.getBoundingClientRect(); if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) { const tg = ce.getTargetAtClientPoint(e.clientX, e.clientY); if (tg?.position) over = { path: A.currentPath(), line: tg.position.lineNumber, col: tg.position.column }; } }
@@ -613,12 +688,13 @@ export function createCollab(A) {
   function leave() {
     if (!S) return;
     if (isHost()) broadcast({ t: "end" }); else { S.ended = true; if (S.hostPeer) sendJson(S.hostPeer, { t: "bye" }); }
+    clearInterval(watchdog);
     const s = S; setTimeout(() => { if (S === s) endSession(); }, 150);
   }
   function endSession() {
     if (!S) return;
     const s = S; S = null;
-    clearTimeout(s.retry); clearTimeout(s.answerTimer);
+    clearTimeout(s.retry); clearTimeout(s.answerTimer); clearTimeout(s.directTimer); clearTimeout(s.relayTimer); clearInterval(watchdog);
     for (const l of listeners) l.dispose(); listeners = [];
     document.removeEventListener("mousemove", onMouseMove, true); document.removeEventListener("mouseleave", onMouseLeave);
     clearTimeout(idleTimer); clearTimeout(mouseTimer); collection?.clear(); collection = null;
@@ -732,7 +808,7 @@ export function createCollab(A) {
     els.head.replaceChildren(
       h("div", { class: "lv-codebox" }, h("div", { class: "muted small" }, isHost() ? "Your lobby" : `${S.host?.name || "Host"}'s lobby`), h("div", { class: "lv-code" }, code),
         h("div", { class: "lv-row" }, h("button", { class: "btn sm", onclick: (e) => copy(code, e.currentTarget) }, "Copy code"), h("button", { class: "btn sm", onclick: (e) => copy(link, e.currentTarget) }, "Copy link"), A.showQr ? h("button", { class: "btn sm", onclick: () => A.showQr(link, `Scan to join ${code}`) }, "QR") : null)),
-      h("div", { class: "lv-state small" + (S.status ? " warn" : "") }, S.status || (isHost() ? `${count()} of ${MAX_PEOPLE} people${S.locked ? " · locked" : ""}${S.ask ? " · you let people in" : ""}` : S.readOnly ? "You can watch but not edit" : "Connected, you can edit")),
+      h("div", { class: "lv-state small" + (S.status ? " warn" : "") }, S.status || (isHost() ? `${count()} of ${MAX_PEOPLE} people${S.locked ? " · locked" : ""}${S.ask ? " · you let people in" : ""}` : (S.readOnly ? "You can watch but not edit" : "Connected, you can edit") + (S.viaRelay ? " · through the lobby server, as a direct connection was blocked" : " · directly"))),
       isHost() ? h("div", { class: "lv-row" },
         h("button", { class: "btn sm" + (S.locked ? " primary" : ""), title: "Stop new people from joining", onclick: () => { S.locked = !S.locked; sendRoster(); ui(); } }, S.locked ? "Locked" : "Lock"),
         h("button", { class: "btn sm" + (S.ask ? " primary" : ""), title: "Ask before letting someone in", onclick: () => { S.ask = !S.ask; LS.set("collabAsk", S.ask); ui(); } }, S.ask ? "Asking first" : "Ask first")) : "");
@@ -747,7 +823,7 @@ export function createCollab(A) {
       const peer = isHost() && !me ? S.peers.get(p.id) : null;
       return h("div", { class: "lv-person" },
         avatar(p),
-        h("div", { class: "lv-who" }, h("div", { class: "lv-pname" }, p.name, me ? h("span", { class: "muted" }, " (you)") : null, p.host ? h("span", { class: "lv-tag" }, "host") : null, p.edit === false ? h("span", { class: "lv-tag" }, "view only") : null),
+        h("div", { class: "lv-who" }, h("div", { class: "lv-pname" }, p.name, me ? h("span", { class: "muted" }, " (you)") : null, p.host ? h("span", { class: "lv-tag" }, "host") : null, p.edit === false ? h("span", { class: "lv-tag" }, "view only") : null, isHost() && S.peers.get(p.id)?.relayMode ? h("span", { class: "lv-tag", title: "A direct connection was blocked, so this goes through the lobby server" }, "via server") : null),
           h("div", { class: "muted small lv-where", title: where }, where || "")),
         h("div", { class: "lv-acts" },
           !me && r?.path ? h("button", { class: "btn sm" + (S.following === p.id ? " primary" : ""), title: "Your editor goes where they go", onclick: () => { S.following = S.following === p.id ? null : p.id; if (S.following) follow(p.id); renderPeople(); } }, S.following === p.id ? "Following" : "Follow") : null,
