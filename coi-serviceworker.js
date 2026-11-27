@@ -51,6 +51,9 @@ if (typeof window === "undefined") {
         const fromNet = async () => {
           let r;
           if (cdn && req.mode === "no-cors") { try { r = await fetch(new Request(req.url, { mode: "cors", credentials: "omit" })); } catch (_) { return fetch(req); } }
+          // our own files are checked with the server every time (a quick "not modified" when nothing changed),
+          // so a new version of Dexna reaches everyone right away instead of after the browser's cache runs out
+          else if (sameOrigin) r = await fetch(req.url, { cache: "no-cache", credentials: "same-origin" });
           else r = await fetch(req);
           event.waitUntil(keep(key, r.clone()));
           return r;
