@@ -1505,3 +1505,28 @@ html[data-theme="light"] .monaco-editor .dx-ir { filter: saturate(1.6); }
 .de-group-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 .de-group-form select { max-width: 120px; }
 .de-group-foot { margin-top: 10px; }
+
+/* Live collaboration */
+.collab-c0 { --c: #e5484d; } .collab-c1 { --c: #3e63dd; } .collab-c2 { --c: #30a46c; } .collab-c3 { --c: #f76b15; }
+.collab-c4 { --c: #8e4ec6; } .collab-c5 { --c: #12a594; } .collab-c6 { --c: #d6409f; } .collab-c7 { --c: #ab6400; }
+.collab-sel { background: color-mix(in srgb, var(--c) 28%, transparent); }
+.collab-cur { position: relative; border-left: 2px solid var(--c); margin-left: -1px; }
+.collab-cur::after { position: absolute; left: -2px; top: -15px; padding: 0 5px; font: 600 10px/14px var(--ui-font, system-ui); color: #fff; background: var(--c); border-radius: 3px 3px 3px 0; white-space: nowrap; pointer-events: none; z-index: 30; }
+#collab-layer { position: fixed; inset: 0; pointer-events: none; z-index: 99990; overflow: hidden; }
+.collab-pointer { position: absolute; left: 0; top: 0; color: var(--c); transition: transform .09s linear; filter: drop-shadow(0 1px 2px rgba(0,0,0,.4)); }
+.collab-pointer svg { display: block; }
+.collab-name { position: absolute; left: 14px; top: 14px; padding: 1px 6px; border-radius: 4px; background: var(--c); color: #fff; font: 600 11px/16px var(--ui-font, system-ui); white-space: nowrap; }
+.co-modal { width: min(560px, calc(100vw - 32px)); }
+.co-name { width: 100%; margin: 6px 0; }
+.co-check { display: flex; align-items: center; gap: 6px; margin: 8px 0; }
+.co-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.co-link { flex: 1; font: 12px var(--code-font, monospace); }
+.co-code { width: 100%; font: 11.5px var(--code-font, monospace); resize: vertical; margin: 6px 0; }
+.co-step { margin-top: 12px; }
+.co-status.bad { color: var(--error, #f85149); }
+.co-people { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.co-person { display: flex; align-items: center; gap: 8px; }
+.co-person i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.co-person span { flex: 1; }
+.collab-cur::after { transition: opacity .4s; }
+.collab-cur.collab-idle::after { opacity: 0; }

@@ -27,6 +27,7 @@ import { showProjectMap } from "./projmap.js";
 import { showReplay } from "./replay.js";
 import { showTimeTravel } from "./timetravel.js";
 import { showDataExplorer } from "./dataexplorer.js";
+import { createCollab } from "./collab.js";
 import { createCodeTools } from "./codetools.js";
 import { assetStore, mimeOf, kindOf, isBinary, dataUrl, sizeLabel } from "./assets.js";
 import { createOffline } from "./offline.js";
@@ -121,6 +122,7 @@ let nbTextMode = null; // a notebook opened as plain JSON instead
 const cursesView = createCursesView({ reply: (t) => kernel?.reply(t), host: () => document.querySelector('.panel-view[data-panel="terminal"]') });
 let plus = null; // shell, CSV/JSON/SVG previews, focus timer, activity, templates, notes (plus.js)
 let look = null; // backgrounds, fonts, corners, cursor effects, looks (look.js)
+let collab = null; // live collaboration (collab.js)
 let codeTools = null; // regex tester, JSON to types, unused code, align, number hover (codetools.js)
 let more = null; // back/forward, project symbols, shortcuts, themes, colour swatches (more.js)
 let power = null; // split editor, snippets, clipboard and local history, run on save (power.js)
@@ -594,6 +596,7 @@ const persistProject = debounce(() => {
   if (meta) { meta.name = project.name; meta.updated = project.updated; }
   LS.set("projects", projectsIndex);
   LS.set("current", project.id);
+  collab?.onFilesChanged();
   extras?.onFilesChanged();
   power?.onFilesChanged();
   devtools?.onFilesChanged();
@@ -996,6 +999,7 @@ function commitDirty() {
 }
 function onModelChange(path, model, ev) {
   if (suppressModelEvents) return;
+  collab?.onLocalChange(path, ev);
   const before = project.files[path];
   project.files[path] = model.getValue();
   if (settings.autoSave === "delay" && (+settings.autoSaveDelay || 400) <= 400) persistProject();
@@ -1062,6 +1066,7 @@ async function loadProject(id) {
   plus?.onProjectLoaded();
   more?.onProjectLoaded();
   devtools?.onProjectLoaded();
+  collab?.onProjectLoaded(project.id);
   setTimeout(warmRuntimes, 1500); // after the project is on screen
   return true;
 }
@@ -4920,6 +4925,8 @@ more = createMore(API);
 COMMANDS.push(...more.commands);
 codeTools = createCodeTools(API);
 COMMANDS.push(...codeTools.commands);
+collab = createCollab(API);
+COMMANDS.push(...collab.commands);
 look = createLook(API);
 COMMANDS.push(...look.commands);
 plus = createPlus(API);
@@ -5079,7 +5086,7 @@ function quickOpen(prefix = "") {
 }
 
 const MENUS = {
-  File: ["new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "history-replay", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
+  File: ["collab-start", "collab-join", "-", "new-file", "new-folder", "new-project", "nb-new", "http-new", "examples", "-", "upload", "import-url", "import-zip", "gh-open", "gh-gist-open", "add-gitignore", "add-license", "download", "download-file", "share", "code-image", "tpl-save", "tpl-new", "-", "save", "close-tab", "-", "scm-commit", "scm-diff", "scm-history", "gh-pull", "gh-push", "gh-branch", "gh-pr", "gh-issues", "gh-publish", "gh-gist", "-", "patch-make", "patch-apply", "-", "lh-timeline", "history-replay", "lh-deleted", "-", "rename-project", "duplicate-project", "delete-project"],
   Edit: ["find", "replace", "find-files", "-", "format", "format-all", "organize", "surround", "comment", "rename-symbol", "-", "bm-toggle", "bm-next", "bm-prev", "-", "nav-back", "nav-forward", "nav-last-edit", "project-symbols", "-", "compare-file", "compare-clip", "-", "align", "regex-tester", "json-types", "find-unused", "-", "clip-paste", "snippet-insert", "snippet-save", "snippets", "-", "palette"],
   Text: extras.textMenu,
   Run: ["run", "debug", "debug-entry", "run-to-cursor", "run-sel", "stop", "-", "run-settings", "run-values", "run-trace", "run-coverage", "run-profile", "coverage-clear", "-", "tests-run-all", "tests-run-file", "tests-show", "-", "http-send", "-", "bp", "clear-bps", "-", "restart", "clear-term", "-", "run-on-save"],
@@ -5300,6 +5307,7 @@ async function boot() {
   power.onEditorReady();
   more.onEditorReady();
   codeTools.onEditorReady();
+  collab.onEditorReady();
   plus.onReady();
   tweaks.apply(); // again, now that every status bar item exists
   for (const id of ["html", "css"]) monaco.languages.onLanguage(id, () => loadEmmet(monaco, cfg.libs.emmet)); // Emmet, like VS Code
